@@ -1502,7 +1502,7 @@ function handleImport(e){
       }
       renderHome();
       toast('Restored ' + LIB.length + ' titles! ✓');
-      document.getElementById('manage-panel').style.display = 'none';
+      
     } catch(err){
       toast('Failed to read file: ' + err.message);
     }
