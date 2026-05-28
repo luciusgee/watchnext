@@ -277,12 +277,12 @@ input.srch:focus{border-color:var(--accent);}
   </div>
   <div class="sw-btns" id="btns-main" style="display:none">
     <button class="sw-btn btn-no" onclick="doSwipe('no')" style="background:linear-gradient(135deg,#6b7280,#4b5563);">⬅️</button>
-    <button class="sw-btn" onclick="openSwipeDetail()" style="background:linear-gradient(135deg,#0e7490,#06b6d4);width:52px;height:52px;font-size:18px;">ℹ️</button>
+    <button class="sw-btn" onclick="doSwipe('maybe')" style="background:linear-gradient(135deg,#7c3aed,#a855f7);width:52px;height:52px;font-size:20px;">📋</button>
     <button class="sw-btn btn-yes" onclick="doSwipe('yes')" style="background:linear-gradient(135deg,#10b981,#059669);">✅</button>
   </div>
   <div id="sw-hint-bar" style="display:none;justify-content:center;gap:32px;padding:0 20px 14px;font-size:11px;color:var(--muted);flex-shrink:0;">
-    <span>⬅️ not watched</span>
-    <span>⬆️ watchlist</span>
+    <span>⬅️ skip</span>
+    <span>⬆️ 📋 watchlist</span>
     <span>✅ watched</span>
   </div>
 
@@ -990,11 +990,17 @@ function mkSwCard(item,interactive){
   post.appendChild(ph);post.appendChild(grad);
   var indY=document.createElement('div');indY.className='sw-ind ind-y';indY.textContent='✅ WATCHED';
   var indN=document.createElement('div');indN.className='sw-ind ind-n';indN.textContent='⬅️ NOT WATCHED';
-  var indU=document.createElement('div');indU.className='ind-up';indU.style.cssText='position:absolute;bottom:20px;left:50%;transform:translateX(-50%);padding:7px 14px;border-radius:20px;font-size:13px;font-weight:900;opacity:0;transition:opacity .1s;pointer-events:none;background:rgba(124,58,237,.9);color:#fff;border:2px solid var(--accent2);white-space:nowrap;';indU.textContent='👀 ADD TO WATCHLIST';
+  var indU=document.createElement('div');indU.className='ind-up';indU.style.cssText='position:absolute;bottom:20px;left:50%;transform:translateX(-50%);padding:7px 14px;border-radius:20px;font-size:13px;font-weight:900;opacity:0;transition:opacity .1s;pointer-events:none;background:rgba(124,58,237,.9);color:#fff;border:2px solid var(--accent2);white-space:nowrap;';indU.textContent='📋 ADD TO WATCHLIST';
   var rt=fmtRT(item.id);
   var info=document.createElement('div');info.className='sw-info';
-  info.innerHTML='<div class="sw-desc" style="font-size:13px;color:#bbb;line-height:1.6;">'+(item.d||'')+'</div>';
-  card.appendChild(post);card.appendChild(indY);card.appendChild(indN);if(swMode==='seen')card.appendChild(indU);card.appendChild(info);
+  var infoBtn=document.createElement('button');
+  infoBtn.style.cssText='float:right;margin-left:10px;margin-bottom:6px;padding:6px 12px;border-radius:8px;background:rgba(6,182,212,.15);color:var(--cyan);border:1px solid rgba(6,182,212,.3);font-size:12px;font-weight:700;cursor:pointer;';
+  infoBtn.textContent='ℹ️ More Info';
+  infoBtn.onclick=function(e){e.stopPropagation();openSwipeDetail();};
+  info.appendChild(infoBtn);
+  var descDiv=document.createElement('div');descDiv.style.cssText='font-size:13px;color:#bbb;line-height:1.6;';descDiv.textContent=item.d||'';
+  info.appendChild(descDiv);
+  card.appendChild(post);card.appendChild(indY);card.appendChild(indN);card.appendChild(indU);card.appendChild(info);
   if(interactive)setupGesture(card,item);
   return card;
 }
@@ -1035,7 +1041,7 @@ function setupGesture(card,item){
       cx=0;cy=0;
       return;
     }
-    if(swMode==='seen'&&cy<-80&&Math.abs(cy)>Math.abs(cx)){
+    if(cy<-80&&Math.abs(cy)>Math.abs(cx)){
       doSwipe('maybe');
     } else if(cx>80){
       doSwipe('yes');
