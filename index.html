@@ -1479,7 +1479,7 @@ function renderNetflix(items) {
   hdr.innerHTML = '<div style="font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:4px;">Picked for you</div><div style="font-size:12px;color:var(--muted);">Based on your watch history · UK Netflix</div>';
   res.appendChild(hdr);
 
-  items.forEach(function(item) {
+  items.forEach(function(item, i) {
     var card = document.createElement('div');
     card.style.cssText = 'background:var(--card);border-radius:14px;padding:16px;margin-bottom:12px;border:1px solid var(--border);';
 
