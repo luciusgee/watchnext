@@ -152,6 +152,18 @@ input.srch:focus{border-color:var(--accent);}
 .fsub{width:100%;padding:15px;border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px;}
 .fsub:active{transform:scale(.98);}
 /* TOAST */
+/* LOADING SCREEN */
+#splash{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;transition:opacity .6s;}
+#splash.fade{opacity:0;pointer-events:none;}
+.splash-logo{font-size:48px;font-weight:900;background:linear-gradient(135deg,#7c3aed,#a855f7,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-2px;}
+.splash-sub{font-size:14px;color:var(--muted);letter-spacing:3px;text-transform:uppercase;}
+.splash-bar-wrap{width:160px;height:3px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;}
+.splash-bar{height:100%;width:0%;background:linear-gradient(to right,#7c3aed,#a855f7,#06b6d4);border-radius:3px;transition:width .4s ease;}
+.splash-dots{display:flex;gap:8px;}
+.splash-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:sdot 1.2s infinite;}
+.splash-dot:nth-child(2){animation-delay:.2s;background:var(--accent2);}
+.splash-dot:nth-child(3){animation-delay:.4s;background:var(--cyan);}
+@keyframes sdot{0%,80%,100%{transform:scale(.6);opacity:.3}40%{transform:scale(1);opacity:1}}
 @keyframes typing{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
 .ai-msg{display:flex;flex-direction:column;max-width:88%;}
 .ai-msg-user{align-self:flex-end;align-items:flex-end;}
@@ -164,6 +176,19 @@ input.srch:focus{border-color:var(--accent);}
 </style>
 </head>
 <body>
+
+<!-- SPLASH SCREEN -->
+<div id="splash">
+  <div style="font-size:56px;margin-bottom:8px;">🎬</div>
+  <div class="splash-logo">Watch Next</div>
+  <div class="splash-sub">Your personal cinema</div>
+  <div class="splash-bar-wrap"><div class="splash-bar" id="splash-bar"></div></div>
+  <div class="splash-dots">
+    <div class="splash-dot"></div>
+    <div class="splash-dot"></div>
+    <div class="splash-dot"></div>
+  </div>
+</div>
 
 <!-- HOME -->
 <div id="home" class="screen active">
@@ -397,6 +422,10 @@ input.srch:focus{border-color:var(--accent);}
     <button onclick="clearWatchlist()" style="width:100%;padding:12px;border-radius:10px;background:rgba(251,191,36,.1);color:var(--yellow);border:1px solid rgba(251,191,36,.2);font-size:13px;font-weight:700;cursor:pointer;">📋 Clear Watchlist</button>
     <button onclick="clearWatched()" style="width:100%;padding:12px;border-radius:10px;background:rgba(239,68,68,.1);color:var(--red);border:1px solid rgba(239,68,68,.2);font-size:13px;font-weight:700;cursor:pointer;">✕ Clear Watch History</button>
     <button onclick="resetAll()" style="width:100%;padding:12px;border-radius:10px;background:rgba(255,255,255,.05);color:var(--muted);border:1px solid rgba(255,255,255,.1);font-size:13px;font-weight:700;cursor:pointer;">↺ Reset All Activity</button>
+    <div style="height:1px;background:var(--border);margin:4px 0;"></div>
+    <button onclick="exportData()" style="width:100%;padding:12px;border-radius:10px;background:rgba(6,182,212,.1);color:var(--cyan);border:1px solid rgba(6,182,212,.2);font-size:13px;font-weight:700;cursor:pointer;">📤 Export My Data</button>
+    <button onclick="importData()" style="width:100%;padding:12px;border-radius:10px;background:rgba(16,185,129,.1);color:var(--green);border:1px solid rgba(16,185,129,.2);font-size:13px;font-weight:700;cursor:pointer;">📥 Import / Restore Data</button>
+    <input type="file" id="import-file" accept=".json" style="display:none" onchange="handleImport(event)">
   </div>
   <div class="scroll" id="wl-body"></div>
 </div>
@@ -645,6 +674,15 @@ const SEED=[
   {id:'tt0094672',t:'Wings of Desire',y:1987,g:'Drama',r:8.0,q:'1080p',tp:'movie',d:'An angel in Berlin decides to become human after falling in love with a mortal woman.'},
   {id:'tt0116996',t:'World War Z',y:2013,g:'Action',r:7.0,q:'1080p',tp:'movie',d:'A former UN investigator is thrust into the middle of trying to stop the end of the world.'},
   {id:'tt0443706',t:'Zodiac',y:2007,g:'Crime',r:7.7,q:'1080p',tp:'movie',d:'A political cartoonist and a reporter become obsessed with tracking down the Zodiac killer.'},
+  {id:'tt4954522',t:'Annihilation',y:2018,g:'Sci-Fi',r:6.8,q:'4K',tp:'movie',d:'A biologist signs up for a dangerous, secret expedition into a mysterious zone where the laws of nature do not apply.'},
+  {id:'tt6751668',t:'Parasite',y:2019,g:'Drama',r:8.5,q:'1080p',tp:'movie',d:'Greed and class discrimination threaten the newly formed symbiotic relationship between the wealthy Park family and the destitute Kim clan.'},
+  {id:'tt6644200',t:'A Quiet Place',y:2018,g:'Horror',r:7.5,q:'4K',tp:'movie',d:'A family struggles to survive in a post-apocalyptic world inhabited by blind monsters with an acute sense of hearing.'},
+  {id:'tt8332922',t:'A Quiet Place Part II',y:2021,g:'Horror',r:7.3,q:'4K',tp:'movie',d:'Following the deadly events at home, the Abbott family must now face the terrors of the outside world.'},
+  {id:'tt18412256',t:'Alien: Romulus',y:2024,g:'Horror',r:7.3,q:'4K',tp:'movie',d:'A group of young space colonists come face to face with the most terrifying life form in the universe.'},
+  {id:'tt10665338',t:'Halloween Kills',y:2021,g:'Horror',r:5.4,q:'4K',tp:'movie',d:'The saga of Michael Myers and Laurie Strode continues as the residents of Haddonfield take matters into their own hands.'},
+  {id:'tt1243974',t:'Drag Me to Hell',y:2009,g:'Horror',r:6.7,q:'1080p',tp:'movie',d:'A loan officer who evicts an old woman from her home finds herself the recipient of a supernatural curse.'},
+  {id:'tt4631048',t:'Suspiria',y:2018,g:'Horror',r:6.8,q:'1080p',tp:'movie',d:'A darkness swirls at the center of a world-renowned dance company, and a young American dancer becomes swept up in the mystery.'},
+  {id:'tt4034354',t:'Green Room',y:2015,g:'Thriller',r:7.0,q:'1080p',tp:'movie',d:'A punk rock band is forced to fight for survival after witnessing a murder at a neo-Nazi skinhead bar.'},
   {id:'tt23549418',t:'A Knight of the Seven Kingdoms',y:2024,g:'Drama',r:8.2,q:'1080p',tp:'tv',d:'Set in an age of chivalry, a young knight serves a lord across the Seven Kingdoms.'},
   {id:'tt0944947',t:'Game of Thrones',y:2011,g:'Drama',r:9.2,q:'1080p',tp:'tv',d:'Nine noble families wage war against each other for control over the mythical land of Westeros.'},
   {id:'tt14182806',t:'IT: Welcome to Derry',y:2025,g:'Horror',r:7.2,q:'1080p',tp:'tv',d:'A prequel series to Stephen King\'s IT, set in 1960s Derry, Maine.'},
@@ -722,6 +760,7 @@ function mkPC(item,cb){
   var rtgEl=document.createElement('div');rtgEl.className='pc-rating';rtgEl.textContent=item.r?'★ '+item.r:'';
   ph.appendChild(em);ph.appendChild(pt);ph.appendChild(rtgEl);ph.appendChild(rtEl);
   if(item.id){var imdbEl=document.createElement('a');imdbEl.className='pc-imdb';imdbEl.href='https://www.imdb.com/title/'+item.id+'/';imdbEl.target='_blank';imdbEl.textContent='IMDb';imdbEl.onclick=function(e){e.stopPropagation();};ph.appendChild(imdbEl);}
+  var trailerEl=document.createElement('a');trailerEl.href='https://www.youtube.com/results?search_query='+encodeURIComponent(item.t+' '+item.y+' official trailer');trailerEl.target='_blank';trailerEl.style.cssText='color:#f87171;font-size:9px;font-weight:700;text-decoration:none;padding:2px 6px;border-radius:4px;background:rgba(239,68,68,.15);margin-top:2px;display:inline-block;';trailerEl.textContent='▶ Trailer';trailerEl.onclick=function(e){e.stopPropagation();};ph.appendChild(trailerEl);
   imgWrap.appendChild(ph);
   if(item.watched){var wb=document.createElement('div');wb.className='wb';wb.textContent='✓';imgWrap.appendChild(wb);}
   var meta=document.createElement('div');
@@ -764,8 +803,11 @@ function mkSwCard(item,interactive){
   swMeta.innerHTML+='<span style="background:rgba(124,58,237,.2);color:#a855f7;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;">'+item.g+'</span>';
   if(item.q==='4K')swMeta.innerHTML+='<span style="background:rgba(6,182,212,.2);color:#06b6d4;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;">4K</span>';
   var swImdb=document.createElement('a');
-  if(item.id){swImdb.href='https://www.imdb.com/title/'+item.id+'/';swImdb.target='_blank';swImdb.style.cssText='color:#fbbf24;font-size:11px;font-weight:700;text-decoration:none;padding:3px 10px;border-radius:6px;background:rgba(251,191,36,.15);';swImdb.textContent='IMDb ↗';swImdb.onclick=function(e){e.stopPropagation();};}
-  ph.appendChild(swEm);ph.appendChild(swTitle);ph.appendChild(swMeta);if(item.id)ph.appendChild(swImdb);
+  if(item.id){swImdb.href='https://www.imdb.com/title/'+item.id+'/';swImdb.target='_blank';swImdb.style.cssText='color:#fbbf24;font-size:11px;font-weight:700;text-decoration:none;padding:3px 10px;border-radius:6px;background:rgba(251,191,36,.15);margin-right:6px;';swImdb.textContent='IMDb ↗';swImdb.onclick=function(e){e.stopPropagation();};}
+  var swTrailer=document.createElement('a');swTrailer.href='https://www.youtube.com/results?search_query='+encodeURIComponent(item.t+' '+item.y+' official trailer');swTrailer.target='_blank';swTrailer.style.cssText='color:#f87171;font-size:11px;font-weight:700;text-decoration:none;padding:3px 10px;border-radius:6px;background:rgba(239,68,68,.15);';swTrailer.textContent='▶ Trailer';swTrailer.onclick=function(e){e.stopPropagation();};
+  var swLinks=document.createElement('div');swLinks.style.cssText='display:flex;gap:6px;justify-content:center;margin-top:6px;';
+  if(item.id)swLinks.appendChild(swImdb);swLinks.appendChild(swTrailer);
+  ph.appendChild(swEm);ph.appendChild(swTitle);ph.appendChild(swMeta);ph.appendChild(swLinks);
   var grad=document.createElement('div');grad.className='sw-grad';
   post.appendChild(ph);post.appendChild(grad);
   var indY=document.createElement('div');indY.className='sw-ind ind-y';indY.textContent=swMode==='suggest'?'📋 WATCHLIST':'✅ SEEN IT';
@@ -874,7 +916,7 @@ function openDet(key){
       detSubEl.style.display='none';
     }
   }
-  document.getElementById('det-meta').innerHTML='<span class="sb2 sb-yr">'+item.y+'</span>'+(item.r?'<span class="sb2 sb-rt">★ '+item.r+'</span>':'')+(rt?'<span class="sb2 sb-yr">⏱ '+rt+'</span>':'')+'<span class="sb2 sb-gn">'+item.g+'</span>'+(item.q==='4K'?'<span class="sb2 sb-4k">4K</span>':'')+(item.tp==='tv'?'<span class="sb2" style="background:rgba(6,182,212,.15);color:var(--cyan);font-size:10px">TV</span>':'')+(item.id?'<a href="https://www.imdb.com/title/'+item.id+'/" target="_blank" style="background:rgba(251,191,36,.15);color:var(--yellow);padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;">IMDb ↗</a>':'');
+  document.getElementById('det-meta').innerHTML='<span class="sb2 sb-yr">'+item.y+'</span>'+(item.r?'<span class="sb2 sb-rt">★ '+item.r+'</span>':'')+(rt?'<span class="sb2 sb-yr">⏱ '+rt+'</span>':'')+'<span class="sb2 sb-gn">'+item.g+'</span>'+(item.q==='4K'?'<span class="sb2 sb-4k">4K</span>':'')+(item.tp==='tv'?'<span class="sb2" style="background:rgba(6,182,212,.15);color:var(--cyan);font-size:10px">TV</span>':'')+(item.id?'<a href="https://www.imdb.com/title/'+item.id+'/" target="_blank" style="background:rgba(251,191,36,.15);color:var(--yellow);padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;">IMDb ↗</a>':'')+' <a href="https://www.youtube.com/results?search_query='+encodeURIComponent(item.t+' '+item.y+' official trailer')+'" target="_blank" style="background:rgba(239,68,68,.15);color:#f87171;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;">▶ Trailer</a>';
   document.getElementById('det-desc').textContent=item.d||'';
   // Status banner
   var statusEl=document.getElementById('det-status');
@@ -1158,7 +1200,78 @@ function renderNetflix(items) {
   res.appendChild(note);
 }
 
+// ── SPLASH SCREEN ──
+function initSplash(){
+  var bar = document.getElementById('splash-bar');
+  var pct = 0;
+  var iv = setInterval(function(){
+    pct += Math.random()*25+10;
+    if(pct >= 100){ pct=100; clearInterval(iv); }
+    bar.style.width = pct + '%';
+    if(pct >= 100){
+      setTimeout(function(){
+        var splash = document.getElementById('splash');
+        splash.classList.add('fade');
+        setTimeout(function(){ splash.style.display='none'; },650);
+      },300);
+    }
+  },150);
+}
+
+// ── EXPORT / IMPORT ──
+function exportData(){
+  var data = {
+    version: 1,
+    exported: new Date().toISOString(),
+    library: LIB,
+    posterCache: JSON.parse(localStorage.getItem('wn_pc')||'{}')
+  };
+  var json = JSON.stringify(data, null, 2);
+  var blob = new Blob([json], {type:'application/json'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'watchnext-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Data exported! Check your Downloads 📤');
+}
+
+function importData(){
+  document.getElementById('import-file').click();
+}
+
+function handleImport(e){
+  var file = e.target.files[0];
+  if(!file){ return; }
+  var reader = new FileReader();
+  reader.onload = function(ev){
+    try {
+      var data = JSON.parse(ev.target.result);
+      if(!data.library || !Array.isArray(data.library)){
+        toast('Invalid backup file!'); return;
+      }
+      if(!confirm('Restore ' + data.library.length + ' titles from backup? This replaces your current data.')){
+        return;
+      }
+      LIB = data.library;
+      sv('lib2', LIB);
+      if(data.posterCache){
+        localStorage.setItem('wn_pc', JSON.stringify(data.posterCache));
+      }
+      renderHome();
+      toast('Restored ' + LIB.length + ' titles! ✓');
+      document.getElementById('manage-panel').style.display = 'none';
+    } catch(err){
+      toast('Failed to read file: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
 renderHome();
+initSplash();
 
 </script>
 </body>
