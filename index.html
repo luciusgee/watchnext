@@ -941,7 +941,8 @@ function updateStartScreen(){
   var done = total - unswiped;
   var pct = total>0?Math.round(done/total*100):0;
   var sub = document.getElementById('sw-start-sub');
-  var stats = document.getElementById('sw-start-stats');
+  if(sub) sub.textContent = unswiped>0 ? unswiped+' films left to swipe' : 'All done! Press Reset to go again.';
+  var fw=document.getElementById('sw-force-wrap'); if(fw) fw.style.display=(unswiped>0&&unswiped<=5)?'block':'none';
   if(sub) sub.textContent = unswiped + ' films left to swipe in this session';
   if(stats) stats.innerHTML =
     '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">' +
@@ -1183,7 +1184,12 @@ function renderLib(){
   else if(libFG==='Watched')items=items.filter(function(m){return m.watched;});
   else if(libFG==='Unwatched')items=items.filter(function(m){return !m.watched;});
   else if(libFG!=='All')items=items.filter(function(m){return m.g===libFG;});
-  items.sort(function(a,b){return (b.r||0)-(a.r||0);});
+  // Sort: default ABC, but keep rating sort available
+  items.sort(function(a,b){
+    var ta=a.t.replace(/^(the |a |an )/i,'').toLowerCase();
+    var tb=b.t.replace(/^(the |a |an )/i,'').toLowerCase();
+    return ta<tb?-1:ta>tb?1:0;
+  });
   if(!items.length){list.innerHTML='<div style="text-align:center;padding:40px;color:var(--muted)"><div style="font-size:36px;opacity:.25;margin-bottom:12px">🔍</div><div style="font-size:14px">Nothing found</div></div>';return;}
   items.forEach(function(item){
     var div=document.createElement('div');div.className='li';var _key=item.id||item.t;div.onclick=function(){openDet(_key);};
