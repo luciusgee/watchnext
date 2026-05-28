@@ -252,8 +252,23 @@ input.srch:focus{border-color:var(--accent);}
     <button class="mdbtn active" id="md-s" onclick="setMode('suggest')">💡 Suggest</button>
     <button class="mdbtn" id="md-w" onclick="setMode('seen')">👁 Seen It?</button>
   </div>
+  <div id="sw-progress-wrap" style="padding:0 16px 10px;flex-shrink:0;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <span style="font-size:11px;color:var(--muted);font-weight:700;letter-spacing:1px;text-transform:uppercase;" id="sw-progress-label">Session Progress</span>
+      <span style="font-size:12px;color:var(--accent2);font-weight:700;" id="sw-progress-pct">0%</span>
+    </div>
+    <div style="height:4px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden;">
+      <div id="sw-progress-bar" style="height:100%;background:linear-gradient(to right,var(--accent),var(--accent2));border-radius:4px;width:0%;transition:width .3s;"></div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:5px;" id="sw-progress-count"></div>
+  </div>
   <div class="sw-area" id="sw-area">
-    <div class="sw-empty" id="sw-empty" style="display:none"><div style="font-size:48px;opacity:.3;margin-bottom:16px">🎉</div><p>All done! Add more movies to discover.</p></div>
+    <div class="sw-empty" id="sw-empty" style="display:none">
+      <div style="font-size:56px;margin-bottom:16px;">🎉</div>
+      <div style="font-size:20px;font-weight:900;color:var(--text);margin-bottom:8px;">Session Complete!</div>
+      <div style="font-size:14px;color:var(--muted);margin-bottom:24px;" id="sw-session-summary"></div>
+      <button onclick="newSwipeSession()" style="padding:14px 28px;border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.4);">🔄 Start New Session</button>
+    </div>
   </div>
   <!-- Suggest buttons -->
   <div class="sw-btns" id="btns-s">
@@ -844,18 +859,57 @@ function mkPC(item,cb){
 
 // ── SWIPE ──
 function setMode(m){swMode=m;document.getElementById('md-s').classList.toggle('active',m==='suggest');document.getElementById('md-w').classList.toggle('active',m==='seen');document.getElementById('btns-s').style.display=m==='suggest'?'flex':'none';document.getElementById('btns-w').style.display=m==='seen'?'flex':'none';document.getElementById('swipe-up-hint').style.display=m==='seen'?'block':'none';buildQ();renderSw();}
-function buildQ(){
-  var now=Date.now(),reset=24*60*60*1000;
-  LIB.forEach(function(m,i){if(m.swiped&&m.swipedAt&&(now-m.swipedAt)>reset){LIB[i].swiped=false;LIB[i].swipedAt=null;}});
+var swSessionTotal = 0;
+var swSessionDone = 0;
+
+function newSwipeSession(){
+  // Reset swiped flags for current mode to start fresh
+  LIB.forEach(function(m,i){
+    if(swMode==='suggest' && !m.watched) { LIB[i].swiped=false; LIB[i].swipedAt=null; }
+    if(swMode==='seen') { LIB[i].swipedSeen=false; }
+  });
   sv('lib2',LIB);
-  if(swMode==='suggest')swQ=LIB.filter(function(m){return !m.watched&&!m.swiped;}).sort(function(a,b){return (b.r||0)-(a.r||0);});
-  else swQ=LIB.slice().sort(function(){return Math.random()-.5;});
+  buildQ();
+  renderSw();
+  toast('New session started! 🎬');
+}
+
+function buildQ(){
+  if(swMode==='suggest'){
+    swQ=LIB.filter(function(m){return !m.watched&&!m.swiped;}).sort(function(a,b){return (b.r||0)-(a.r||0);});
+  } else {
+    swQ=LIB.filter(function(m){return !m.swipedSeen;}).sort(function(){return Math.random()-.5;});
+  }
+  swSessionTotal = swQ.length + (swSessionDone||0);
+  updateSwProgress();
+}
+
+function updateSwProgress(){
+  var total = swMode==='suggest'
+    ? LIB.filter(function(m){return !m.watched;}).length
+    : LIB.length;
+  var done = swMode==='suggest'
+    ? LIB.filter(function(m){return m.swiped&&!m.watched;}).length
+    : LIB.filter(function(m){return m.swipedSeen;}).length;
+  var pct = total > 0 ? Math.round(done/total*100) : 0;
+  var bar = document.getElementById('sw-progress-bar');
+  var pctEl = document.getElementById('sw-progress-pct');
+  var countEl = document.getElementById('sw-progress-count');
+  if(bar) bar.style.width = pct+'%';
+  if(pctEl) pctEl.textContent = pct+'%';
+  if(countEl) countEl.textContent = done+' of '+total+' films swiped this session';
+  var summary = document.getElementById('sw-session-summary');
+  if(summary) summary.textContent = 'You swiped through all '+total+' films!';
 }
 function renderSw(){
   var area=document.getElementById('sw-area');
   area.querySelectorAll('.sw-card').forEach(function(c){c.remove();});
   var empty=document.getElementById('sw-empty');
-  if(!swQ.length){empty.style.display='block';return;}
+  if(!swQ.length){
+    empty.style.display='block';
+    updateSwProgress();
+    return;
+  }
   empty.style.display='none';
   swQ.slice(0,2).reverse().forEach(function(item,idx,arr){
     var card=mkSwCard(item,idx===arr.length-1);
@@ -895,10 +949,12 @@ function mkSwCard(item,interactive){
 }
 function setupGesture(card,item){
   var sx=0,sy=0,dragging=false,cx=0,cy=0;
-  var start=function(x,y){sx=x;sy=y;dragging=true;cx=0;cy=0;};
+  var moved=false;
+  var start=function(x,y){sx=x;sy=y;dragging=true;cx=0;cy=0;moved=false;};
   var move=function(x,y){
     if(!dragging)return;
     cx=x-sx;cy=y-sy;
+    if(Math.abs(cx)>8||Math.abs(cy)>8)moved=true;
     // Determine dominant direction
     if(Math.abs(cy)>Math.abs(cx)&&cy<-30&&swMode==='seen'){
       // Swiping up - show watchlist indicator
@@ -918,6 +974,7 @@ function setupGesture(card,item){
   };
   var end=function(){
     if(!dragging)return;dragging=false;card.style.transition='';
+    if(!moved){cx=0;cy=0;return;}
     if(swMode==='seen'&&cy<-80&&Math.abs(cy)>Math.abs(cx)){
       doSwipe('maybe');
     } else if(cx>80){doSwipe('yes');}
@@ -938,10 +995,10 @@ function doSwipe(action){
   var card=document.querySelector('.sw-card:last-child');
   if(!card)return;
   var idx=LIB.findIndex(function(m){return (m.id||m.t)===(item.id||item.t);});
-  if(action==='yes'){card.classList.add('ar');if(idx>=0){if(swMode==='suggest'){LIB[idx].watchlist=true;LIB[idx].swiped=true;LIB[idx].swipedAt=Date.now();toast('Added "'+item.t+'" to watchlist! 📋');}else{LIB[idx].watched=true;LIB[idx].watchedAt=Date.now();toast('Marked "'+item.t+'" as watched! ✅');}}}
-  else if(action==='no'){card.classList.add('al');if(idx>=0&&swMode==='suggest'){LIB[idx].swiped=true;LIB[idx].swipedAt=Date.now();}}
-  else if(action==='maybe'){card.classList.add('ar');if(idx>=0)LIB[idx].watchlist=true;toast('Added "'+item.t+'" to watchlist! 👀');}
-  sv('lib2',LIB);swQ.shift();setTimeout(function(){renderSw();},350);
+  if(action==='yes'){card.classList.add('ar');if(idx>=0){if(swMode==='suggest'){LIB[idx].watchlist=true;LIB[idx].swiped=true;LIB[idx].swipedAt=Date.now();toast('Added "'+item.t+'" to watchlist! 📋');}else{LIB[idx].watched=true;LIB[idx].watchedAt=Date.now();LIB[idx].swipedSeen=true;toast('Marked "'+item.t+'" as watched! ✅');}}}
+  else if(action==='no'){card.classList.add('al');if(idx>=0){if(swMode==='suggest'){LIB[idx].swiped=true;LIB[idx].swipedAt=Date.now();}else{LIB[idx].swipedSeen=true;}}}
+  else if(action==='maybe'){card.classList.add('ar');if(idx>=0){LIB[idx].watchlist=true;if(swMode==='seen')LIB[idx].swipedSeen=true;}toast('Added "'+item.t+'" to watchlist! 👀');}
+  sv('lib2',LIB);swQ.shift();updateSwProgress();setTimeout(function(){renderSw();},350);
 }
 
 // ── LIBRARY ──
@@ -1312,7 +1369,8 @@ function exportData(){
     version: 1,
     exported: new Date().toISOString(),
     library: LIB,
-    posterCache: JSON.parse(localStorage.getItem('wn_pc')||'{}')
+    posterCache: JSON.parse(localStorage.getItem('wn_pc')||'{}'),
+    apiKey: localStorage.getItem('wn_apikey')||''
   };
   var json = JSON.stringify(data, null, 2);
   var blob = new Blob([json], {type:'application/json'});
@@ -1347,6 +1405,9 @@ function handleImport(e){
       if(data.posterCache){
         localStorage.setItem('wn_pc', JSON.stringify(data.posterCache));
       }
+      if(data.apiKey){
+        localStorage.setItem('wn_apikey', data.apiKey);
+      }
       renderHome();
       toast('Restored ' + LIB.length + ' titles! ✓');
       document.getElementById('manage-panel').style.display = 'none';
@@ -1360,6 +1421,39 @@ function handleImport(e){
 
 renderHome();
 initSplash();
+
+// ── AUTO-ENRICH MISSING IMDB IDs ──
+function enrichMissingFilms(){
+  var missing = LIB.filter(function(m){ return !m.id; }).slice(0,5); // do 5 at a time
+  if(!missing.length) return;
+  var count = 0;
+  missing.forEach(function(item){
+    var query = encodeURIComponent(item.t + ' ' + (item.y||''));
+    fetch('https://v3-cinemeta.strem.io/catalog/movie/top/search=' + query + '.json')
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var metas = d && d.metas;
+        if(!metas||!metas.length) return;
+        // Find best match by title similarity
+        var best = metas[0];
+        for(var i=0;i<Math.min(metas.length,5);i++){
+          var mt = (metas[i].name||'').toLowerCase();
+          var qt = item.t.toLowerCase();
+          if(mt === qt || mt.indexOf(qt)>-1){ best=metas[i]; break; }
+        }
+        var imdbId = best.id && best.id.startsWith('tt') ? best.id : null;
+        if(!imdbId) return;
+        var idx = LIB.findIndex(function(m){ return m.t===item.t&&!m.id; });
+        if(idx<0) return;
+        LIB[idx].id = imdbId;
+        if(best.runtime) LIB[idx].runtimeStr = best.runtime;
+        count++;
+        if(count === missing.length){ sv('lib2',LIB); setTimeout(enrichMissingFilms,2000); }
+      })
+      .catch(function(){});
+  });
+}
+setTimeout(enrichMissingFilms, 3000);
 
 </script>
 </body>
