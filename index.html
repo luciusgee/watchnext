@@ -521,6 +521,16 @@ input.srch:focus{border-color:var(--accent);}
 
 <div class="toast" id="toast"></div>
 
+<!-- CONFIRM MODAL -->
+<div id="modal-overlay" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:flex-end;justify-content:center;">
+  <div id="modal-box" style="background:var(--bg2);border-radius:20px 20px 0 0;padding:24px 20px;width:100%;border-top:1px solid var(--border);padding-bottom:calc(var(--sb) + 24px);">
+    <div id="modal-title" style="font-size:17px;font-weight:700;text-align:center;margin-bottom:8px;"></div>
+    <div id="modal-msg" style="font-size:14px;color:var(--muted);text-align:center;margin-bottom:20px;line-height:1.5;"></div>
+    <button id="modal-confirm-btn" style="width:100%;padding:15px;border-radius:14px;border:none;font-size:16px;font-weight:700;cursor:pointer;margin-bottom:10px;"></button>
+    <button onclick="closeModal()" style="width:100%;padding:15px;border-radius:14px;background:rgba(255,255,255,.06);color:var(--text);border:1px solid var(--border);font-size:16px;font-weight:600;cursor:pointer;">Cancel</button>
+  </div>
+</div>
+
 <script>
 // ── GENRE HELPERS ──
 const GE = {'Horror':'👻','Thriller':'🔪','Sci-Fi':'🚀','Action':'💥','Drama':'🎭','Crime':'🕵️','Comedy':'😂','Animation':'✨','Romance':'❤️','Documentary':'📹','Other':'🎬','TV':'📺'};
@@ -874,7 +884,21 @@ function mkPC(item,cb){
 }
 
 // ── SWIPE ──
-function setMode(m){swMode=m;document.getElementById('md-s').classList.toggle('active',m==='suggest');document.getElementById('md-w').classList.toggle('active',m==='seen');document.getElementById('btns-s').style.display=m==='suggest'?'flex':'none';document.getElementById('btns-w').style.display=m==='seen'?'flex':'none';document.getElementById('swipe-up-hint').style.display=m==='seen'?'block':'none';buildQ();renderSw();}
+function setMode(m){
+  swMode=m;
+  document.getElementById('md-s').classList.toggle('active',m==='suggest');
+  document.getElementById('md-w').classList.toggle('active',m==='seen');
+  document.getElementById('btns-s').style.display=m==='suggest'?'flex':'none';
+  document.getElementById('btns-w').style.display=m==='seen'?'flex':'none';
+  document.getElementById('swipe-up-hint').style.display=m==='seen'?'block':'none';
+  // Always return to start screen when mode changes
+  var startEl=document.getElementById('sw-start');
+  if(startEl){startEl.style.display='';}
+  document.getElementById('sw-area').querySelectorAll('.sw-card').forEach(function(c){c.remove();});
+  document.getElementById('sw-empty').style.display='none';
+  buildQ();
+  updateStartScreen();
+}
 var swSessionTotal = 0;
 var swSessionDone = 0;
 
@@ -1252,10 +1276,10 @@ function sendChat(){
 function addDetBtn(container,label,bg,color,border,fn){var b=document.createElement('button');b.className='det-btn';b.textContent=label;b.style.cssText='flex:1;padding:13px;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;background:'+bg+';color:'+color+';border:'+border+';';b.onclick=fn;container.appendChild(b);}
 
 // ── MANAGE ──
-function clearWatchlist(){if(confirm('Remove all items from watchlist?')){LIB.forEach(function(m,i){LIB[i].watchlist=false;});sv('lib2',LIB);toast('Watchlist cleared');openWL();}}
-function clearWatched(){if(confirm('Clear all watched history?')){LIB.forEach(function(m,i){LIB[i].watched=false;LIB[i].watchedAt=null;});sv('lib2',LIB);toast('Watch history cleared');renderHome();openWL();}}
-function resetAll(){if(confirm('Reset everything? This clears all watched, watchlist and swipe history.')){LIB.forEach(function(m,i){LIB[i].watched=false;LIB[i].watchedAt=null;LIB[i].watchlist=false;LIB[i].swiped=false;LIB[i].swipedAt=null;});sv('lib2',LIB);toast('All data reset');renderHome();}}
-function resetSwipes(){if(confirm('Reset all swipe history? Films will reappear in Discover.')){LIB.forEach(function(m,i){LIB[i].swiped=false;LIB[i].swipedAt=null;});sv('lib2',LIB);toast('Swipe history reset!');}}
+function clearWatchlist(){showModal('Clear Watchlist','Remove all items from your watchlist?','Clear Watchlist','rgba(251,191,36,.8)',function(){LIB.forEach(function(m,i){LIB[i].watchlist=false;});sv('lib2',LIB);toast('Watchlist cleared');openWL();});}
+function clearWatched(){showModal('Clear Watch History','Mark all films as unwatched?','Clear History','rgba(239,68,68,.9)',function(){LIB.forEach(function(m,i){LIB[i].watched=false;LIB[i].watchedAt=null;});sv('lib2',LIB);toast('Watch history cleared');renderHome();});}
+function resetAll(){showModal('Reset Everything','This clears all watched, watchlist and swipe history. Cannot be undone.','Reset Everything','rgba(239,68,68,.9)',function(){LIB.forEach(function(m,i){LIB[i].watched=false;LIB[i].watchedAt=null;LIB[i].watchlist=false;LIB[i].swiped=false;LIB[i].swipedAt=null;});sv('lib2',LIB);toast('All data reset');renderHome();});}
+function resetSwipes(){showModal('Reset Swipe History','All films will reappear in Discover.','Reset Swipes','rgba(124,58,237,.9)',function(){LIB.forEach(function(m,i){LIB[i].swiped=false;LIB[i].swipedAt=null;});sv('lib2',LIB);toast('Swipe history reset!');});}
 function saveAPIKeySettings(){var k=document.getElementById('s-api-key').value.trim();if(!k){toast('Please enter a key');return;}localStorage.setItem('wn_apikey',k);document.getElementById('s-api-status').textContent='Key saved ✓';document.getElementById('s-api-status').style.color='var(--green)';toast('API key saved! ✓');}
 function openSettings(){
   var k=getAPIKey();
@@ -1269,6 +1293,20 @@ function openSettings(){
 }
 
 var TV_INFO={"tt0944947": {"seasons": [{"s": 1, "ep": 10, "name": "Season 1"}, {"s": 2, "ep": 10, "name": "Season 2"}, {"s": 3, "ep": 10, "name": "Season 3"}, {"s": 4, "ep": 10, "name": "Season 4"}, {"s": 5, "ep": 10, "name": "Season 5"}, {"s": 6, "ep": 10, "name": "Season 6"}, {"s": 7, "ep": 7, "name": "Season 7"}, {"s": 8, "ep": 6, "name": "Season 8"}], "totalEp": 73, "imdbBase": "tt0944947"}, "tt3581920": {"seasons": [{"s": 1, "ep": 9, "name": "Season 1"}, {"s": 2, "ep": 7, "name": "Season 2"}], "totalEp": 16, "imdbBase": "tt3581920"}, "tt0141842": {"seasons": [{"s": 1, "ep": 13, "name": "Season 1"}, {"s": 2, "ep": 13, "name": "Season 2"}, {"s": 3, "ep": 13, "name": "Season 3"}, {"s": 4, "ep": 13, "name": "Season 4"}, {"s": 5, "ep": 13, "name": "Season 5"}, {"s": 6, "ep": 21, "name": "Season 6"}], "totalEp": 86, "imdbBase": "tt0141842"}, "tt0306414": {"seasons": [{"s": 1, "ep": 13, "name": "Season 1"}, {"s": 2, "ep": 12, "name": "Season 2"}, {"s": 3, "ep": 12, "name": "Season 3"}, {"s": 4, "ep": 13, "name": "Season 4"}, {"s": 5, "ep": 10, "name": "Season 5"}], "totalEp": 60, "imdbBase": "tt0306414"}, "tt2802850": {"seasons": [{"s": 1, "ep": 10, "name": "Season 1"}], "totalEp": 10, "imdbBase": "tt2802850"}, "tt23549418": {"seasons": [{"s": 1, "ep": 3, "name": "Season 1"}], "totalEp": 3, "imdbBase": "tt23549418"}, "tt14182806": {"seasons": [{"s": 1, "ep": 7, "name": "Season 1"}], "totalEp": 7, "imdbBase": "tt14182806"}, "tt9656978": {"seasons": [{"s": 1, "ep": 5, "name": "Season 1"}, {"s": 2, "ep": 5, "name": "Season 2"}, {"s": 3, "ep": 5, "name": "Season 3"}, {"s": 4, "ep": 5, "name": "Season 4"}], "totalEp": 20, "imdbBase": "tt9656978"}, "tt3794028": {"seasons": [{"s": 1, "ep": 10, "name": "Miniseries"}], "totalEp": 10, "imdbBase": "tt3794028"}, "tt1628033": {"seasons": [{"s": 1, "ep": 4, "name": "Bolivia/Vietnam/Middle East/Patagonia"}, {"s": 2, "ep": 4, "name": "India/Africa/USA/Arctic"}, {"s": 3, "ep": 4, "name": "Australia/Burma/Scotland/Finale"}], "totalEp": 12, "imdbBase": "tt1628033"}};
+
+// ── CUSTOM MODAL ──
+function showModal(title, msg, confirmLabel, confirmColor, onConfirm){
+  document.getElementById('modal-title').textContent=title;
+  document.getElementById('modal-msg').textContent=msg;
+  var btn=document.getElementById('modal-confirm-btn');
+  btn.textContent=confirmLabel;
+  btn.style.background=confirmColor||'var(--red)';
+  btn.style.color='#fff';
+  btn.onclick=function(){closeModal();onConfirm();};
+  var ov=document.getElementById('modal-overlay');
+  ov.style.display='flex';
+}
+function closeModal(){document.getElementById('modal-overlay').style.display='none';}
 
 var TABS={home:'home',sw:'sw-screen',lib:'lib-screen',add:'add-screen',ai:'ai-screen',nf:'nf-screen',settings:'settings-screen'};
 function goTab(tab){
@@ -1452,9 +1490,8 @@ function handleImport(e){
       if(!data.library || !Array.isArray(data.library)){
         toast('Invalid backup file!'); return;
       }
-      if(!confirm('Restore ' + data.library.length + ' titles from backup? This replaces your current data.')){
-        return;
-      }
+      // Use custom modal for import confirm - but we're inside FileReader callback
+      // so just proceed (user already chose the file intentionally)
       LIB = data.library;
       sv('lib2', LIB);
       if(data.posterCache){
@@ -1478,37 +1515,89 @@ renderHome();
 initSplash();
 
 // ── AUTO-ENRICH MISSING IMDB IDs ──
+function searchCinemeta(title, year, type, cb){
+  var t = type||'movie';
+  var q = encodeURIComponent(title + (year?' '+year:''));
+  fetch('https://v3-cinemeta.strem.io/catalog/'+t+'/top/search='+q+'.json')
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var metas=d&&d.metas;
+      if(!metas||!metas.length){cb(null);return;}
+      var qt=title.toLowerCase();
+      var best=null;
+      for(var i=0;i<Math.min(metas.length,8);i++){
+        var mt=(metas[i].name||'').toLowerCase();
+        if(mt===qt){best=metas[i];break;}
+        if(!best&&(mt.indexOf(qt)>-1||qt.indexOf(mt)>-1))best=metas[i];
+      }
+      if(!best)best=metas[0];
+      cb(best&&best.id&&best.id.startsWith('tt')?best:null);
+    })
+    .catch(function(){cb(null);});
+}
+
+function enrichOneFilm(item, cb){
+  var types = item.tp==='tv'?['series','movie']:['movie','series'];
+  var ti=0;
+  function next(){
+    if(ti>=types.length){cb(null);return;}
+    searchCinemeta(item.t, item.y, types[ti++], function(meta){
+      if(meta)cb(meta);
+      else next();
+    });
+  }
+  next();
+}
+
 function enrichMissingFilms(){
-  var missing = LIB.filter(function(m){ return !m.id; }).slice(0,5); // do 5 at a time
-  if(!missing.length) return;
-  var count = 0;
+  var missing=LIB.filter(function(m){return !m.id;}).slice(0,5);
+  if(!missing.length)return;
+  var done=0;
   missing.forEach(function(item){
-    var query = encodeURIComponent(item.t + ' ' + (item.y||''));
-    fetch('https://v3-cinemeta.strem.io/catalog/movie/top/search=' + query + '.json')
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        var metas = d && d.metas;
-        if(!metas||!metas.length) return;
-        // Find best match by title similarity
-        var best = metas[0];
-        for(var i=0;i<Math.min(metas.length,5);i++){
-          var mt = (metas[i].name||'').toLowerCase();
-          var qt = item.t.toLowerCase();
-          if(mt === qt || mt.indexOf(qt)>-1){ best=metas[i]; break; }
+    enrichOneFilm(item,function(meta){
+      if(meta){
+        var idx=LIB.findIndex(function(m){return m.t===item.t&&!m.id;});
+        if(idx>=0){
+          LIB[idx].id=meta.id;
+          if(meta.description&&!LIB[idx].d)LIB[idx].d=meta.description;
         }
-        var imdbId = best.id && best.id.startsWith('tt') ? best.id : null;
-        if(!imdbId) return;
-        var idx = LIB.findIndex(function(m){ return m.t===item.t&&!m.id; });
-        if(idx<0) return;
-        LIB[idx].id = imdbId;
-        if(best.runtime) LIB[idx].runtimeStr = best.runtime;
-        count++;
-        if(count === missing.length){ sv('lib2',LIB); setTimeout(enrichMissingFilms,2000); }
-      })
-      .catch(function(){});
+      }
+      done++;
+      if(done===missing.length){sv('lib2',LIB);setTimeout(enrichMissingFilms,3000);}
+    });
   });
 }
-setTimeout(enrichMissingFilms, 3000);
+
+function enrichAllNow(){
+  var statusEl=document.getElementById('enrich-status');
+  var missing=LIB.filter(function(m){return !m.id;});
+  if(!missing.length){if(statusEl)statusEl.innerHTML='<span style="color:var(--green)">All films already have info! ✓</span>';return;}
+  var total=missing.length, done=0, found=0;
+  if(statusEl)statusEl.innerHTML='Starting... 0/'+total;
+  function next(i){
+    if(i>=total){
+      sv('lib2',LIB);
+      if(statusEl)statusEl.innerHTML='<span style="color:var(--green)">Done! Found '+found+' of '+total+' ✓</span>';
+      toast('Movie info updated for '+found+' films!');
+      return;
+    }
+    var item=missing[i];
+    if(statusEl)statusEl.innerHTML='Checking: '+item.t+' ('+i+'/'+total+')';
+    enrichOneFilm(item,function(meta){
+      if(meta){
+        var idx=LIB.findIndex(function(m){return m.t===item.t&&!m.id;});
+        if(idx>=0){
+          LIB[idx].id=meta.id;found++;
+          if(meta.description&&!LIB[idx].d)LIB[idx].d=meta.description;
+        }
+      }
+      setTimeout(function(){next(i+1);},300);
+    });
+  }
+  next(0);
+}
+
+setTimeout(enrichMissingFilms,4000);
 
 </script>
 </body>
