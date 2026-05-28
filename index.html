@@ -911,12 +911,8 @@ function newSwipeSession(){
 function updateStartScreen(){
   var startEl = document.getElementById('sw-start');
   if(!startEl||startEl.style.display==='none') return;
-  var unswiped = swMode==='suggest'
-    ? LIB.filter(function(m){return !m.watched&&!m.swiped;}).length
-    : LIB.filter(function(m){return !m.swipedSeen;}).length;
-  var total = swMode==='suggest'
-    ? LIB.filter(function(m){return !m.watched;}).length
-    : LIB.length;
+  var unswiped = LIB.filter(function(m){return !m.swipedSeen;}).length;
+  var total = LIB.length;
   var done = total - unswiped;
   var pct = total>0?Math.round(done/total*100):0;
   var sub = document.getElementById('sw-start-sub');
@@ -1433,11 +1429,13 @@ function loadNetflix(force) {
   var sysPrompt = 'You are a Netflix UK recommendation assistant. Return ONLY valid JSON, no markdown, no explanation. Return an array of exactly 15 objects.';
   // Track previously suggested to avoid repeats (keep last 45 = 3 refreshes)
   var prevSuggested = JSON.parse(localStorage.getItem('wn_nf_prev')||'[]');
-  var avoidList = libTitles.slice(0,60).concat(prevSuggested);
+  // All lib titles plus recently suggested - strict avoid
+  var avoidList = libTitles.concat(prevSuggested);
+  var avoidStr = avoidList.slice(0,100).join(', ');
   var watchedTitles = LIB.filter(function(m){return m.watched;}).map(function(m){return m.t;});
   var watchlistTitles = LIB.filter(function(m){return m.watchlist&&!m.watched;}).map(function(m){return m.t;});
 
-  var userMsg = 'Suggest 15 movies or TV shows on Netflix UK. User loves: ' + topGenres.join(', ') + '. They enjoyed: ' + (topWatched.join(', ')||'various films') + '. Already watched: ' + (watchedTitles.slice(0,30).join(', ')||'none') + '. On their watchlist already: ' + (watchlistTitles.slice(0,20).join(', ')||'none') + '. Do NOT suggest these (already in library or recently suggested): ' + avoidList.slice(0,80).join(', ') + '. Occasionally re-suggest something great they might have missed (1 in 6 chance per item). Return JSON array of 15 objects each with: title, year, type (movie/show), genre, rating (number), runtime (string), reason (one sentence why they specifically will love it based on their taste), imdbId. Only titles genuinely on Netflix UK right now.';
+  var userMsg = 'Suggest 15 movies or TV shows on Netflix UK. User loves: ' + topGenres.join(', ') + '. They enjoyed: ' + (topWatched.join(', ')||'various films') + '. Already watched: ' + (watchedTitles.slice(0,30).join(', ')||'none') + '. On their watchlist already: ' + (watchlistTitles.slice(0,20).join(', ')||'none') + '. STRICT RULE - do NOT suggest ANY of these titles (user already has them): ' + avoidStr + '. Occasionally re-suggest something great they might have missed (1 in 6 chance per item). Return JSON array of 15 objects each with: title, year, type (movie/show), genre, rating (number), runtime (string), reason (one sentence why they specifically will love it based on their taste), imdbId. Only titles genuinely on Netflix UK right now.';
 
   fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
