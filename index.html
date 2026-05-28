@@ -1081,8 +1081,6 @@ function normTitle(t){return t.toLowerCase().replace(/^(the |a |an )/,'').replac
 function isDupe(title){var n=normTitle(title);return LIB.some(function(m){return normTitle(m.t)===n;});}
 function batchAdd(){
   var raw=document.getElementById('batch-input').value;
-  var genre=document.getElementById('batch-genre').value;
-  var quality=document.getElementById('batch-quality').value;
   var lines=raw.split('\n').map(function(l){return l.trim();}).filter(function(l){return l.length>0;});
   if(!lines.length){toast('Paste some titles first!');return;}
   var added=[],dupes=[];
@@ -1092,7 +1090,7 @@ function batchAdd(){
     var year=ymatch?parseInt(ymatch[1]):new Date().getFullYear();
     var exists=LIB.find(function(m){return m.t.toLowerCase()===title.toLowerCase();});
     if(exists){dupes.push(title);return;}
-    LIB.push({id:null,t:title,tp:'movie',y:year,r:null,g:genre,d:'',q:quality,watched:false,watchlist:false,swiped:false,swipedAt:null,addedAt:Date.now()});
+    LIB.push({id:null,t:title,tp:'movie',y:year,r:null,g:'Other',d:'',q:'unlisted',watched:false,watchlist:false,swiped:false,swipedAt:null,addedAt:Date.now()});
     added.push(title);
   });
   if(added.length)sv('lib2',LIB);
