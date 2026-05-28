@@ -964,9 +964,15 @@ function renderSw(){
     return;
   }
   empty.style.display='none';
-  swQ.slice(0,2).reverse().forEach(function(item,idx,arr){
-    var card=mkSwCard(item,idx===arr.length-1);
-    if(idx===0){card.style.transform='scale(.95) translateY(10px)';card.style.pointerEvents='none';}
+  var slice=swQ.slice(0,2);
+  var hasTwo=slice.length===2;
+  slice.reverse().forEach(function(item,idx,arr){
+    var isTop=idx===arr.length-1;
+    var card=mkSwCard(item,isTop);
+    if(idx===0&&hasTwo){
+      card.style.transform='scale(.95) translateY(10px)';
+      card.style.pointerEvents='none';
+    }
     area.appendChild(card);
   });
 }
@@ -1139,7 +1145,7 @@ function renderLib(){
   items.sort(function(a,b){return (b.r||0)-(a.r||0);});
   if(!items.length){list.innerHTML='<div style="text-align:center;padding:40px;color:var(--muted)"><div style="font-size:36px;opacity:.25;margin-bottom:12px">🔍</div><div style="font-size:14px">Nothing found</div></div>';return;}
   items.forEach(function(item){
-    var div=document.createElement('div');div.className='li';div.onclick=function(){openDet(item.id||item.t);};
+    var div=document.createElement('div');div.className='li';var _key=item.id||item.t;div.onclick=function(){openDet(_key);};
     var col=gc(item.g);
     var th=document.createElement('div');th.className='li-th';th.style.cssText='background:'+col+'22;color:'+col+';font-size:22px;display:flex;align-items:center;justify-content:center;';
     th.textContent=item.tp==='tv'?'📺':ge(item.g);
@@ -1248,7 +1254,7 @@ function openWL(){
     s.innerHTML='<div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">'+title+'</div>';
     if(!items.length){s.innerHTML+='<div style="color:var(--muted);font-size:13px;padding:10px 0 20px">'+emptyMsg+'</div>';}
     else items.forEach(function(item){
-      var div=document.createElement('div');div.className='li';div.onclick=function(){openDet(item.id||item.t);};
+      var div=document.createElement('div');div.className='li';var _key=item.id||item.t;div.onclick=function(){openDet(_key);};
       var col=gc(item.g);
       var th=document.createElement('div');th.className='li-th';th.style.cssText='background:'+col+'22;color:'+col+';font-size:22px;display:flex;align-items:center;justify-content:center;';
       th.textContent=item.tp==='tv'?'📺':ge(item.g);
@@ -1479,6 +1485,7 @@ function renderNetflix(items) {
 
     var imdbUrl = item.imdbId ? 'https://www.imdb.com/title/'+item.imdbId+'/' : 'https://www.imdb.com/find?q='+encodeURIComponent(item.title);
 
+    var watchedBtnId = 'nf-w-'+i;
     card.innerHTML =
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;">' +
         '<div style="flex:1;">' +
@@ -1494,7 +1501,38 @@ function renderNetflix(items) {
         '<div style="font-size:28px;flex-shrink:0;">'+ge(item.genre)+'</div>' +
       '</div>' +
       '<div style="font-size:13px;color:#bbb;line-height:1.5;margin-bottom:12px;font-style:italic;">'+item.reason.replace(/</g,'&lt;')+'</div>' +
-      '<a href="'+imdbUrl+'" target="_blank" style="display:inline-block;padding:7px 14px;border-radius:8px;background:rgba(251,191,36,.12);color:var(--yellow);font-size:12px;font-weight:700;text-decoration:none;">IMDb ↗</a>';
+      '<div style="display:flex;gap:8px;">' +
+        '<a href="'+imdbUrl+'" target="_blank" style="flex:1;text-align:center;padding:10px 14px;border-radius:10px;background:rgba(251,191,36,.12);color:var(--yellow);font-size:12px;font-weight:700;text-decoration:none;display:block;">IMDb ↗</a>' +
+        '<button id="'+watchedBtnId+'" style="flex:2;padding:10px 14px;border-radius:10px;background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3);font-size:12px;font-weight:700;cursor:pointer;">✓ Mark as Watched</button>' +
+      '</div>';
+
+    // Wire up watched button
+    (function(title, year, genre, btnId){
+      var btn = card.querySelector('#'+btnId);
+      if(btn) btn.onclick = function(){
+        // Check if already in library
+        var existing = LIB.find(function(m){ return m.t.toLowerCase()===title.toLowerCase(); });
+        if(existing){
+          var idx2 = LIB.indexOf(existing);
+          LIB[idx2].watched = true;
+          LIB[idx2].watchedAt = Date.now();
+          sv('lib2',LIB);
+          btn.textContent = '✅ Watched!';
+          btn.style.background = 'rgba(16,185,129,.3)';
+          btn.disabled = true;
+          toast(title+' marked as watched!');
+        } else {
+          // Add to library and mark watched
+          LIB.push({id:null,t:title,tp:'movie',y:year,r:null,g:genre,d:'',q:'unlisted',
+            watched:true,watchedAt:Date.now(),watchlist:false,swiped:false,swipedAt:null,addedAt:Date.now()});
+          sv('lib2',LIB);
+          btn.textContent = '✅ Added & Watched!';
+          btn.style.background = 'rgba(16,185,129,.3)';
+          btn.disabled = true;
+          toast(title+' added and marked as watched!');
+        }
+      };
+    })(item.title, item.year, item.genre, watchedBtnId);
 
     res.appendChild(card);
   });
