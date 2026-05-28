@@ -248,11 +248,8 @@ input.srch:focus{border-color:var(--accent);}
 <div id="sw-screen" class="screen">
   <div class="sb-pad"></div>
   <div class="nav"><div style="width:36px"></div><div class="nav-title">Discover</div><div style="width:36px"></div></div>
-  <div class="sw-mode">
-    <button class="mdbtn active" id="md-s" onclick="setMode('suggest')">💡 Suggest</button>
-    <button class="mdbtn" id="md-w" onclick="setMode('seen')">👁 Seen It?</button>
-  </div>
-  <div id="sw-progress-wrap" style="padding:0 16px 10px;flex-shrink:0;">
+
+  <div id="sw-progress-wrap" style="display:none;" style="padding:0 16px 10px;flex-shrink:0;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
       <span style="font-size:11px;color:var(--muted);font-weight:700;letter-spacing:1px;text-transform:uppercase;" id="sw-progress-label">Session Progress</span>
       <span style="font-size:12px;color:var(--accent2);font-weight:700;" id="sw-progress-pct">0%</span>
@@ -278,17 +275,17 @@ input.srch:focus{border-color:var(--accent);}
       <button onclick="newSwipeSession()" style="padding:14px 28px;border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.4);">🔄 Start New Session</button>
     </div>
   </div>
-  <!-- Suggest buttons -->
-  <div class="sw-btns" id="btns-s">
-    <button class="sw-btn btn-no" onclick="doSwipe('no')">⏭️</button>
-    <button class="sw-btn btn-yes" onclick="doSwipe('yes')">📋</button>
+  <div class="sw-btns" id="btns-main" style="display:none">
+    <button class="sw-btn btn-no" onclick="doSwipe('no')" style="background:linear-gradient(135deg,#6b7280,#4b5563);">⬅️</button>
+    <button class="sw-btn" onclick="openSwipeDetail()" style="background:linear-gradient(135deg,#0e7490,#06b6d4);width:52px;height:52px;font-size:18px;">ℹ️</button>
+    <button class="sw-btn btn-yes" onclick="doSwipe('yes')" style="background:linear-gradient(135deg,#10b981,#059669);">✅</button>
   </div>
-  <!-- Seen it buttons -->
-  <div class="sw-btns" id="btns-w" style="display:none">
-    <button class="sw-btn btn-no" onclick="doSwipe('no')">🙈</button>
-    <button class="sw-btn btn-yes" onclick="doSwipe('yes')">✅</button>
+  <div id="sw-hint-bar" style="display:none;justify-content:center;gap:32px;padding:0 20px 14px;font-size:11px;color:var(--muted);flex-shrink:0;">
+    <span>⬅️ not watched</span>
+    <span>⬆️ watchlist</span>
+    <span>✅ watched</span>
   </div>
-  <div id="swipe-up-hint" style="display:none;text-align:center;font-size:11px;color:var(--muted);padding:0 0 8px;flex-shrink:0;">👆 swipe up to add to watchlist</div>
+
   <div class="bnav">
     <button class="bnb" onclick="goTab('home')"><span class="ico">🏠</span>Home</button>
     <button class="bnb active" onclick="goTab('sw')"><span class="ico">👆</span>Discover</button>
@@ -884,26 +881,15 @@ function mkPC(item,cb){
 }
 
 // ── SWIPE ──
-function setMode(m){
-  swMode=m;
-  document.getElementById('md-s').classList.toggle('active',m==='suggest');
-  document.getElementById('md-w').classList.toggle('active',m==='seen');
-  document.getElementById('btns-s').style.display=m==='suggest'?'flex':'none';
-  document.getElementById('btns-w').style.display=m==='seen'?'flex':'none';
-  document.getElementById('swipe-up-hint').style.display=m==='seen'?'block':'none';
-  // Always return to start screen when mode changes
-  var startEl=document.getElementById('sw-start');
-  if(startEl){startEl.style.display='';}
-  document.getElementById('sw-area').querySelectorAll('.sw-card').forEach(function(c){c.remove();});
-  document.getElementById('sw-empty').style.display='none';
-  buildQ();
-  updateStartScreen();
-}
+// setMode removed - single unified swipe mode
 var swSessionTotal = 0;
 var swSessionDone = 0;
 
 function startSwipeSession(){
   document.getElementById('sw-start').style.display='none';
+  document.getElementById('btns-main').style.display='flex';
+  document.getElementById('sw-hint-bar').style.display='flex';
+  document.getElementById('sw-progress-wrap').style.display='';
   buildQ();
   renderSw();
 }
@@ -943,31 +929,22 @@ function updateStartScreen(){
 }
 
 function buildQ(){
-  if(swMode==='suggest'){
-    swQ=LIB.filter(function(m){return !m.watched&&!m.swiped;}).sort(function(a,b){return (b.r||0)-(a.r||0);});
-  } else {
-    swQ=LIB.filter(function(m){return !m.swipedSeen;}).sort(function(){return Math.random()-.5;});
-  }
-  swSessionTotal = swQ.length + (swSessionDone||0);
+  swQ=LIB.filter(function(m){return !m.swipedSeen;}).sort(function(){return Math.random()-.5;});
   updateSwProgress();
 }
 
 function updateSwProgress(){
-  var total = swMode==='suggest'
-    ? LIB.filter(function(m){return !m.watched;}).length
-    : LIB.length;
-  var done = swMode==='suggest'
-    ? LIB.filter(function(m){return m.swiped&&!m.watched;}).length
-    : LIB.filter(function(m){return m.swipedSeen;}).length;
-  var pct = total > 0 ? Math.round(done/total*100) : 0;
-  var bar = document.getElementById('sw-progress-bar');
-  var pctEl = document.getElementById('sw-progress-pct');
-  var countEl = document.getElementById('sw-progress-count');
-  if(bar) bar.style.width = pct+'%';
-  if(pctEl) pctEl.textContent = pct+'%';
-  if(countEl) countEl.textContent = done+' of '+total+' films swiped this session';
-  var summary = document.getElementById('sw-session-summary');
-  if(summary) summary.textContent = 'You swiped through all '+total+' films!';
+  var total=LIB.length;
+  var done=LIB.filter(function(m){return m.swipedSeen;}).length;
+  var pct=total>0?Math.round(done/total*100):0;
+  var bar=document.getElementById('sw-progress-bar');
+  var pctEl=document.getElementById('sw-progress-pct');
+  var countEl=document.getElementById('sw-progress-count');
+  if(bar)bar.style.width=pct+'%';
+  if(pctEl)pctEl.textContent=pct+'%';
+  if(countEl)countEl.textContent=done+' of '+total+' films swiped';
+  var summary=document.getElementById('sw-session-summary');
+  if(summary)summary.textContent='You swiped through all '+total+' films!';
 }
 function renderSw(){
   var area=document.getElementById('sw-area');
@@ -1011,8 +988,8 @@ function mkSwCard(item,interactive){
   ph.appendChild(swEm);ph.appendChild(swTitle);ph.appendChild(swMeta);ph.appendChild(swLinks);
   var grad=document.createElement('div');grad.className='sw-grad';
   post.appendChild(ph);post.appendChild(grad);
-  var indY=document.createElement('div');indY.className='sw-ind ind-y';indY.textContent=swMode==='suggest'?'📋 WATCHLIST':'✅ SEEN IT';
-  var indN=document.createElement('div');indN.className='sw-ind ind-n';indN.textContent=swMode==='suggest'?'⏭️ NOT NOW':'🙈 NOT SEEN';
+  var indY=document.createElement('div');indY.className='sw-ind ind-y';indY.textContent='✅ WATCHED';
+  var indN=document.createElement('div');indN.className='sw-ind ind-n';indN.textContent='⬅️ NOT WATCHED';
   var indU=document.createElement('div');indU.className='ind-up';indU.style.cssText='position:absolute;bottom:20px;left:50%;transform:translateX(-50%);padding:7px 14px;border-radius:20px;font-size:13px;font-weight:900;opacity:0;transition:opacity .1s;pointer-events:none;background:rgba(124,58,237,.9);color:#fff;border:2px solid var(--accent2);white-space:nowrap;';indU.textContent='👀 ADD TO WATCHLIST';
   var rt=fmtRT(item.id);
   var info=document.createElement('div');info.className='sw-info';
@@ -1022,16 +999,18 @@ function mkSwCard(item,interactive){
   return card;
 }
 function setupGesture(card,item){
-  var sx=0,sy=0,dragging=false,cx=0,cy=0;
-  var moved=false;
-  var start=function(x,y){sx=x;sy=y;dragging=true;cx=0;cy=0;moved=false;};
+  var sx=0,sy=0,dragging=false,cx=0,cy=0,moved=false;
+
+  var start=function(x,y){
+    sx=x;sy=y;dragging=true;cx=0;cy=0;moved=false;
+  };
+
   var move=function(x,y){
     if(!dragging)return;
     cx=x-sx;cy=y-sy;
-    if(Math.abs(cx)>8||Math.abs(cy)>8)moved=true;
-    // Determine dominant direction
+    if(Math.abs(cx)>10||Math.abs(cy)>10)moved=true;
+    if(!moved)return;
     if(Math.abs(cy)>Math.abs(cx)&&cy<-30&&swMode==='seen'){
-      // Swiping up - show watchlist indicator
       card.style.transform='translateY('+cy+'px) scale('+(1+Math.min(-cy/500,.05))+')';
       card.style.transition='none';
       var u=card.querySelector('.ind-up');if(u)u.style.opacity=Math.min((-cy-30)/80,1);
@@ -1046,22 +1025,53 @@ function setupGesture(card,item){
       else{yi.style.opacity=0;ni.style.opacity=0;}
     }
   };
-  var end=function(){
-    if(!dragging)return;dragging=false;card.style.transition='';
-    if(!moved){cx=0;cy=0;return;}
+
+  var end=function(e){
+    if(!dragging)return;
+    dragging=false;
+    card.style.transition='';
+    if(!moved){
+      // It was a tap - let native click handle it
+      cx=0;cy=0;
+      return;
+    }
     if(swMode==='seen'&&cy<-80&&Math.abs(cy)>Math.abs(cx)){
       doSwipe('maybe');
-    } else if(cx>80){doSwipe('yes');}
-    else if(cx<-80){doSwipe('no');}
-    else{card.style.transform='';card.querySelectorAll('.sw-ind,.ind-up').forEach(function(i){i.style.opacity=0;});}
+    } else if(cx>80){
+      doSwipe('yes');
+    } else if(cx<-80){
+      doSwipe('no');
+    } else {
+      card.style.transform='';
+      card.querySelectorAll('.sw-ind,.ind-up').forEach(function(i){i.style.opacity=0;});
+    }
     cx=0;cy=0;
   };
-  card.addEventListener('touchstart',function(e){start(e.touches[0].clientX,e.touches[0].clientY);},{passive:true});
-  card.addEventListener('touchmove',function(e){move(e.touches[0].clientX,e.touches[0].clientY);},{passive:true});
-  card.addEventListener('touchend',end);
-  card.addEventListener('mousedown',function(e){start(e.clientX,e.clientY);});
+
+  // Use touchstart on card but NOT preventDefault so links still work
+  card.addEventListener('touchstart',function(e){
+    // Don't capture if touch started on a link
+    if(e.target.tagName==='A'){return;}
+    start(e.touches[0].clientX,e.touches[0].clientY);
+  },{passive:true});
+
+  card.addEventListener('touchmove',function(e){
+    if(!dragging)return;
+    move(e.touches[0].clientX,e.touches[0].clientY);
+  },{passive:true});
+
+  card.addEventListener('touchend',function(e){
+    if(!dragging)return;
+    end(e);
+  },{passive:true});
+
+  // Mouse support for desktop testing
+  card.addEventListener('mousedown',function(e){
+    if(e.target.tagName==='A')return;
+    start(e.clientX,e.clientY);
+  });
   window.addEventListener('mousemove',function(e){if(dragging)move(e.clientX,e.clientY);});
-  window.addEventListener('mouseup',function(){if(dragging)end();});
+  window.addEventListener('mouseup',function(e){if(dragging)end(e);});
 }
 function doSwipe(action){
   if(!swQ.length)return;
@@ -1069,9 +1079,21 @@ function doSwipe(action){
   var card=document.querySelector('.sw-card:last-child');
   if(!card)return;
   var idx=LIB.findIndex(function(m){return (m.id||m.t)===(item.id||item.t);});
-  if(action==='yes'){card.classList.add('ar');if(idx>=0){if(swMode==='suggest'){LIB[idx].watchlist=true;LIB[idx].swiped=true;LIB[idx].swipedAt=Date.now();toast('Added "'+item.t+'" to watchlist! 📋');}else{LIB[idx].watched=true;LIB[idx].watchedAt=Date.now();LIB[idx].swipedSeen=true;toast('Marked "'+item.t+'" as watched! ✅');}}}
-  else if(action==='no'){card.classList.add('al');if(idx>=0){if(swMode==='suggest'){LIB[idx].swiped=true;LIB[idx].swipedAt=Date.now();}else{LIB[idx].swipedSeen=true;}}}
-  else if(action==='maybe'){card.classList.add('ar');if(idx>=0){LIB[idx].watchlist=true;if(swMode==='seen')LIB[idx].swipedSeen=true;}toast('Added "'+item.t+'" to watchlist! 👀');}
+  if(action==='yes'){
+    // Right = watched
+    card.classList.add('ar');
+    if(idx>=0){LIB[idx].watched=true;LIB[idx].watchedAt=Date.now();LIB[idx].swipedSeen=true;}
+    toast('Marked "'+item.t+'" as watched! ✅');
+  } else if(action==='no'){
+    // Left = not watched / skip
+    card.classList.add('al');
+    if(idx>=0){LIB[idx].swipedSeen=true;}
+  } else if(action==='maybe'){
+    // Up = add to watchlist
+    card.classList.add('ar');
+    if(idx>=0){LIB[idx].watchlist=true;LIB[idx].swipedSeen=true;}
+    toast('Added "'+item.t+'" to watchlist! 📋');
+  }
   sv('lib2',LIB);swQ.shift();updateSwProgress();setTimeout(function(){renderSw();},350);
 }
 
@@ -1166,7 +1188,26 @@ function openDet(key){
   sim.forEach(function(s){sc.appendChild(mkPC(s));});
   document.getElementById('det').classList.add('open');
 }
-function closeDet(){document.getElementById('det').classList.remove('open');curDet=null;renderHome();renderLib();}
+function closeDet(){
+  document.getElementById('det').classList.remove('open');
+  var fromSwipe = curDet && curDet._fromSwipe;
+  curDet=null;
+  if(fromSwipe){
+    // Return to swipe tab without rebuilding queue
+    document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
+    document.getElementById('sw-screen').classList.add('active');
+  } else {
+    renderHome();renderLib();
+  }
+}
+
+function openSwipeDetail(){
+  if(!swQ||!swQ.length)return;
+  var item=swQ[0];
+  var key=item.id||item.t;
+  openDet(key);
+  if(curDet)curDet._fromSwipe=true;
+}
 function togW(){if(!curDet)return;var idx=LIB.findIndex(function(m){return (m.id||m.t)===(curDet.id||curDet.t);});if(idx<0)return;LIB[idx].watched=!LIB[idx].watched;LIB[idx].watchedAt=LIB[idx].watched?Date.now():null;curDet=LIB[idx];sv('lib2',LIB);toast(LIB[idx].watched?'Marked as watched! ✓':'Removed from watched');openDet(curDet.id||curDet.t);renderHome();}
 function togWL(){if(!curDet)return;var idx=LIB.findIndex(function(m){return (m.id||m.t)===(curDet.id||curDet.t);});if(idx<0)return;LIB[idx].watchlist=!LIB[idx].watchlist;curDet=LIB[idx];sv('lib2',LIB);toast(LIB[idx].watchlist?'Added to watchlist! 📋':'Removed from watchlist');openDet(curDet.id||curDet.t);}
 
@@ -1316,6 +1357,11 @@ function goTab(tab){
   if(tab==='sw'){
     var startEl=document.getElementById('sw-start');
     if(startEl)startEl.style.display='';
+    document.getElementById('btns-main').style.display='none';
+    document.getElementById('sw-hint-bar').style.display='none';
+    document.getElementById('sw-progress-wrap').style.display='none';
+    document.getElementById('sw-area').querySelectorAll('.sw-card').forEach(function(c){c.remove();});
+    document.getElementById('sw-empty').style.display='none';
     buildQ();
     updateStartScreen();
   }
