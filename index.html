@@ -1594,13 +1594,21 @@ function renderNetflix(items) {
   hdr.innerHTML = '<div style="font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:4px;">Picked for you</div><div style="font-size:12px;color:var(--muted);">Based on your watch history · UK Netflix</div>';
   res.appendChild(hdr);
 
+  var renderIdx = 0;
   items.forEach(function(item, i) {
+    // Skip anything already in the library
+    var alreadyHave = LIB.some(function(m){
+      return normTitle(m.t) === normTitle(item.title);
+    });
+    if(alreadyHave) return;
+
     var card = document.createElement('div');
     card.style.cssText = 'background:var(--card);border-radius:14px;padding:16px;margin-bottom:12px;border:1px solid var(--border);';
+    renderIdx++;
 
     var imdbUrl = item.imdbId ? 'https://www.imdb.com/title/'+item.imdbId+'/' : 'https://www.imdb.com/find?q='+encodeURIComponent(item.title);
 
-    var watchedBtnId = 'nf-w-'+i;
+    var watchedBtnId = 'nf-w-'+i+'-'+Date.now();
     card.innerHTML =
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;">' +
         '<div style="flex:1;">' +
