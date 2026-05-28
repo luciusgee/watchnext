@@ -81,8 +81,10 @@ body{display:flex;flex-direction:column;}
 .sw-card{width:100%;max-width:340px;background:var(--bg2);border-radius:20px;overflow:hidden;position:absolute;box-shadow:0 20px 60px rgba(0,0,0,.8);border:1px solid var(--border);cursor:grab;user-select:none;}
 .sw-card.al{animation:swL .4s forwards;}
 .sw-card.ar{animation:swR .4s forwards;}
+.sw-card.au{animation:swU .4s forwards;}
 @keyframes swL{to{transform:translateX(-150%) rotate(-20deg);opacity:0;}}
 @keyframes swR{to{transform:translateX(150%) rotate(20deg);opacity:0;}}
+@keyframes swU{to{transform:translateY(-130%) scale(.8);opacity:0;}}
 .sw-post{width:100%;height:320px;position:relative;overflow:hidden;background:var(--card);}
 .sw-post img{width:100%;height:100%;object-fit:cover;display:block;}
 .sw-post-ph{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;background:linear-gradient(135deg,#1a1a2e,#0a0a18);}
@@ -1005,80 +1007,89 @@ function mkSwCard(item,interactive){
   return card;
 }
 function setupGesture(card,item){
-  var sx=0,sy=0,dragging=false,cx=0,cy=0,moved=false;
+  var startX=0,startY=0,curX=0,curY=0,tracking=false;
 
-  var start=function(x,y){
-    sx=x;sy=y;dragging=true;cx=0;cy=0;moved=false;
-  };
+  function onStart(x,y){
+    startX=x; startY=y; curX=0; curY=0; tracking=true;
+  }
 
-  var move=function(x,y){
-    if(!dragging)return;
-    cx=x-sx;cy=y-sy;
-    if(Math.abs(cx)>10||Math.abs(cy)>10)moved=true;
-    if(!moved)return;
-    if(Math.abs(cy)>Math.abs(cx)&&cy<-30&&swMode==='seen'){
-      card.style.transform='translateY('+cy+'px) scale('+(1+Math.min(-cy/500,.05))+')';
+  function onMove(x,y){
+    if(!tracking)return;
+    curX=x-startX;
+    curY=y-startY;
+    var indY=card.querySelector('.ind-y');
+    var indN=card.querySelector('.ind-n');
+    var indU=card.querySelector('.ind-up');
+    // Decide dominant direction
+    if(Math.abs(curY)>Math.abs(curX)&&curY<0){
+      // Moving up
+      card.style.transform='translateY('+curY+'px)';
       card.style.transition='none';
-      var u=card.querySelector('.ind-up');if(u)u.style.opacity=Math.min((-cy-30)/80,1);
-      card.querySelectorAll('.ind-y,.ind-n').forEach(function(i){i.style.opacity=0;});
+      if(indU)indU.style.opacity=Math.min((-curY-20)/60,1);
+      if(indY)indY.style.opacity=0;
+      if(indN)indN.style.opacity=0;
     } else {
-      card.style.transform='translateX('+cx+'px) rotate('+(cx*.08)+'deg)';
+      // Moving left/right
+      card.style.transform='translateX('+curX+'px) rotate('+(curX*0.08)+'deg)';
       card.style.transition='none';
-      var yi=card.querySelector('.ind-y'),ni=card.querySelector('.ind-n'),ui=card.querySelector('.ind-up');
-      if(ui)ui.style.opacity=0;
-      if(cx>30){yi.style.opacity=Math.min((cx-30)/80,1);ni.style.opacity=0;}
-      else if(cx<-30){ni.style.opacity=Math.min((-cx-30)/80,1);yi.style.opacity=0;}
-      else{yi.style.opacity=0;ni.style.opacity=0;}
+      if(indU)indU.style.opacity=0;
+      if(curX>30){
+        if(indY)indY.style.opacity=Math.min((curX-30)/80,1);
+        if(indN)indN.style.opacity=0;
+      } else if(curX<-30){
+        if(indN)indN.style.opacity=Math.min((-curX-30)/80,1);
+        if(indY)indY.style.opacity=0;
+      } else {
+        if(indY)indY.style.opacity=0;
+        if(indN)indN.style.opacity=0;
+      }
     }
-  };
+  }
 
-  var end=function(e){
-    if(!dragging)return;
-    dragging=false;
+  function onEnd(){
+    if(!tracking)return;
+    tracking=false;
     card.style.transition='';
-    if(!moved){
-      // It was a tap - let native click handle it
-      cx=0;cy=0;
+    var movedEnough=Math.abs(curX)>8||Math.abs(curY)>8;
+    if(!movedEnough){
+      card.style.transform='';
       return;
     }
-    if(cy<-80&&Math.abs(cy)>Math.abs(cx)){
+    if(Math.abs(curY)>Math.abs(curX)&&curY<-70){
       doSwipe('maybe');
-    } else if(cx>80){
+    } else if(curX>80){
       doSwipe('yes');
-    } else if(cx<-80){
+    } else if(curX<-80){
       doSwipe('no');
     } else {
+      // Snap back
+      card.style.transition='transform 0.3s ease';
       card.style.transform='';
       card.querySelectorAll('.sw-ind,.ind-up').forEach(function(i){i.style.opacity=0;});
     }
-    cx=0;cy=0;
-  };
+    curX=0; curY=0;
+  }
 
-  // Use touchstart on card but NOT preventDefault so links still work
   card.addEventListener('touchstart',function(e){
-    // Don't capture if touch started on a link
-    if(e.target.tagName==='A'){return;}
-    start(e.touches[0].clientX,e.touches[0].clientY);
+    if(e.target.tagName==='A'||e.target.tagName==='BUTTON')return;
+    onStart(e.touches[0].clientX,e.touches[0].clientY);
   },{passive:true});
 
   card.addEventListener('touchmove',function(e){
-    if(!dragging)return;
-    move(e.touches[0].clientX,e.touches[0].clientY);
+    onMove(e.touches[0].clientX,e.touches[0].clientY);
   },{passive:true});
 
-  card.addEventListener('touchend',function(e){
-    if(!dragging)return;
-    end(e);
-  },{passive:true});
+  card.addEventListener('touchend',onEnd,{passive:true});
 
-  // Mouse support for desktop testing
   card.addEventListener('mousedown',function(e){
-    if(e.target.tagName==='A')return;
-    start(e.clientX,e.clientY);
+    if(e.target.tagName==='A'||e.target.tagName==='BUTTON')return;
+    onStart(e.clientX,e.clientY);
   });
-  window.addEventListener('mousemove',function(e){if(dragging)move(e.clientX,e.clientY);});
-  window.addEventListener('mouseup',function(e){if(dragging)end(e);});
+  window.addEventListener('mousemove',function(e){if(tracking)onMove(e.clientX,e.clientY);});
+  window.addEventListener('mouseup',function(){if(tracking)onEnd();});
 }
+
+
 function doSwipe(action){
   if(!swQ.length)return;
   var item=swQ[0];
@@ -1096,7 +1107,7 @@ function doSwipe(action){
     if(idx>=0){LIB[idx].swipedSeen=true;}
   } else if(action==='maybe'){
     // Up = add to watchlist
-    card.classList.add('ar');
+    card.classList.add('au');
     if(idx>=0){LIB[idx].watchlist=true;LIB[idx].swipedSeen=true;}
     toast('Added "'+item.t+'" to watchlist! 📋');
   }
