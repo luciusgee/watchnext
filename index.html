@@ -977,17 +977,27 @@ function mkSwCard(item,interactive){
   var swEm=document.createElement('div');swEm.style.cssText='font-size:64px;margin-bottom:12px;';swEm.textContent=item.tp==='tv'?'📺':ge(item.g);
   var swTitle=document.createElement('div');swTitle.style.cssText='font-size:20px;font-weight:900;color:#fff;margin-bottom:8px;padding:0 16px;text-align:center;line-height:1.3;';swTitle.textContent=item.t;
   var swRt=fmtRT(item.id);
-  var swMeta=document.createElement('div');swMeta.style.cssText='display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-bottom:10px;';
+  var swMeta=document.createElement('div');swMeta.style.cssText='display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:10px;';
+  // Year - always show
+  swMeta.innerHTML+='<span style="background:rgba(255,255,255,.12);color:#e2e8f0;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;">'+item.y+'</span>';
+  // Rating
   if(item.r)swMeta.innerHTML+='<span style="background:rgba(251,191,36,.2);color:#fbbf24;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;">★ '+item.r+'</span>';
-  if(swRt)swMeta.innerHTML+='<span style="background:rgba(255,255,255,.1);color:#ccc;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;">⏱ '+swRt+'</span>';
+  // Runtime
+  if(swRt)swMeta.innerHTML+='<span style="background:rgba(255,255,255,.08);color:#ccc;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;">⏱ '+swRt+'</span>';
+  // Genre
   swMeta.innerHTML+='<span style="background:rgba(124,58,237,.2);color:#a855f7;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;">'+item.g+'</span>';
+  // 4K badge
   if(item.q==='4K')swMeta.innerHTML+='<span style="background:rgba(6,182,212,.2);color:#06b6d4;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;">4K</span>';
+  // Watched status
+  if(item.watched)swMeta.innerHTML+='<span style="background:rgba(16,185,129,.2);color:#10b981;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;">✓ Watched</span>';
+  if(item.watchlist&&!item.watched)swMeta.innerHTML+='<span style="background:rgba(124,58,237,.15);color:#a855f7;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;">📋 Watchlist</span>';
   var swImdb=document.createElement('a');
   if(item.id){swImdb.href='https://www.imdb.com/title/'+item.id+'/';swImdb.target='_blank';swImdb.style.cssText='color:#fbbf24;font-size:11px;font-weight:700;text-decoration:none;padding:3px 10px;border-radius:6px;background:rgba(251,191,36,.15);margin-right:6px;';swImdb.textContent='IMDb ↗';swImdb.onclick=function(e){e.stopPropagation();};}
   var swTrailer=document.createElement('a');swTrailer.href='https://www.youtube.com/results?search_query='+encodeURIComponent(item.t+' '+item.y+' official trailer');swTrailer.target='_blank';swTrailer.style.cssText='color:#f87171;font-size:11px;font-weight:700;text-decoration:none;padding:3px 10px;border-radius:6px;background:rgba(239,68,68,.15);';swTrailer.textContent='▶ Trailer';swTrailer.onclick=function(e){e.stopPropagation();};
   var swLinks=document.createElement('div');swLinks.style.cssText='display:flex;gap:6px;justify-content:center;margin-top:6px;';
   if(item.id)swLinks.appendChild(swImdb);swLinks.appendChild(swTrailer);
-  ph.appendChild(swEm);ph.appendChild(swTitle);ph.appendChild(swMeta);ph.appendChild(swLinks);
+  
+ph.appendChild(swEm);ph.appendChild(swTitle);ph.appendChild(swMeta);ph.appendChild(swLinks);
   var grad=document.createElement('div');grad.className='sw-grad';
   post.appendChild(ph);post.appendChild(grad);
   var indY=document.createElement('div');indY.className='sw-ind ind-y';indY.textContent='✅ WATCHED';
