@@ -505,6 +505,9 @@ input.srch:focus{border-color:var(--accent);}
       <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:12px;">Seasons</div>
       <div id="det-seasons"></div>
     </div>
+    <div style="margin-bottom:20px;">
+      <button id="det-remove-btn" onclick="removeFromLibrary()" style="width:100%;padding:13px;border-radius:12px;background:rgba(239,68,68,.08);color:var(--red);border:1px solid rgba(239,68,68,.2);font-size:13px;font-weight:700;cursor:pointer;">🗑 Remove from Library</button>
+    </div>
     <div class="det-sim">Similar in your library</div>
     <div class="hs" id="det-sim-cards"></div>
   </div>
@@ -513,9 +516,14 @@ input.srch:focus{border-color:var(--accent);}
 <!-- WATCHLIST -->
 <div id="wl">
   <div class="sb-pad"></div>
-  <div class="nav"><button class="nav-btn" onclick="closeWL()">←</button><div class="nav-title">My Watchlist</div><button class="nav-btn" onclick="goTab('settings')" style="font-size:13px">⚙️</button></div>
+  <div class="nav"><button class="nav-btn" onclick="closeWL()">←</button><div class="nav-title">My Watchlist</div><button class="nav-btn" onclick="toggleActivityLog()" style="font-size:13px;">📋</button><button class="nav-btn" onclick="goTab('settings')" style="font-size:13px">⚙️</button></div>
 
-  <div class="scroll" id="wl-body"></div>
+  <div class="scroll" id="wl-body">
+    <div id="activity-section" style="display:none;padding:16px 16px 0;">
+      <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:12px;">📋 Recent Activity</div>
+      <div id="activity-log-list"></div>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -813,6 +821,19 @@ if(!LIB||!Array.isArray(LIB)||LIB.length===0){
 }
 
 let curFilter='All',libFG='All',swMode='suggest',swQ=[],curDet=null;
+
+function showUndoToast(msg, undoCb){
+  var t = document.getElementById('toast');
+  t.innerHTML = '';
+  var span = document.createElement('span'); span.textContent = msg;
+  var btn = document.createElement('button');
+  btn.textContent = 'Undo';
+  btn.style.cssText = 'margin-left:12px;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,.2);color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;';
+  btn.onclick = function(){ t.classList.remove('show'); if(undoCb)undoCb(); };
+  t.appendChild(span); t.appendChild(btn);
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); t.innerHTML=''; }, 4000);
+}
 
 function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show');},2500);}
 
@@ -1217,6 +1238,21 @@ function openDet(key){
   sim.forEach(function(s){sc.appendChild(mkPC(s));});
   document.getElementById('det').classList.add('open');
 }
+function removeFromLibrary(){
+  if(!curDet) return;
+  showModal('Remove "'+curDet.t+'"','This will remove it from your library completely. You can restore it from the activity log.','Remove','rgba(239,68,68,.9)',function(){
+    var idx=LIB.findIndex(function(m){return (m.id||m.t)===(curDet.id||curDet.t);});
+    if(idx<0) return;
+    logActivity('removed', LIB[idx]);
+    LIB.splice(idx,1);
+    sv('lib2',LIB);
+    toast(curDet.t+' removed from library');
+    closeDet();
+    renderHome();
+    renderLib();
+  });
+}
+
 function closeDet(){
   document.getElementById('det').classList.remove('open');
   var fromSwipe = curDet && curDet._fromSwipe;
@@ -1237,8 +1273,19 @@ function openSwipeDetail(){
   openDet(key);
   if(curDet)curDet._fromSwipe=true;
 }
-function togW(){if(!curDet)return;var idx=LIB.findIndex(function(m){return (m.id||m.t)===(curDet.id||curDet.t);});if(idx<0)return;LIB[idx].watched=!LIB[idx].watched;LIB[idx].watchedAt=LIB[idx].watched?Date.now():null;curDet=LIB[idx];sv('lib2',LIB);toast(LIB[idx].watched?'Marked as watched! ✓':'Removed from watched');openDet(curDet.id||curDet.t);renderHome();}
-function togWL(){if(!curDet)return;var idx=LIB.findIndex(function(m){return (m.id||m.t)===(curDet.id||curDet.t);});if(idx<0)return;LIB[idx].watchlist=!LIB[idx].watchlist;curDet=LIB[idx];sv('lib2',LIB);toast(LIB[idx].watchlist?'Added to watchlist! 📋':'Removed from watchlist');openDet(curDet.id||curDet.t);}
+function togW(){if(!curDet)return;var idx=LIB.findIndex(function(m){return (m.id||m.t)===(curDet.id||curDet.t);});if(idx<0)return;
+  var wasWatched = LIB[idx].watched;
+  LIB[idx].watched=!wasWatched;LIB[idx].watchedAt=LIB[idx].watched?Date.now():null;
+  curDet=LIB[idx];sv('lib2',LIB);
+  logActivity(wasWatched?'unwatched':'watched', LIB[idx]);
+  toast(LIB[idx].watched?'Marked as watched! ✓':'Removed from watched');
+  openDet(curDet.id||curDet.t);renderHome();}
+function togWL(){if(!curDet)return;var idx=LIB.findIndex(function(m){return (m.id||m.t)===(curDet.id||curDet.t);});if(idx<0)return;
+  var wasInWL = LIB[idx].watchlist;
+  LIB[idx].watchlist=!wasInWL;curDet=LIB[idx];sv('lib2',LIB);
+  logActivity(wasInWL?'watchlist_remove':'watchlist_add', LIB[idx]);
+  toast(LIB[idx].watchlist?'Added to watchlist! 📋':'Removed from watchlist');
+  openDet(curDet.id||curDet.t);}
 
 // ── WATCHLIST ──
 function openWL(){
@@ -1267,6 +1314,13 @@ function openWL(){
   document.getElementById('wl').classList.add('open');
 }
 function closeWL(){document.getElementById('wl').classList.remove('open');}
+function toggleActivityLog(){
+  var sec = document.getElementById('activity-section');
+  if(!sec) return;
+  var showing = sec.style.display !== 'none';
+  if(showing){ sec.style.display='none'; openWL(); }
+  else { sec.style.display=''; renderActivityLog(); }
+}
 
 // ── ADD ──
 function goAdd(){goTab('add');}
@@ -1363,6 +1417,58 @@ function openSettings(){
 }
 
 var TV_INFO={"tt0944947": {"seasons": [{"s": 1, "ep": 10, "name": "Season 1"}, {"s": 2, "ep": 10, "name": "Season 2"}, {"s": 3, "ep": 10, "name": "Season 3"}, {"s": 4, "ep": 10, "name": "Season 4"}, {"s": 5, "ep": 10, "name": "Season 5"}, {"s": 6, "ep": 10, "name": "Season 6"}, {"s": 7, "ep": 7, "name": "Season 7"}, {"s": 8, "ep": 6, "name": "Season 8"}], "totalEp": 73, "imdbBase": "tt0944947"}, "tt3581920": {"seasons": [{"s": 1, "ep": 9, "name": "Season 1"}, {"s": 2, "ep": 7, "name": "Season 2"}], "totalEp": 16, "imdbBase": "tt3581920"}, "tt0141842": {"seasons": [{"s": 1, "ep": 13, "name": "Season 1"}, {"s": 2, "ep": 13, "name": "Season 2"}, {"s": 3, "ep": 13, "name": "Season 3"}, {"s": 4, "ep": 13, "name": "Season 4"}, {"s": 5, "ep": 13, "name": "Season 5"}, {"s": 6, "ep": 21, "name": "Season 6"}], "totalEp": 86, "imdbBase": "tt0141842"}, "tt0306414": {"seasons": [{"s": 1, "ep": 13, "name": "Season 1"}, {"s": 2, "ep": 12, "name": "Season 2"}, {"s": 3, "ep": 12, "name": "Season 3"}, {"s": 4, "ep": 13, "name": "Season 4"}, {"s": 5, "ep": 10, "name": "Season 5"}], "totalEp": 60, "imdbBase": "tt0306414"}, "tt2802850": {"seasons": [{"s": 1, "ep": 10, "name": "Season 1"}], "totalEp": 10, "imdbBase": "tt2802850"}, "tt23549418": {"seasons": [{"s": 1, "ep": 3, "name": "Season 1"}], "totalEp": 3, "imdbBase": "tt23549418"}, "tt14182806": {"seasons": [{"s": 1, "ep": 7, "name": "Season 1"}], "totalEp": 7, "imdbBase": "tt14182806"}, "tt9656978": {"seasons": [{"s": 1, "ep": 5, "name": "Season 1"}, {"s": 2, "ep": 5, "name": "Season 2"}, {"s": 3, "ep": 5, "name": "Season 3"}, {"s": 4, "ep": 5, "name": "Season 4"}], "totalEp": 20, "imdbBase": "tt9656978"}, "tt3794028": {"seasons": [{"s": 1, "ep": 10, "name": "Miniseries"}], "totalEp": 10, "imdbBase": "tt3794028"}, "tt1628033": {"seasons": [{"s": 1, "ep": 4, "name": "Bolivia/Vietnam/Middle East/Patagonia"}, {"s": 2, "ep": 4, "name": "India/Africa/USA/Arctic"}, {"s": 3, "ep": 4, "name": "Australia/Burma/Scotland/Finale"}], "totalEp": 12, "imdbBase": "tt1628033"}};
+
+// ── ACTIVITY LOG ──
+var ACT_KEY = 'wn_activity';
+function getActivity(){ try{ return JSON.parse(localStorage.getItem(ACT_KEY)||'[]'); }catch(e){return [];} }
+function logActivity(type, item, extra){
+  var acts = getActivity();
+  acts.unshift({ type:type, t:item.t, id:item.id||null, g:item.g||'Other', y:item.y||0, r:item.r||null, q:item.q||'unlisted', tp:item.tp||'movie', d:item.d||'', extra:extra||null, ts:Date.now() });
+  acts = acts.slice(0,50); // keep last 50
+  localStorage.setItem(ACT_KEY, JSON.stringify(acts));
+}
+function undoActivity(idx){
+  var acts = getActivity();
+  var act = acts[idx];
+  if(!act) return;
+  var libIdx = LIB.findIndex(function(m){ return (m.id&&m.id===act.id)||(m.t===act.t); });
+  if(act.type==='watched'){ if(libIdx>=0){LIB[libIdx].watched=false;LIB[libIdx].watchedAt=null;} }
+  else if(act.type==='unwatched'){ if(libIdx>=0){LIB[libIdx].watched=true;LIB[libIdx].watchedAt=Date.now();} }
+  else if(act.type==='watchlist_add'){ if(libIdx>=0)LIB[libIdx].watchlist=false; }
+  else if(act.type==='watchlist_remove'){ if(libIdx>=0)LIB[libIdx].watchlist=true; }
+  else if(act.type==='added'){ if(libIdx>=0)LIB.splice(libIdx,1); }
+  else if(act.type==='removed'){
+    LIB.push({id:act.id,t:act.t,g:act.g,y:act.y,r:act.r,q:act.q,tp:act.tp,d:act.d,
+      watched:false,watchlist:false,swiped:false,swipedAt:null,addedAt:Date.now()});
+  }
+  acts.splice(idx,1);
+  localStorage.setItem(ACT_KEY, JSON.stringify(acts));
+  sv('lib2',LIB);
+  toast('Undone!');
+  renderHome();
+  renderActivityLog();
+}
+function renderActivityLog(){
+  var el = document.getElementById('activity-log-list');
+  if(!el) return;
+  var acts = getActivity();
+  if(!acts.length){ el.innerHTML='<div style="color:var(--muted);font-size:13px;padding:10px 0">No recent activity</div>'; return; }
+  el.innerHTML='';
+  acts.slice(0,20).forEach(function(act, i){
+    var icons = {watched:'✅',unwatched:'○',watchlist_add:'📋',watchlist_remove:'✕',added:'➕',removed:'🗑'};
+    var labels = {watched:'Marked watched',unwatched:'Marked unwatched',watchlist_add:'Added to watchlist',watchlist_remove:'Removed from watchlist',added:'Added to library',removed:'Removed from library'};
+    var row = document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:12px;padding:12px;background:var(--card);border-radius:12px;margin-bottom:8px;border:1px solid var(--border);';
+    var ago = Math.round((Date.now()-act.ts)/60000);
+    var agoStr = ago<1?'just now':ago<60?ago+'m ago':Math.round(ago/60)+'h ago';
+    row.innerHTML='<div style="font-size:20px;">'+( icons[act.type]||'•')+'</div>'+
+      '<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+act.t+'</div>'+
+      '<div style="font-size:11px;color:var(--muted);margin-top:2px;">'+(labels[act.type]||act.type)+' · '+agoStr+'</div></div>'+
+      '<button style="padding:6px 12px;border-radius:8px;background:rgba(124,58,237,.15);color:var(--accent2);border:1px solid rgba(124,58,237,.3);font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;">Undo</button>';
+    row.querySelector('button').onclick = (function(ii){ return function(){ undoActivity(ii); }; })(i);
+    el.appendChild(row);
+  });
+}
 
 // ── CUSTOM MODAL ──
 function showModal(title, msg, confirmLabel, confirmColor, onConfirm){
@@ -1522,32 +1628,40 @@ function renderNetflix(items) {
       var btn = card.querySelector('#'+btnId);
       if(btn) btn.onclick = function(){
         var existing = LIB.find(function(m){ return m.t.toLowerCase()===title.toLowerCase(); });
-        if(existing){
-          var idx2 = LIB.indexOf(existing);
-          LIB[idx2].watched = true; LIB[idx2].watchedAt = Date.now();
-        } else {
-          LIB.push({id:null,t:title,tp:'movie',y:year,r:null,g:genre,d:'',q:'unlisted',
-            watched:true,watchedAt:Date.now(),watchlist:false,swiped:false,swipedAt:null,addedAt:Date.now()});
-        }
+        var libIdx2 = -1;
+        if(existing){ libIdx2=LIB.indexOf(existing); LIB[libIdx2].watched=true; LIB[libIdx2].watchedAt=Date.now(); }
+        else{ LIB.push({id:null,t:title,tp:'movie',y:year,r:null,g:genre,d:'',q:'unlisted',watched:true,watchedAt:Date.now(),watchlist:false,swiped:false,swipedAt:null,addedAt:Date.now()});libIdx2=LIB.length-1; }
+        logActivity('watched', LIB[libIdx2]);
         sv('lib2',LIB);
-        btn.textContent = '✅ Watched!'; btn.style.background='rgba(16,185,129,.3)'; btn.disabled=true;
-        var wlBtn=card.querySelector('#'+btnId+'-wl'); if(wlBtn){wlBtn.disabled=true;}
-        toast(title+' marked as watched!');
+        // Animate card out
+        card.style.transition='all 0.4s ease';card.style.opacity='0';card.style.maxHeight=card.offsetHeight+'px';
+        setTimeout(function(){card.style.maxHeight='0';card.style.padding='0';card.style.margin='0';},400);
+        setTimeout(function(){card.style.display='none';},800);
+        showUndoToast(title+' marked as watched!', function(){
+          var acts=getActivity(); var ai=acts.findIndex(function(a){return a.type==='watched'&&a.t===title;});
+          if(ai>=0)undoActivity(ai);
+          card.style.cssText='background:var(--card);border-radius:14px;padding:16px;margin-bottom:12px;border:1px solid var(--border);';
+        });
       };
       // Watchlist button
       var wlBtn = card.querySelector('#'+btnId+'-wl');
       if(wlBtn) wlBtn.onclick = function(){
         var existing = LIB.find(function(m){ return m.t.toLowerCase()===title.toLowerCase(); });
-        if(existing){
-          var idx2 = LIB.indexOf(existing);
-          LIB[idx2].watchlist = true;
-        } else {
-          LIB.push({id:null,t:title,tp:'movie',y:year,r:null,g:genre,d:'',q:'unlisted',
-            watched:false,watchedAt:null,watchlist:true,swiped:false,swipedAt:null,addedAt:Date.now()});
-        }
+        var libIdx2 = -1;
+        if(existing){ libIdx2=LIB.indexOf(existing); LIB[libIdx2].watchlist=true; }
+        else{ LIB.push({id:null,t:title,tp:'movie',y:year,r:null,g:genre,d:'',q:'unlisted',watched:false,watchedAt:null,watchlist:true,swiped:false,swipedAt:null,addedAt:Date.now()});libIdx2=LIB.length-1; }
+        logActivity('watchlist_add', LIB[libIdx2]);
         sv('lib2',LIB);
-        wlBtn.textContent='📋 Added!'; wlBtn.style.background='rgba(124,58,237,.3)'; wlBtn.disabled=true;
-        toast(title+' added to watchlist!');
+        // Animate card out
+        card.style.transition='all 0.4s ease';card.style.opacity='0';card.style.maxHeight=card.offsetHeight+'px';
+        setTimeout(function(){card.style.maxHeight='0';card.style.padding='0';card.style.margin='0';},400);
+        setTimeout(function(){card.style.display='none';},800);
+        // Undo toast
+        showUndoToast(title+' added to watchlist!', function(){
+          var acts=getActivity(); var ai=acts.findIndex(function(a){return a.type==='watchlist_add'&&a.t===title;});
+          if(ai>=0)undoActivity(ai);
+          card.style.cssText='background:var(--card);border-radius:14px;padding:16px;margin-bottom:12px;border:1px solid var(--border);';
+        });
       };
       // Set initial state based on library
       var inLib = LIB.find(function(m){ return m.t.toLowerCase()===title.toLowerCase(); });
