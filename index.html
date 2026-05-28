@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -205,7 +207,7 @@ input.srch:focus{border-color:var(--accent);}
 <!-- HOME -->
 <div id="home" class="screen active">
   <div class="sb-pad"></div>
-  <div class="nav"><div style="width:36px"></div><div class="nav-logo">Watch Next</div><button class="nav-btn" onclick="goAdd()">＋</button></div>
+  <div class="nav"><button class="nav-btn" onclick="goTab('settings')">⚙️</button><div class="nav-logo">Watch Next</div><button class="nav-btn" onclick="goAdd()">＋</button></div>
   <div class="scroll">
     <div class="hero-band"><div class="hb-in">
       <div class="hb-greet">Hey Luke 👋</div>
@@ -407,6 +409,58 @@ input.srch:focus{border-color:var(--accent);}
   </div>
 </div>
 
+<!-- SETTINGS -->
+<div id="settings-screen" class="screen">
+  <div class="sb-pad"></div>
+  <div class="nav"><button class="nav-btn" onclick="goTab('home')">←</button><div class="nav-title">Settings</div><div style="width:36px"></div></div>
+  <div class="scroll" style="padding:20px;">
+
+    <!-- API KEY -->
+    <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">🤖 AI Features</div>
+    <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);margin-bottom:20px;">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:10px;">Anthropic API Key — used for AI movie picker and Netflix suggestions. Get a free key at console.anthropic.com</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <input id="s-api-key" type="password" placeholder="sk-ant-..." style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:13px;font-family:-apple-system,sans-serif;outline:none;">
+        <button onclick="saveAPIKeySettings()" style="padding:10px 16px;border-radius:10px;background:var(--accent);color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">Save</button>
+      </div>
+      <div id="s-api-status" style="font-size:12px;color:var(--muted);"></div>
+    </div>
+
+    <!-- DATA -->
+    <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">💾 Data</div>
+    <div style="background:var(--card);border-radius:14px;border:1px solid var(--border);overflow:hidden;margin-bottom:20px;">
+      <button onclick="exportData()" style="width:100%;padding:16px;background:transparent;color:var(--text);border:none;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;"><span style="font-size:20px;">📤</span><div><div>Export My Data</div><div style="font-size:12px;color:var(--muted);font-weight:400;margin-top:2px;">Save a backup of your library and watch history</div></div></button>
+      <button onclick="importData()" style="width:100%;padding:16px;background:transparent;color:var(--text);border:none;font-size:14px;font-weight:600;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;"><span style="font-size:20px;">📥</span><div><div>Import / Restore</div><div style="font-size:12px;color:var(--muted);font-weight:400;margin-top:2px;">Restore from a backup file</div></div></button>
+      <input type="file" id="import-file" accept=".json" style="display:none" onchange="handleImport(event)">
+    </div>
+
+    <!-- RESET -->
+    <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">⚠️ Reset</div>
+    <div style="background:var(--card);border-radius:14px;border:1px solid var(--border);overflow:hidden;margin-bottom:20px;">
+      <button onclick="clearWatchlist()" style="width:100%;padding:16px;background:transparent;color:var(--text);border:none;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;"><span style="font-size:20px;">📋</span><div><div>Clear Watchlist</div><div style="font-size:12px;color:var(--muted);font-weight:400;margin-top:2px;">Remove all items from your watchlist</div></div></button>
+      <button onclick="clearWatched()" style="width:100%;padding:16px;background:transparent;color:var(--text);border:none;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;"><span style="font-size:20px;">👁</span><div><div>Clear Watch History</div><div style="font-size:12px;color:var(--muted);font-weight:400;margin-top:2px;">Mark all films as unwatched</div></div></button>
+      <button onclick="resetSwipes()" style="width:100%;padding:16px;background:transparent;color:var(--text);border:none;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;"><span style="font-size:20px;">👆</span><div><div>Reset Swipe History</div><div style="font-size:12px;color:var(--muted);font-weight:400;margin-top:2px;">Show all films again in Discover</div></div></button>
+      <button onclick="resetAll()" style="width:100%;padding:16px;background:transparent;color:#ef4444;border:none;font-size:14px;font-weight:600;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;"><span style="font-size:20px;">🗑</span><div><div>Reset Everything</div><div style="font-size:12px;color:var(--muted);font-weight:400;margin-top:2px;">Clear all activity — watched, watchlist, swipes</div></div></button>
+    </div>
+
+    <!-- ABOUT -->
+    <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">ℹ️ About</div>
+    <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);margin-bottom:20px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px;">Watch Next</div>
+      <div id="s-lib-count" style="font-size:13px;color:var(--muted);"></div>
+    </div>
+
+    <div style="height:20px;"></div>
+  </div>
+  <div class="bnav">
+    <button class="bnb" onclick="goTab('home')"><span class="ico">🏠</span>Home</button>
+    <button class="bnb" onclick="goTab('sw')"><span class="ico">👆</span>Discover</button>
+    <button class="bnb" onclick="goTab('lib')"><span class="ico">🎬</span>Library</button>
+    <button class="bnb" onclick="goTab('nf')"><span class="ico">🎯</span>Netflix</button>
+    <button class="bnb" onclick="goTab('ai')"><span class="ico">🤖</span>Pick</button>
+  </div>
+</div>
+
 <!-- DETAIL -->
 <div id="det">
   <div class="det-hdr" id="det-hdr"><div class="det-ph" id="det-ph"></div><div class="det-grad"></div><button class="det-back" onclick="closeDet()">←</button></div>
@@ -429,16 +483,8 @@ input.srch:focus{border-color:var(--accent);}
 <!-- WATCHLIST -->
 <div id="wl">
   <div class="sb-pad"></div>
-  <div class="nav"><button class="nav-btn" onclick="closeWL()">←</button><div class="nav-title">My Watchlist</div><button class="nav-btn" onclick="showManage()" style="font-size:13px">⚙️</button></div>
-  <div id="manage-panel" style="display:none;padding:12px 16px;background:var(--bg3);border-bottom:1px solid var(--border);flex-shrink:0;gap:8px;display:none;flex-direction:column;">
-    <button onclick="clearWatchlist()" style="width:100%;padding:12px;border-radius:10px;background:rgba(251,191,36,.1);color:var(--yellow);border:1px solid rgba(251,191,36,.2);font-size:13px;font-weight:700;cursor:pointer;">📋 Clear Watchlist</button>
-    <button onclick="clearWatched()" style="width:100%;padding:12px;border-radius:10px;background:rgba(239,68,68,.1);color:var(--red);border:1px solid rgba(239,68,68,.2);font-size:13px;font-weight:700;cursor:pointer;">✕ Clear Watch History</button>
-    <button onclick="resetAll()" style="width:100%;padding:12px;border-radius:10px;background:rgba(255,255,255,.05);color:var(--muted);border:1px solid rgba(255,255,255,.1);font-size:13px;font-weight:700;cursor:pointer;">↺ Reset All Activity</button>
-    <div style="height:1px;background:var(--border);margin:4px 0;"></div>
-    <button onclick="exportData()" style="width:100%;padding:12px;border-radius:10px;background:rgba(6,182,212,.1);color:var(--cyan);border:1px solid rgba(6,182,212,.2);font-size:13px;font-weight:700;cursor:pointer;">📤 Export My Data</button>
-    <button onclick="importData()" style="width:100%;padding:12px;border-radius:10px;background:rgba(16,185,129,.1);color:var(--green);border:1px solid rgba(16,185,129,.2);font-size:13px;font-weight:700;cursor:pointer;">📥 Import / Restore Data</button>
-    <input type="file" id="import-file" accept=".json" style="display:none" onchange="handleImport(event)">
-  </div>
+  <div class="nav"><button class="nav-btn" onclick="closeWL()">←</button><div class="nav-title">My Watchlist</div><button class="nav-btn" onclick="goTab('settings')" style="font-size:13px">⚙️</button></div>
+
   <div class="scroll" id="wl-body"></div>
 </div>
 
@@ -1020,7 +1066,6 @@ function openWL(){
   document.getElementById('wl').classList.add('open');
 }
 function closeWL(){document.getElementById('wl').classList.remove('open');}
-function showManage(){var p=document.getElementById('manage-panel');p.style.display=p.style.display==='none'?'flex':'none';}
 
 // ── ADD ──
 function goAdd(){goTab('add');}
@@ -1105,10 +1150,22 @@ function addDetBtn(container,label,bg,color,border,fn){var b=document.createElem
 function clearWatchlist(){if(confirm('Remove all items from watchlist?')){LIB.forEach(function(m,i){LIB[i].watchlist=false;});sv('lib2',LIB);toast('Watchlist cleared');openWL();}}
 function clearWatched(){if(confirm('Clear all watched history?')){LIB.forEach(function(m,i){LIB[i].watched=false;LIB[i].watchedAt=null;});sv('lib2',LIB);toast('Watch history cleared');renderHome();openWL();}}
 function resetAll(){if(confirm('Reset everything? This clears all watched, watchlist and swipe history.')){LIB.forEach(function(m,i){LIB[i].watched=false;LIB[i].watchedAt=null;LIB[i].watchlist=false;LIB[i].swiped=false;LIB[i].swipedAt=null;});sv('lib2',LIB);toast('All data reset');renderHome();}}
+function resetSwipes(){if(confirm('Reset all swipe history? Films will reappear in Discover.')){LIB.forEach(function(m,i){LIB[i].swiped=false;LIB[i].swipedAt=null;});sv('lib2',LIB);toast('Swipe history reset!');}}
+function saveAPIKeySettings(){var k=document.getElementById('s-api-key').value.trim();if(!k){toast('Please enter a key');return;}localStorage.setItem('wn_apikey',k);document.getElementById('s-api-status').textContent='Key saved ✓';document.getElementById('s-api-status').style.color='var(--green)';toast('API key saved! ✓');}
+function openSettings(){
+  var k=getAPIKey();
+  var inp=document.getElementById('s-api-key');
+  if(inp&&k)inp.value=k;
+  var st=document.getElementById('s-api-status');
+  if(st)st.textContent=k?'Key is set ✓':'No key set — AI features disabled';
+  if(st)st.style.color=k?'var(--green)':'var(--muted)';
+  var lc=document.getElementById('s-lib-count');
+  if(lc)lc.textContent=LIB.length+' titles · '+LIB.filter(function(m){return m.watched;}).length+' watched · '+LIB.filter(function(m){return m.watchlist;}).length+' in watchlist';
+}
 
 var TV_INFO={"tt0944947": {"seasons": [{"s": 1, "ep": 10, "name": "Season 1"}, {"s": 2, "ep": 10, "name": "Season 2"}, {"s": 3, "ep": 10, "name": "Season 3"}, {"s": 4, "ep": 10, "name": "Season 4"}, {"s": 5, "ep": 10, "name": "Season 5"}, {"s": 6, "ep": 10, "name": "Season 6"}, {"s": 7, "ep": 7, "name": "Season 7"}, {"s": 8, "ep": 6, "name": "Season 8"}], "totalEp": 73, "imdbBase": "tt0944947"}, "tt3581920": {"seasons": [{"s": 1, "ep": 9, "name": "Season 1"}, {"s": 2, "ep": 7, "name": "Season 2"}], "totalEp": 16, "imdbBase": "tt3581920"}, "tt0141842": {"seasons": [{"s": 1, "ep": 13, "name": "Season 1"}, {"s": 2, "ep": 13, "name": "Season 2"}, {"s": 3, "ep": 13, "name": "Season 3"}, {"s": 4, "ep": 13, "name": "Season 4"}, {"s": 5, "ep": 13, "name": "Season 5"}, {"s": 6, "ep": 21, "name": "Season 6"}], "totalEp": 86, "imdbBase": "tt0141842"}, "tt0306414": {"seasons": [{"s": 1, "ep": 13, "name": "Season 1"}, {"s": 2, "ep": 12, "name": "Season 2"}, {"s": 3, "ep": 12, "name": "Season 3"}, {"s": 4, "ep": 13, "name": "Season 4"}, {"s": 5, "ep": 10, "name": "Season 5"}], "totalEp": 60, "imdbBase": "tt0306414"}, "tt2802850": {"seasons": [{"s": 1, "ep": 10, "name": "Season 1"}], "totalEp": 10, "imdbBase": "tt2802850"}, "tt23549418": {"seasons": [{"s": 1, "ep": 3, "name": "Season 1"}], "totalEp": 3, "imdbBase": "tt23549418"}, "tt14182806": {"seasons": [{"s": 1, "ep": 7, "name": "Season 1"}], "totalEp": 7, "imdbBase": "tt14182806"}, "tt9656978": {"seasons": [{"s": 1, "ep": 5, "name": "Season 1"}, {"s": 2, "ep": 5, "name": "Season 2"}, {"s": 3, "ep": 5, "name": "Season 3"}, {"s": 4, "ep": 5, "name": "Season 4"}], "totalEp": 20, "imdbBase": "tt9656978"}, "tt3794028": {"seasons": [{"s": 1, "ep": 10, "name": "Miniseries"}], "totalEp": 10, "imdbBase": "tt3794028"}, "tt1628033": {"seasons": [{"s": 1, "ep": 4, "name": "Bolivia/Vietnam/Middle East/Patagonia"}, {"s": 2, "ep": 4, "name": "India/Africa/USA/Arctic"}, {"s": 3, "ep": 4, "name": "Australia/Burma/Scotland/Finale"}], "totalEp": 12, "imdbBase": "tt1628033"}};
 
-var TABS={home:'home',sw:'sw-screen',lib:'lib-screen',add:'add-screen',ai:'ai-screen',nf:'nf-screen'};
+var TABS={home:'home',sw:'sw-screen',lib:'lib-screen',add:'add-screen',ai:'ai-screen',nf:'nf-screen',settings:'settings-screen'};
 function goTab(tab){
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   var el=document.getElementById(TABS[tab]);if(el)el.classList.add('active');
@@ -1116,6 +1173,7 @@ function goTab(tab){
   if(tab==='sw'){buildQ();renderSw();}
   if(tab==='lib')renderLib();
   if(tab==='nf')loadNetflix(false);
+  if(tab==='settings')openSettings();
 }
 
 // ── NETFLIX TAB ──
