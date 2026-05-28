@@ -305,6 +305,11 @@ input.srch:focus{border-color:var(--accent);}
   <div class="sb-pad"></div>
   <div class="nav"><div style="width:36px"></div><div class="nav-title">Library</div><div style="width:36px"></div></div>
   <div class="srch-wrap"><div class="srch-in"><span class="srch-ico">⌕</span><input class="srch" id="lib-srch" type="search" placeholder="Search..." oninput="renderLib()"></div></div>
+  <div style="display:flex;gap:8px;padding:8px 16px 0;flex-shrink:0;">
+    <button id="lib-type-all" onclick="setLibType('all')" style="flex:1;padding:9px;border-radius:10px;border:1px solid var(--accent);background:rgba(124,58,237,.2);color:var(--accent2);font-size:12px;font-weight:700;cursor:pointer;">All</button>
+    <button id="lib-type-movie" onclick="setLibType('movie')" style="flex:1;padding:9px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;">🎬 Movies</button>
+    <button id="lib-type-tv" onclick="setLibType('tv')" style="flex:1;padding:9px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;">📺 TV Shows</button>
+  </div>
   <div class="frow" id="lib-filters">
     <div class="fc active" data-g="All" onclick="setLibFilter(this,'All')">All</div>
     <div class="fc" data-g="4K" onclick="setLibFilter(this,'4K')">4K</div>
@@ -362,6 +367,11 @@ input.srch:focus{border-color:var(--accent);}
     <div id="batch-sec" style="display:none;padding:20px;">
       <label class="flbl">Paste titles (one per line)</label>
       <textarea id="batch-input" style="width:100%;height:180px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 15px;color:var(--text);font-size:13px;font-family:-apple-system,sans-serif;outline:none;resize:none;margin-bottom:10px;line-height:1.6;" placeholder="The Dark Knight&#10;Inception (2010)&#10;Hereditary&#10;...one per line"></textarea>
+      <label class="flbl">Type</label>
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <button id="batch-type-movie" onclick="setBatchType('movie')" style="flex:1;padding:12px;border-radius:10px;border:1px solid var(--accent);background:rgba(124,58,237,.2);color:var(--accent2);font-size:13px;font-weight:700;cursor:pointer;">🎬 Movies</button>
+        <button id="batch-type-tv" onclick="setBatchType('tv')" style="flex:1;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--muted);font-size:13px;font-weight:700;cursor:pointer;">📺 TV Shows</button>
+      </div>
       <button class="fsub" onclick="batchAdd()">Add All to Library</button>
       <div id="batch-result" style="margin-top:16px;font-size:13px;line-height:1.8;color:var(--muted);"></div>
     </div>
@@ -1173,11 +1183,25 @@ function doSwipe(action){
 }
 
 // ── LIBRARY ──
+var libTypeFilter = 'all';
+function setLibType(t){
+  libTypeFilter=t;
+  ['all','movie','tv'].forEach(function(x){
+    var btn=document.getElementById('lib-type-'+x);
+    if(!btn)return;
+    var active=x===t;
+    btn.style.cssText='flex:1;padding:9px;border-radius:10px;border:1px solid '+(active?'var(--accent)':'var(--border)')+';background:'+(active?'rgba(124,58,237,.2)':'var(--card)')+';color:'+(active?'var(--accent2)':'var(--muted)')+';font-size:12px;font-weight:700;cursor:pointer;';
+  });
+  renderLib();
+}
+
 function setLibFilter(el,g){libFG=g;document.querySelectorAll('#lib-filters .fc').forEach(function(c){c.classList.toggle('active',c.dataset.g===g);});renderLib();}
 function renderLib(){
   var q=(document.getElementById('lib-srch').value||'').toLowerCase();
   var list=document.getElementById('lib-list');list.innerHTML='';
   var items=LIB.slice();
+  if(libTypeFilter==='movie')items=items.filter(function(m){return m.tp==='movie';});
+  else if(libTypeFilter==='tv')items=items.filter(function(m){return m.tp==='tv';});
   if(q)items=items.filter(function(m){return m.t.toLowerCase().indexOf(q)>-1||m.g.toLowerCase().indexOf(q)>-1;});
   if(libFG==='4K')items=items.filter(function(m){return m.q==='4K';});
   else if(libFG==='TV')items=items.filter(function(m){return m.tp==='tv';});
@@ -1356,6 +1380,13 @@ function switchAddTab(tab){
   if(tab==='single'){if(single)single.style.display='';if(batch)batch.style.display='none';btnS.style.cssText='flex:1;padding:9px;border-radius:10px;border:1px solid var(--accent);background:rgba(124,58,237,.2);color:var(--accent2);font-size:12px;font-weight:700;cursor:pointer;';btnB.style.cssText='flex:1;padding:9px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;';}
   else{if(single)single.style.display='none';if(batch)batch.style.display='';btnB.style.cssText='flex:1;padding:9px;border-radius:10px;border:1px solid var(--accent);background:rgba(124,58,237,.2);color:var(--accent2);font-size:12px;font-weight:700;cursor:pointer;';btnS.style.cssText='flex:1;padding:9px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;';}
 }
+var batchType = 'movie';
+function setBatchType(t){
+  batchType=t;
+  document.getElementById('batch-type-movie').style.cssText='flex:1;padding:12px;border-radius:10px;border:1px solid '+(t==='movie'?'var(--accent)':'var(--border)')+';background:'+(t==='movie'?'rgba(124,58,237,.2)':'var(--card)')+';color:'+(t==='movie'?'var(--accent2)':'var(--muted)')+';font-size:13px;font-weight:700;cursor:pointer;';
+  document.getElementById('batch-type-tv').style.cssText='flex:1;padding:12px;border-radius:10px;border:1px solid '+(t==='tv'?'var(--accent)':'var(--border)')+';background:'+(t==='tv'?'rgba(124,58,237,.2)':'var(--card)')+';color:'+(t==='tv'?'var(--accent2)':'var(--muted)')+';font-size:13px;font-weight:700;cursor:pointer;';
+}
+
 function normTitle(t){return t.toLowerCase().replace(/^(the |a |an )/,'').replace(/[^a-z0-9]/g,'').trim();}
 function isDupe(title){var n=normTitle(title);return LIB.some(function(m){return normTitle(m.t)===n;});}
 function batchAdd(){
@@ -1369,7 +1400,7 @@ function batchAdd(){
     var year=ymatch?parseInt(ymatch[1]):new Date().getFullYear();
     var exists=LIB.find(function(m){return m.t.toLowerCase()===title.toLowerCase();});
     if(exists){dupes.push(title);return;}
-    LIB.push({id:null,t:title,tp:'movie',y:year,r:null,g:'Other',d:'',q:'unlisted',watched:false,watchlist:false,swiped:false,swipedAt:null,addedAt:Date.now()});
+    LIB.push({id:null,t:title,tp:batchType,y:year,r:null,g:'Other',d:'',q:'unlisted',watched:false,watchlist:false,swiped:false,swipedAt:null,addedAt:Date.now()});
     added.push(title);
   });
   if(added.length)sv('lib2',LIB);
@@ -1632,6 +1663,7 @@ function renderNetflix(items) {
     renderIdx++;
 
     var imdbUrl = item.imdbId ? 'https://www.imdb.com/title/'+item.imdbId+'/' : 'https://www.imdb.com/find?q='+encodeURIComponent(item.title);
+    var netflixUrl = 'https://www.netflix.com/search?q='+encodeURIComponent(item.title);
 
     var watchedBtnId = 'nf-w-'+i+'-'+Date.now();
     card.innerHTML =
@@ -1650,6 +1682,7 @@ function renderNetflix(items) {
       '</div>' +
       '<div style="font-size:13px;color:#bbb;line-height:1.5;margin-bottom:12px;font-style:italic;">'+item.reason.replace(/</g,'&lt;')+'</div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+        '<a href="'+netflixUrl+'" target="_blank" style="padding:10px 14px;border-radius:10px;background:rgba(229,9,20,.15);color:#ff6b6b;font-size:12px;font-weight:700;text-decoration:none;display:block;">N Watch</a>' +
         '<a href="'+imdbUrl+'" target="_blank" style="padding:10px 14px;border-radius:10px;background:rgba(251,191,36,.12);color:var(--yellow);font-size:12px;font-weight:700;text-decoration:none;display:block;">IMDb ↗</a>' +
         '<button id="'+watchedBtnId+'-wl" style="flex:1;padding:10px 14px;border-radius:10px;background:rgba(124,58,237,.15);color:var(--accent2);border:1px solid rgba(124,58,237,.3);font-size:12px;font-weight:700;cursor:pointer;">📋 Watchlist</button>' +
         '<button id="'+watchedBtnId+'" style="flex:1;padding:10px 14px;border-radius:10px;background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3);font-size:12px;font-weight:700;cursor:pointer;">✅ Watched</button>' +
