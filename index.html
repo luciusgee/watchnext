@@ -834,7 +834,7 @@ if(!LIB||!Array.isArray(LIB)||LIB.length===0){
   if(added > 0){ sv('lib2',LIB); }
 }
 
-let curFilter='All',libFG='All',swMode='suggest',swQ=[],curDet=null;
+let curFilter='All',libFG='All',homeFilter='all',swMode='suggest',swQ=[],curDet=null;
 
 function showUndoToast(msg, undoCb){
   var t = document.getElementById('toast');
@@ -858,7 +858,15 @@ function renderHome(){
   var pct=total?Math.round(watched/total*100):0;
   document.getElementById('h-stat').textContent=total+' Titles';
   document.getElementById('h-sub').textContent=watched+' watched \u00b7 '+(total-watched)+' to go';
-  document.getElementById('h-pills').innerHTML='<div class="pill pill-p">'+movies+' Movies</div><div class="pill pill-c">'+shows+' TV Shows</div><div class="pill pill-g">'+pct+'% Watched</div>';
+  var unwatched=LIB.filter(function(m){return !m.watched;}).length;
+  var pillsEl=document.getElementById('h-pills');pillsEl.innerHTML='';
+  [['all','All '+total],['movies','🎬 '+movies],['tv','📺 '+shows],['watched','✅ '+watched],['unwatched','🕐 '+unwatched]].forEach(function(pair){
+    var btn=document.createElement('button');
+    btn.className='hpill'+(homeFilter===pair[0]?' hpill-a':'');
+    btn.textContent=pair[1];
+    btn.onclick=(function(f){return function(){setHomeFilter(f);};})(pair[0]);
+    pillsEl.appendChild(btn);
+  });
   var genres=['All'].concat(LIB.map(function(m){return m.g;}).filter(function(g,i,a){return a.indexOf(g)===i;}));
   var gr=document.getElementById('h-genres');gr.innerHTML='';
   genres.forEach(function(g){
@@ -867,11 +875,17 @@ function renderHome(){
     c.onclick=function(){curFilter=g;document.querySelectorAll('#h-genres .fc').forEach(function(x){x.classList.toggle('active',x.dataset.g===g);});renderHome();};
     gr.appendChild(c);
   });
-  var filtered=curFilter==='All'?LIB:LIB.filter(function(m){return m.g===curFilter;});
-  var unwatched=filtered.filter(function(m){return !m.watched;});
+  var filtered=LIB.slice();
+  if(homeFilter==='movies') filtered=filtered.filter(function(m){return m.tp==='movie';});
+  else if(homeFilter==='tv') filtered=filtered.filter(function(m){return m.tp==='tv';});
+  else if(homeFilter==='watched') filtered=filtered.filter(function(m){return m.watched;});
+  else if(homeFilter==='unwatched') filtered=filtered.filter(function(m){return !m.watched;});
+  if(curFilter!=='All') filtered=filtered.filter(function(m){return m.g===curFilter;});
   var bs=document.getElementById('h-browse');bs.innerHTML='';
-  document.getElementById('h-browse-t').textContent=curFilter==='All'?'Browse Library':curFilter+' ('+filtered.length+')';
-  (unwatched.length?unwatched:filtered).slice(0,20).forEach(function(item){bs.appendChild(mkPC(item));});
+  var browseLabel={'all':'Browse Library','movies':'Movies','tv':'TV Shows','watched':'Watched','unwatched':'Unwatched'};
+  document.getElementById('h-browse-t').textContent=(browseLabel[homeFilter]||'Browse Library')+(curFilter!=='All'?' · '+curFilter:'');
+  filtered.sort(function(a,b){var ta=(a.t||'').replace(/^(the |a |an )/i,'').toLowerCase();var tb=(b.t||'').replace(/^(the |a |an )/i,'').toLowerCase();return ta<tb?-1:ta>tb?1:0;});
+  filtered.slice(0,30).forEach(function(item){bs.appendChild(mkPC(item));});
   var rw=LIB.filter(function(m){return m.watched&&m.watchedAt;}).sort(function(a,b){return (b.watchedAt||0)-(a.watchedAt||0);}).slice(0,10);
   document.getElementById('h-cont-sec').style.display=rw.length?'':'none';
   var cs=document.getElementById('h-cont');cs.innerHTML='';
@@ -890,6 +904,16 @@ function renderHome(){
   var avg=(LIB.filter(function(m){return m.r;}).reduce(function(a,b,i,arr){return a+b.r/arr.length;},0)||0).toFixed(1);
   var k4=LIB.filter(function(m){return m.q==='4K';}).length;
   document.getElementById('h-stats').innerHTML='<div class="sc"><div class="si">👁</div><div class="sn" style="color:var(--green)">'+watched+'</div><div class="sl">Watched</div></div><div class="sc"><div class="si">📋</div><div class="sn" style="color:var(--accent2)">'+LIB.filter(function(m){return m.watchlist;}).length+'</div><div class="sl">Watchlist</div></div><div class="sc"><div class="si">'+ge(topG)+'</div><div class="sn" style="font-size:17px;color:var(--cyan)">'+topG+'</div><div class="sl">Fav Genre</div></div><div class="sc"><div class="si">⭐</div><div class="sn" style="color:var(--yellow)">'+avg+'</div><div class="sl">Avg Rating</div></div><div class="sc"><div class="si">🎬</div><div class="sn" style="color:var(--accent2)">'+k4+'</div><div class="sl">4K Titles</div></div><div class="sc"><div class="si">📊</div><div style="font-size:12px;font-weight:700;margin-bottom:6px">Progress</div><div class="pw"><div class="pf" style="width:'+pct+'%"></div></div><div class="sl" style="margin-top:6px">'+pct+'% complete</div></div>';
+}
+
+function setHomeFilter(f){
+  homeFilter=f;
+  renderHome();
+  // Scroll to browse section
+  setTimeout(function(){
+    var bs=document.getElementById('h-browse');
+    if(bs)bs.scrollIntoView({behavior:'smooth',block:'start'});
+  },100);
 }
 
 function getTopG(){var w=LIB.filter(function(m){return m.watched;});if(!w.length)return LIB.length?LIB[0].g:'';var c={};w.forEach(function(m){c[m.g]=(c[m.g]||0)+1;});var top=Object.entries(c).sort(function(a,b){return b[1]-a[1];})[0];return top?top[0]:'';}
