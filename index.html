@@ -263,6 +263,14 @@ input.srch:focus{border-color:var(--accent);}
     <div style="font-size:11px;color:var(--muted);margin-top:5px;" id="sw-progress-count"></div>
   </div>
   <div class="sw-area" id="sw-area">
+    <div id="sw-start" style="text-align:center;padding:30px 24px;">
+      <div style="font-size:64px;margin-bottom:16px;">🎬</div>
+      <div style="font-size:22px;font-weight:900;color:var(--text);margin-bottom:8px;">Ready to Discover?</div>
+      <div style="font-size:14px;color:var(--muted);margin-bottom:28px;" id="sw-start-sub">Swipe through your library</div>
+      <button onclick="startSwipeSession()" style="width:100%;padding:16px;border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.4);margin-bottom:12px;">▶ Start Session</button>
+      <button onclick="newSwipeSession()" style="width:100%;padding:14px;border-radius:14px;background:rgba(255,255,255,.06);color:var(--muted);border:1px solid var(--border);font-size:14px;font-weight:700;cursor:pointer;">🔄 Reset &amp; Start Fresh</button>
+      <div style="margin-top:20px;padding:14px;background:var(--card);border-radius:12px;border:1px solid var(--border);" id="sw-start-stats"></div>
+    </div>
     <div class="sw-empty" id="sw-empty" style="display:none">
       <div style="font-size:56px;margin-bottom:16px;">🎉</div>
       <div style="font-size:20px;font-weight:900;color:var(--text);margin-bottom:8px;">Session Complete!</div>
@@ -456,6 +464,14 @@ input.srch:focus{border-color:var(--accent);}
       <button onclick="clearWatched()" style="width:100%;padding:16px;background:transparent;color:var(--text);border:none;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;"><span style="font-size:20px;">👁</span><div><div>Clear Watch History</div><div style="font-size:12px;color:var(--muted);font-weight:400;margin-top:2px;">Mark all films as unwatched</div></div></button>
       <button onclick="resetSwipes()" style="width:100%;padding:16px;background:transparent;color:var(--text);border:none;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;"><span style="font-size:20px;">👆</span><div><div>Reset Swipe History</div><div style="font-size:12px;color:var(--muted);font-weight:400;margin-top:2px;">Show all films again in Discover</div></div></button>
       <button onclick="resetAll()" style="width:100%;padding:16px;background:transparent;color:#ef4444;border:none;font-size:14px;font-weight:600;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;"><span style="font-size:20px;">🗑</span><div><div>Reset Everything</div><div style="font-size:12px;color:var(--muted);font-weight:400;margin-top:2px;">Clear all activity — watched, watchlist, swipes</div></div></button>
+    </div>
+
+    <!-- ENRICH -->
+    <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">🔍 Movie Info</div>
+    <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);margin-bottom:20px;">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Fetch missing IMDB IDs, runtimes and info for films added via batch import. Runs automatically in the background but you can trigger it manually here.</div>
+      <button onclick="enrichAllNow()" style="width:100%;padding:13px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;font-size:14px;font-weight:700;cursor:pointer;">🔍 Fetch Missing Movie Info</button>
+      <div id="enrich-status" style="font-size:12px;color:var(--muted);margin-top:8px;text-align:center;"></div>
     </div>
 
     <!-- ABOUT -->
@@ -862,16 +878,44 @@ function setMode(m){swMode=m;document.getElementById('md-s').classList.toggle('a
 var swSessionTotal = 0;
 var swSessionDone = 0;
 
+function startSwipeSession(){
+  document.getElementById('sw-start').style.display='none';
+  buildQ();
+  renderSw();
+}
+
 function newSwipeSession(){
-  // Reset swiped flags for current mode to start fresh
   LIB.forEach(function(m,i){
     if(swMode==='suggest' && !m.watched) { LIB[i].swiped=false; LIB[i].swipedAt=null; }
     if(swMode==='seen') { LIB[i].swipedSeen=false; }
   });
   sv('lib2',LIB);
+  document.getElementById('sw-start').style.display='none';
   buildQ();
   renderSw();
-  toast('New session started! 🎬');
+  toast('Fresh session started! 🎬');
+}
+
+function updateStartScreen(){
+  var startEl = document.getElementById('sw-start');
+  if(!startEl||startEl.style.display==='none') return;
+  var unswiped = swMode==='suggest'
+    ? LIB.filter(function(m){return !m.watched&&!m.swiped;}).length
+    : LIB.filter(function(m){return !m.swipedSeen;}).length;
+  var total = swMode==='suggest'
+    ? LIB.filter(function(m){return !m.watched;}).length
+    : LIB.length;
+  var done = total - unswiped;
+  var pct = total>0?Math.round(done/total*100):0;
+  var sub = document.getElementById('sw-start-sub');
+  var stats = document.getElementById('sw-start-stats');
+  if(sub) sub.textContent = unswiped + ' films left to swipe in this session';
+  if(stats) stats.innerHTML =
+    '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">' +
+    '<span style="font-size:12px;color:var(--muted);">Session progress</span>' +
+    '<span style="font-size:12px;color:var(--accent2);font-weight:700;">'+pct+'% ('+done+'/'+total+')</span></div>' +
+    '<div style="height:4px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden;">' +
+    '<div style="height:100%;width:'+pct+'%;background:linear-gradient(to right,var(--accent),var(--accent2));border-radius:4px;"></div></div>';
 }
 
 function buildQ(){
@@ -908,6 +952,12 @@ function renderSw(){
   if(!swQ.length){
     empty.style.display='block';
     updateSwProgress();
+    // Show start screen after a moment
+    setTimeout(function(){
+      empty.style.display='none';
+      var startEl=document.getElementById('sw-start');
+      if(startEl){startEl.style.display='';updateStartScreen();}
+    }, 2500);
     return;
   }
   empty.style.display='none';
@@ -1225,7 +1275,12 @@ function goTab(tab){
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   var el=document.getElementById(TABS[tab]);if(el)el.classList.add('active');
   if(tab==='home')renderHome();
-  if(tab==='sw'){buildQ();renderSw();}
+  if(tab==='sw'){
+    var startEl=document.getElementById('sw-start');
+    if(startEl)startEl.style.display='';
+    buildQ();
+    updateStartScreen();
+  }
   if(tab==='lib')renderLib();
   if(tab==='nf')loadNetflix(false);
   if(tab==='settings')openSettings();
