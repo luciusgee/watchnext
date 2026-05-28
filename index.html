@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Watch Next">
 <meta name="theme-color" content="#080810">
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iMCUiIHkxPSIwJSIgeDI9IjEwMCUiIHkyPSIxMDAlIj48c3RvcCBvZmZzZXQ9IjAlIiBzdHlsZT0ic3RvcC1jb2xvcjojM2IwNzY0Ii8+PHN0b3Agb2Zmc2V0PSI1MCUiIHN0eWxlPSJzdG9wLWNvbG9yOiM3YzNhZWQiLz48c3RvcCBvZmZzZXQ9IjEwMCUiIHN0eWxlPSJzdG9wLWNvbG9yOiMwZTc0OTAiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9IjExNSIgZmlsbD0idXJsKCNiZykiLz48dGV4dCB4PSIyNTYiIHk9IjM0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1zaXplPSIyNjAiIGZvbnQtZmFtaWx5PSJBcHBsZSBDb2xvciBFbW9qaSxTZWdvZSBVSSBFbW9qaSxzYW5zLXNlcmlmIj7wn46sPC90ZXh0Pjwvc3ZnPg==">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iMCUiIHkxPSIwJSIgeDI9IjEwMCUiIHkyPSIxMDAlIj48c3RvcCBvZmZzZXQ9IjAlIiBzdHlsZT0ic3RvcC1jb2xvcjojM2IwNzY0Ii8+PHN0b3Agb2Zmc2V0PSI1MCUiIHN0eWxlPSJzdG9wLWNvbG9yOiM3YzNhZWQiLz48c3RvcCBvZmZzZXQ9IjEwMCUiIHN0eWxlPSJzdG9wLWNvbG9yOiMwZTc0OTAiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9IjExNSIgZmlsbD0idXJsKCNiZykiLz48dGV4dCB4PSIyNTYiIHk9IjM0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1zaXplPSIyNjAiIGZvbnQtZmFtaWx5PSJBcHBsZSBDb2xvciBFbW9qaSxTZWdvZSBVSSBFbW9qaSxzYW5zLXNlcmlmIj7wn46sPC90ZXh0Pjwvc3ZnPg==">
+
 <title>Watch Next</title>
 <style>
 :root{--bg:#080810;--bg2:#0f0f1c;--bg3:#16162a;--card:#1a1a2e;--accent:#7c3aed;--accent2:#a855f7;--cyan:#06b6d4;--green:#10b981;--red:#ef4444;--yellow:#fbbf24;--text:#f0eff8;--muted:#6b6b8a;--border:rgba(124,58,237,0.2);--st:env(safe-area-inset-top,44px);--sb:env(safe-area-inset-bottom,34px);}
@@ -153,17 +156,24 @@ input.srch:focus{border-color:var(--accent);}
 .fsub:active{transform:scale(.98);}
 /* TOAST */
 /* LOADING SCREEN */
-#splash{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;transition:opacity .6s;}
+#splash{position:fixed;inset:0;z-index:9999;background:#050508;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;transition:opacity .8s ease;}
 #splash.fade{opacity:0;pointer-events:none;}
-.splash-logo{font-size:48px;font-weight:900;background:linear-gradient(135deg,#7c3aed,#a855f7,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-2px;}
-.splash-sub{font-size:14px;color:var(--muted);letter-spacing:3px;text-transform:uppercase;}
-.splash-bar-wrap{width:160px;height:3px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;}
-.splash-bar{height:100%;width:0%;background:linear-gradient(to right,#7c3aed,#a855f7,#06b6d4);border-radius:3px;transition:width .4s ease;}
-.splash-dots{display:flex;gap:8px;}
-.splash-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:sdot 1.2s infinite;}
-.splash-dot:nth-child(2){animation-delay:.2s;background:var(--accent2);}
-.splash-dot:nth-child(3){animation-delay:.4s;background:var(--cyan);}
-@keyframes sdot{0%,80%,100%{transform:scale(.6);opacity:.3}40%{transform:scale(1);opacity:1}}
+.splash-bg{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 60%,rgba(124,58,237,.25) 0%,rgba(6,182,212,.08) 40%,transparent 70%);}
+.splash-stars{position:absolute;inset:0;}
+.splash-star{position:absolute;border-radius:50%;background:#fff;animation:twinkle var(--d,2s) var(--delay,0s) infinite;}
+@keyframes twinkle{0%,100%{opacity:0;transform:scale(.5);}50%{opacity:var(--op,.8);transform:scale(1);}}
+.splash-ring{position:absolute;border-radius:50%;border:1px solid rgba(124,58,237,.2);animation:ringPulse 3s infinite;}
+.splash-ring:nth-child(1){width:200px;height:200px;animation-delay:0s;}
+.splash-ring:nth-child(2){width:300px;height:300px;animation-delay:.5s;border-color:rgba(168,85,247,.15);}
+.splash-ring:nth-child(3){width:420px;height:420px;animation-delay:1s;border-color:rgba(6,182,212,.1);}
+@keyframes ringPulse{0%{transform:scale(.8);opacity:0;}50%{opacity:1;}100%{transform:scale(1.2);opacity:0;}}
+.splash-icon-wrap{position:relative;z-index:2;margin-bottom:24px;}
+.splash-icon{width:90px;height:90px;border-radius:22px;background:linear-gradient(135deg,#3b0764,#7c3aed,#0e7490);display:flex;align-items:center;justify-content:center;font-size:44px;box-shadow:0 0 40px rgba(124,58,237,.6),0 0 80px rgba(124,58,237,.2);animation:iconPop .8s cubic-bezier(.175,.885,.32,1.275) forwards;opacity:0;}
+@keyframes iconPop{0%{opacity:0;transform:scale(.3) rotate(-10deg);}100%{opacity:1;transform:scale(1) rotate(0deg);}}
+.splash-title{position:relative;z-index:2;font-size:36px;font-weight:900;letter-spacing:-1px;background:linear-gradient(135deg,#fff 0%,#a855f7 50%,#06b6d4 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:slideUp .6s .3s ease both;opacity:0;}
+.splash-sub{position:relative;z-index:2;font-size:12px;color:rgba(255,255,255,.3);letter-spacing:4px;text-transform:uppercase;margin-top:6px;animation:slideUp .6s .5s ease both;opacity:0;}
+.splash-tagline{position:relative;z-index:2;font-size:13px;color:rgba(255,255,255,.5);margin-top:32px;animation:slideUp .6s .7s ease both;opacity:0;}
+@keyframes slideUp{0%{opacity:0;transform:translateY(16px);}100%{opacity:1;transform:translateY(0);}}
 @keyframes typing{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
 .ai-msg{display:flex;flex-direction:column;max-width:88%;}
 .ai-msg-user{align-self:flex-end;align-items:flex-end;}
@@ -179,15 +189,17 @@ input.srch:focus{border-color:var(--accent);}
 
 <!-- SPLASH SCREEN -->
 <div id="splash">
-  <div style="font-size:56px;margin-bottom:8px;">🎬</div>
-  <div class="splash-logo">Watch Next</div>
-  <div class="splash-sub">Your personal cinema</div>
-  <div class="splash-bar-wrap"><div class="splash-bar" id="splash-bar"></div></div>
-  <div class="splash-dots">
-    <div class="splash-dot"></div>
-    <div class="splash-dot"></div>
-    <div class="splash-dot"></div>
+  <div class="splash-bg"></div>
+  <div class="splash-stars" id="splash-stars"></div>
+  <div class="splash-ring"></div>
+  <div class="splash-ring"></div>
+  <div class="splash-ring"></div>
+  <div class="splash-icon-wrap">
+    <div class="splash-icon">🎬</div>
   </div>
+  <div class="splash-title">Watch Next</div>
+  <div class="splash-sub">Your personal cinema</div>
+  <div class="splash-tagline" id="splash-tagline"></div>
 </div>
 
 <!-- HOME -->
@@ -697,7 +709,22 @@ const SEED=[
 
 
 let LIB = ld('lib2',null);
-if(!LIB||!Array.isArray(LIB)||LIB.length===0){LIB=SEED.map(function(m){return Object.assign({},m,{watched:false,watchlist:false,swiped:false,swipedAt:null});});sv('lib2',LIB);}
+if(!LIB||!Array.isArray(LIB)||LIB.length===0){
+  LIB=SEED.map(function(m){return Object.assign({},m,{watched:false,watchlist:false,swiped:false,swipedAt:null});});
+  sv('lib2',LIB);
+} else {
+  // Merge any new seed titles not already in saved library
+  var existingIds = LIB.map(function(m){return m.id||m.t;});
+  var added = 0;
+  SEED.forEach(function(s){
+    var key = s.id||s.t;
+    if(existingIds.indexOf(key) === -1){
+      LIB.push(Object.assign({},s,{watched:false,watchlist:false,swiped:false,swipedAt:null}));
+      added++;
+    }
+  });
+  if(added > 0){ sv('lib2',LIB); }
+}
 
 let curFilter='All',libFG='All',swMode='suggest',swQ=[],curDet=null;
 
@@ -1202,20 +1229,25 @@ function renderNetflix(items) {
 
 // ── SPLASH SCREEN ──
 function initSplash(){
-  var bar = document.getElementById('splash-bar');
-  var pct = 0;
-  var iv = setInterval(function(){
-    pct += Math.random()*25+10;
-    if(pct >= 100){ pct=100; clearInterval(iv); }
-    bar.style.width = pct + '%';
-    if(pct >= 100){
-      setTimeout(function(){
-        var splash = document.getElementById('splash');
-        splash.classList.add('fade');
-        setTimeout(function(){ splash.style.display='none'; },650);
-      },300);
-    }
-  },150);
+  // Generate stars
+  var starsEl = document.getElementById('splash-stars');
+  for(var i=0;i<60;i++){
+    var s = document.createElement('div');
+    s.className = 'splash-star';
+    var size = Math.random()*2.5+1;
+    s.style.cssText = 'width:'+size+'px;height:'+size+'px;top:'+Math.random()*100+'%;left:'+Math.random()*100+'%;--d:'+(Math.random()*3+1.5)+'s;--delay:'+(Math.random()*3)+'s;--op:'+(Math.random()*.6+.2)+';';
+    starsEl.appendChild(s);
+  }
+  // Rotating taglines
+  var taglines = ['What are we watching tonight?','Your films. Your list.','Discover something great.','Cinema in your pocket.'];
+  var tEl = document.getElementById('splash-tagline');
+  tEl.textContent = taglines[Math.floor(Math.random()*taglines.length)];
+  // Fade out after 2.2s
+  setTimeout(function(){
+    var splash = document.getElementById('splash');
+    splash.classList.add('fade');
+    setTimeout(function(){ splash.style.display='none'; }, 850);
+  }, 2200);
 }
 
 // ── EXPORT / IMPORT ──
