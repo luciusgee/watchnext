@@ -202,7 +202,7 @@ input.srch:focus{border-color:var(--accent);}
     <div class="splash-icon">🎬</div>
   </div>
   <div class="splash-title">Watch Next</div>
-  <div class="splash-sub">Your personal cinema</div>
+  <div class="splash-sub">Your watchlist manager</div>
   <div class="splash-tagline" id="splash-tagline"></div>
 </div>
 
@@ -1431,7 +1431,13 @@ function loadNetflix(force) {
   var libTitles = allLib.map(function(m){return m.t;});
 
   var sysPrompt = 'You are a Netflix UK recommendation assistant. Return ONLY valid JSON, no markdown, no explanation. Return an array of exactly 15 objects.';
-  var userMsg = 'Suggest 15 movies or TV shows on Netflix UK for someone who loves ' + topGenres.join(', ') + '. They enjoyed: ' + (topWatched.join(', ')||'various films') + '. Do not suggest: ' + libTitles.slice(0,50).join(', ') + '. Return JSON array of 15 objects each with: title, year, type (movie/show), genre, rating (number), runtime (string), reason (one sentence), imdbId. Only titles on Netflix UK now.';
+  // Track previously suggested to avoid repeats (keep last 45 = 3 refreshes)
+  var prevSuggested = JSON.parse(localStorage.getItem('wn_nf_prev')||'[]');
+  var avoidList = libTitles.slice(0,60).concat(prevSuggested);
+  var watchedTitles = LIB.filter(function(m){return m.watched;}).map(function(m){return m.t;});
+  var watchlistTitles = LIB.filter(function(m){return m.watchlist&&!m.watched;}).map(function(m){return m.t;});
+
+  var userMsg = 'Suggest 15 movies or TV shows on Netflix UK. User loves: ' + topGenres.join(', ') + '. They enjoyed: ' + (topWatched.join(', ')||'various films') + '. Already watched: ' + (watchedTitles.slice(0,30).join(', ')||'none') + '. On their watchlist already: ' + (watchlistTitles.slice(0,20).join(', ')||'none') + '. Do NOT suggest these (already in library or recently suggested): ' + avoidList.slice(0,80).join(', ') + '. Occasionally re-suggest something great they might have missed (1 in 6 chance per item). Return JSON array of 15 objects each with: title, year, type (movie/show), genre, rating (number), runtime (string), reason (one sentence why they specifically will love it based on their taste), imdbId. Only titles genuinely on Netflix UK right now.';
 
   fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -1457,6 +1463,11 @@ function loadNetflix(force) {
     var results = JSON.parse(text);
     nfCache = results;
     nfLoaded = true;
+    // Save to prev suggestions (keep last 45)
+    var prev = JSON.parse(localStorage.getItem('wn_nf_prev')||'[]');
+    var newTitles = results.map(function(r){return r.title;});
+    prev = newTitles.concat(prev).slice(0,45);
+    localStorage.setItem('wn_nf_prev', JSON.stringify(prev));
     renderNetflix(results);
   })
   .catch(function(e) {
@@ -1501,37 +1512,51 @@ function renderNetflix(items) {
         '<div style="font-size:28px;flex-shrink:0;">'+ge(item.genre)+'</div>' +
       '</div>' +
       '<div style="font-size:13px;color:#bbb;line-height:1.5;margin-bottom:12px;font-style:italic;">'+item.reason.replace(/</g,'&lt;')+'</div>' +
-      '<div style="display:flex;gap:8px;">' +
-        '<a href="'+imdbUrl+'" target="_blank" style="flex:1;text-align:center;padding:10px 14px;border-radius:10px;background:rgba(251,191,36,.12);color:var(--yellow);font-size:12px;font-weight:700;text-decoration:none;display:block;">IMDb ↗</a>' +
-        '<button id="'+watchedBtnId+'" style="flex:2;padding:10px 14px;border-radius:10px;background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3);font-size:12px;font-weight:700;cursor:pointer;">✓ Mark as Watched</button>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+        '<a href="'+imdbUrl+'" target="_blank" style="padding:10px 14px;border-radius:10px;background:rgba(251,191,36,.12);color:var(--yellow);font-size:12px;font-weight:700;text-decoration:none;display:block;">IMDb ↗</a>' +
+        '<button id="'+watchedBtnId+'-wl" style="flex:1;padding:10px 14px;border-radius:10px;background:rgba(124,58,237,.15);color:var(--accent2);border:1px solid rgba(124,58,237,.3);font-size:12px;font-weight:700;cursor:pointer;">📋 Watchlist</button>' +
+        '<button id="'+watchedBtnId+'" style="flex:1;padding:10px 14px;border-radius:10px;background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3);font-size:12px;font-weight:700;cursor:pointer;">✅ Watched</button>' +
       '</div>';
 
     // Wire up watched button
     (function(title, year, genre, btnId){
+      // Watched button
       var btn = card.querySelector('#'+btnId);
       if(btn) btn.onclick = function(){
-        // Check if already in library
         var existing = LIB.find(function(m){ return m.t.toLowerCase()===title.toLowerCase(); });
         if(existing){
           var idx2 = LIB.indexOf(existing);
-          LIB[idx2].watched = true;
-          LIB[idx2].watchedAt = Date.now();
-          sv('lib2',LIB);
-          btn.textContent = '✅ Watched!';
-          btn.style.background = 'rgba(16,185,129,.3)';
-          btn.disabled = true;
-          toast(title+' marked as watched!');
+          LIB[idx2].watched = true; LIB[idx2].watchedAt = Date.now();
         } else {
-          // Add to library and mark watched
           LIB.push({id:null,t:title,tp:'movie',y:year,r:null,g:genre,d:'',q:'unlisted',
             watched:true,watchedAt:Date.now(),watchlist:false,swiped:false,swipedAt:null,addedAt:Date.now()});
-          sv('lib2',LIB);
-          btn.textContent = '✅ Added & Watched!';
-          btn.style.background = 'rgba(16,185,129,.3)';
-          btn.disabled = true;
-          toast(title+' added and marked as watched!');
         }
+        sv('lib2',LIB);
+        btn.textContent = '✅ Watched!'; btn.style.background='rgba(16,185,129,.3)'; btn.disabled=true;
+        var wlBtn=card.querySelector('#'+btnId+'-wl'); if(wlBtn){wlBtn.disabled=true;}
+        toast(title+' marked as watched!');
       };
+      // Watchlist button
+      var wlBtn = card.querySelector('#'+btnId+'-wl');
+      if(wlBtn) wlBtn.onclick = function(){
+        var existing = LIB.find(function(m){ return m.t.toLowerCase()===title.toLowerCase(); });
+        if(existing){
+          var idx2 = LIB.indexOf(existing);
+          LIB[idx2].watchlist = true;
+        } else {
+          LIB.push({id:null,t:title,tp:'movie',y:year,r:null,g:genre,d:'',q:'unlisted',
+            watched:false,watchedAt:null,watchlist:true,swiped:false,swipedAt:null,addedAt:Date.now()});
+        }
+        sv('lib2',LIB);
+        wlBtn.textContent='📋 Added!'; wlBtn.style.background='rgba(124,58,237,.3)'; wlBtn.disabled=true;
+        toast(title+' added to watchlist!');
+      };
+      // Set initial state based on library
+      var inLib = LIB.find(function(m){ return m.t.toLowerCase()===title.toLowerCase(); });
+      if(inLib){
+        if(inLib.watched && btn){ btn.textContent='✅ Watched'; btn.disabled=true; btn.style.background='rgba(16,185,129,.3)'; if(wlBtn)wlBtn.disabled=true; }
+        else if(inLib.watchlist && wlBtn){ wlBtn.textContent='📋 In Watchlist'; wlBtn.disabled=true; wlBtn.style.background='rgba(124,58,237,.3)'; }
+      }
     })(item.title, item.year, item.genre, watchedBtnId);
 
     res.appendChild(card);
@@ -1556,7 +1581,7 @@ function initSplash(){
     starsEl.appendChild(s);
   }
   // Rotating taglines
-  var taglines = ['What are we watching tonight?','Your films. Your list.','Discover something great.','Cinema in your pocket.'];
+  var taglines = ['What are we watching tonight?','Your next watch is in here.','Swipe. Pick. Watch.','Never ask what to watch again.'];
   var tEl = document.getElementById('splash-tagline');
   tEl.textContent = taglines[Math.floor(Math.random()*taglines.length)];
   // Fade out after 2.2s
