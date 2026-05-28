@@ -20,7 +20,7 @@ body{display:flex;flex-direction:column;}
 .nav-logo{font-size:20px;font-weight:900;background:linear-gradient(135deg,#7c3aed,#a855f7,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;flex:1;text-align:center;}
 .nav-title{font-size:17px;font-weight:700;flex:1;text-align:center;}
 .nav-btn{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:10px;background:rgba(255,255,255,.07);border:none;color:var(--text);font-size:16px;cursor:pointer;}
-.bnav{display:flex;background:rgba(8,8,16,.97);backdrop-filter:blur(20px);border-top:1px solid var(--border);padding-bottom:var(--sb);flex-shrink:0;}
+.bnav{display:flex;background:rgba(8,8,16,.97);backdrop-filter:blur(20px);border-top:1px solid var(--border);padding-bottom:calc(var(--sb) + 8px);padding-top:4px;flex-shrink:0;}
 .bnb{flex:1;display:flex;flex-direction:column;align-items:center;padding:10px 0 6px;gap:3px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:10px;font-weight:600;}
 .bnb .ico{font-size:22px;}
 .bnb.active{color:var(--accent2);}
