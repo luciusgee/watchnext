@@ -66,6 +66,14 @@ body{display:flex;flex-direction:column;}
 .frow{display:flex;gap:6px;overflow-x:auto;padding:10px 20px;flex-shrink:0;}
 .frow::-webkit-scrollbar{display:none;}
 .fc-row{display:flex;gap:8px;overflow-x:auto;padding:0 20px;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
+.hpill{flex-shrink:0;padding:7px 14px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.hp-all{background:rgba(124,58,237,.25);color:#c4b5fd;border:1px solid rgba(124,58,237,.5);}
+.hp-movies{background:rgba(6,182,212,.2);color:#67e8f9;border:1px solid rgba(6,182,212,.4);}
+.hp-tv{background:rgba(251,146,60,.2);color:#fdba74;border:1px solid rgba(251,146,60,.4);}
+.hp-watched{background:rgba(16,185,129,.2);color:#6ee7b7;border:1px solid rgba(16,185,129,.4);}
+.hp-unwatched{background:rgba(251,191,36,.2);color:#fde68a;border:1px solid rgba(251,191,36,.4);}
+.hpill-a{box-shadow:0 0 0 2px rgba(255,255,255,.25);}
+.hpill:not(.hpill-a){opacity:.65;}
 .fc{flex-shrink:0;padding:7px 14px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid var(--border);background:var(--card);color:var(--muted);white-space:nowrap;}
 .fc.active{background:rgba(124,58,237,.2);color:var(--accent2);border-color:var(--accent);}
 /* STATS */
@@ -216,8 +224,8 @@ input.srch:focus{border-color:var(--accent);}
       <div class="hb-greet">Hey Luke 👋</div>
       <div class="hb-stat" id="h-stat">0 Titles</div>
       <div class="hb-sub" id="h-sub">Start building your library</div>
-      <div class="fc-row" id="h-pills"></div>
     </div></div>
+    <div style="background:rgba(255,255,255,.04);border-top:1px solid rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06);"><div class="frow" id="h-pills"></div></div>
     <div class="frow" id="h-genres"></div>
     <div class="sec" id="h-wl-sec" style="display:none">
       <div class="sec-hd"><div class="sec-t">📋 Up Next</div><div class="sec-a" onclick="openWL()">See all →</div></div>
@@ -861,9 +869,10 @@ function renderHome(){
   document.getElementById('h-sub').textContent=watched+' watched \u00b7 '+(total-watched)+' to go';
   var unwatched=LIB.filter(function(m){return !m.watched;}).length;
   var pillsEl=document.getElementById('h-pills');pillsEl.innerHTML='';
-  [['all','All '+total,'hpill-all'],['movies','🎬 '+movies,'hpill-movies'],['tv','📺 '+shows,'hpill-tv'],['watched','✅ '+watched,'hpill-watched'],['unwatched','○ '+unwatched,'hpill-unwatched']].forEach(function(pair){
+  var unwatchedCount=LIB.filter(function(m){return !m.watched;}).length;
+  [['all','All '+total,'hp-all'],['movies','Movies '+movies,'hp-movies'],['tv','TV Shows '+shows,'hp-tv'],['watched','Watched '+watched,'hp-watched'],['unwatched','Unwatched '+unwatchedCount,'hp-unwatched']].forEach(function(pair){
     var btn=document.createElement('button');
-    btn.className='fc'+(homeFilter===pair[0]?' active':'');
+    btn.className='hpill '+pair[2]+(homeFilter===pair[0]?' hpill-a':'');
     btn.textContent=pair[1];
     btn.onclick=(function(f){return function(){setHomeFilter(f);};})(pair[0]);
     pillsEl.appendChild(btn);
