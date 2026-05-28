@@ -266,6 +266,9 @@ input.srch:focus{border-color:var(--accent);}
       <div style="font-size:64px;margin-bottom:16px;">🎬</div>
       <div style="font-size:22px;font-weight:900;color:var(--text);margin-bottom:8px;">Ready to Discover?</div>
       <div style="font-size:14px;color:var(--muted);margin-bottom:28px;" id="sw-start-sub">Swipe through your library</div>
+      <div id="sw-force-wrap" style="display:none;margin-top:-16px;margin-bottom:16px;">
+        <button onclick="forceCompleteSession()" style="font-size:12px;color:var(--muted);background:none;border:none;cursor:pointer;text-decoration:underline;">Clear stuck films</button>
+      </div>
       <button onclick="startSwipeSession()" style="width:100%;padding:16px;border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.4);margin-bottom:12px;">▶ Start Session</button>
       <button onclick="newSwipeSession()" style="width:100%;padding:14px;border-radius:14px;background:rgba(255,255,255,.06);color:var(--muted);border:1px solid var(--border);font-size:14px;font-weight:700;cursor:pointer;">🔄 Reset &amp; Start Fresh</button>
       <div style="margin-top:20px;padding:14px;background:var(--card);border-radius:12px;border:1px solid var(--border);" id="sw-start-stats"></div>
@@ -473,6 +476,12 @@ input.srch:focus{border-color:var(--accent);}
       <div id="enrich-status" style="font-size:12px;color:var(--muted);margin-top:8px;text-align:center;"></div>
     </div>
 
+    <!-- ACTIVITY LOG -->
+    <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">📋 Recent Activity</div>
+    <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);margin-bottom:20px;">
+      <div id="activity-log-list"></div>
+    </div>
+
     <!-- ABOUT -->
     <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">ℹ️ About</div>
     <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);margin-bottom:20px;">
@@ -516,14 +525,9 @@ input.srch:focus{border-color:var(--accent);}
 <!-- WATCHLIST -->
 <div id="wl">
   <div class="sb-pad"></div>
-  <div class="nav"><button class="nav-btn" onclick="closeWL()">←</button><div class="nav-title">My Watchlist</div><button class="nav-btn" onclick="toggleActivityLog()" style="font-size:13px;">📋</button><button class="nav-btn" onclick="goTab('settings')" style="font-size:13px">⚙️</button></div>
+  <div class="nav"><button class="nav-btn" onclick="closeWL()">←</button><div class="nav-title">My Watchlist</div><div style="width:36px"></div><button class="nav-btn" onclick="goTab('settings')" style="font-size:13px">⚙️</button></div>
 
-  <div class="scroll" id="wl-body">
-    <div id="activity-section" style="display:none;padding:16px 16px 0;">
-      <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:12px;">📋 Recent Activity</div>
-      <div id="activity-log-list"></div>
-    </div>
-  </div>
+  <div class="scroll" id="wl-body"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -952,6 +956,19 @@ function buildQ(){
   updateSwProgress();
 }
 
+function forceCompleteSession(){
+  // Force mark all remaining as swiped - nuclear option for stuck films
+  var changed = false;
+  LIB.forEach(function(m,i){
+    if(!m.swipedSeen){ LIB[i].swipedSeen=true; changed=true; }
+  });
+  if(changed) sv('lib2',LIB);
+  swQ=[];
+  updateSwProgress();
+  updateStartScreen();
+  toast('Session cleared!');
+}
+
 function updateSwProgress(){
   var total=LIB.length;
   var done=LIB.filter(function(m){return m.swipedSeen;}).length;
@@ -1321,13 +1338,7 @@ function openWL(){
   document.getElementById('wl').classList.add('open');
 }
 function closeWL(){document.getElementById('wl').classList.remove('open');}
-function toggleActivityLog(){
-  var sec = document.getElementById('activity-section');
-  if(!sec) return;
-  var showing = sec.style.display !== 'none';
-  if(showing){ sec.style.display='none'; openWL(); }
-  else { sec.style.display=''; renderActivityLog(); }
-}
+
 
 // ── ADD ──
 function goAdd(){goTab('add');}
@@ -1413,6 +1424,7 @@ function resetAll(){showModal('Reset Everything','This clears all watched, watch
 function resetSwipes(){showModal('Reset Swipe History','All films will reappear in Discover.','Reset Swipes','rgba(124,58,237,.9)',function(){LIB.forEach(function(m,i){LIB[i].swiped=false;LIB[i].swipedAt=null;});sv('lib2',LIB);toast('Swipe history reset!');});}
 function saveAPIKeySettings(){var k=document.getElementById('s-api-key').value.trim();if(!k){toast('Please enter a key');return;}localStorage.setItem('wn_apikey',k);document.getElementById('s-api-status').textContent='Key saved ✓';document.getElementById('s-api-status').style.color='var(--green)';toast('API key saved! ✓');}
 function openSettings(){
+  renderActivityLog();
   var k=getAPIKey();
   var inp=document.getElementById('s-api-key');
   if(inp&&k)inp.value=k;
