@@ -1128,7 +1128,10 @@ function doSwipe(action){
   var item=swQ[0];
   var card=document.querySelector('.sw-card:last-child');
   if(!card)return;
-  var idx=LIB.findIndex(function(m){return (m.id||m.t)===(item.id||item.t);});
+  var idx=LIB.findIndex(function(m){
+    if(item.id && m.id) return m.id===item.id;
+    return m.t===item.t;
+  });
   if(action==='yes'){
     // Right = watched
     card.classList.add('ar');
@@ -1143,6 +1146,10 @@ function doSwipe(action){
     card.classList.add('au');
     if(idx>=0){LIB[idx].watchlist=true;LIB[idx].swipedSeen=true;}
     toast('Added "'+item.t+'" to watchlist! 📋');
+  }
+  if(idx<0){
+    // Film not found in library - still advance the queue
+    console.log('Film not found, skipping:', item.t);
   }
   sv('lib2',LIB);swQ.shift();updateSwProgress();setTimeout(function(){renderSw();},350);
 }
