@@ -574,10 +574,13 @@ function setPoster(el,id,tp){}
 // ── RUNTIME LOOKUP ──
 var RT = {"tt1179933":103,"tt8579674":119,"tt0062622":149,"tt1190080":158,"tt0090605":137,"tt0144084":102,"tt3896198":116,"tt1630029":192,"tt1856101":164,"tt0099077":178,"tt0381061":144,"tt7993262":152,"tt0246578":113,"tt1343727":95,"tt0780504":100,"tt1160419":155,"tt1631867":113,"tt3322420":108,"tt6823368":129,"tt7784604":127,"tt16277242":111,"tt0361748":153,"tt22022452":100,"tt1179056":103,"tt15671026":107,"tt1396484":135,"tt6157426":91,"tt2521620":100,"tt2911666":101,"tt4425200":122,"tt6146586":130,"tt7286456":122,"tt12361974":242,"tt8946378":130,"tt14443312":93,"tt8760684":102,"tt9174742":111,"tt12037194":137,"tt11813216":161,"tt12758060":103,"tt21823606":85,"tt0054215":109,"tt1677720":140,"tt17351924":127,"tt0108052":195,"tt10919380":123,"tt3397884":121,"tt0120844":110,"tt15474916":95,"tt22687790":132,"tt1178663":93,"tt10872600":148,"tt11137390":95,"tt0075314":113,"tt6723592":150,"tt1340138":128,"tt1877830":176,"tt0118715":117,"tt11655566":95,"tt0468569":152,"tt5629844":111,"tt0396171":187,"tt4656248":109,"tt0482571":130,"tt5753418":110,"tt0102926":118,"tt17526714":141,"tt0114814":106,"tt0133093":136,"tt0234215":138,"tt0242653":129,"tt14550898":103,"tt0407304":116,"tt13560574":106,"tt0289879":113,"tt0478970":99,"tt0416449":117,"tt0087800":91,"tt0353969":115,"tt0169547":122,"tt2935510":99,"tt8079248":106,"tt5140878":109,"tt0499549":162,"tt0088763":116,"tt0096874":108,"tt0099088":118,"tt0372784":140,"tt0112471":101,"tt0120382":112,"tt0083658":117,"tt13669038":95,"tt1462758":95,"tt3616916":91,"tt0367594":115,"tt0120630":84,"tt0317248":130,"tt10420476":109,"tt7340806":97,"tt0493473":100,"tt0123755":90,"tt0240772":126,"tt0095016":132,"tt1853728":165,"tt5013056":106,"tt2316411":91,"tt1191111":161,"tt0137523":139,"tt0266543":100,"tt0093058":116,"tt0119167":108,"tt5052448":104,"tt1617776":98,"tt0099685":146,"tt0107048":101,"tt0077651":91,"tt5308322":96,"tt0418561":104,"tt3498820":93,"tt1798709":126,"tt0099785":103,"tt0103639":120,"tt10827022":57,"tt0347149":119,"tt1545666":141,"tt0309698":90,"tt0221827":98,"tt0271666":131,"tt1375666":148,"tt2096673":95,"tt2226417":106,"tt3289956":97,"tt6139732":103,"tt0278504":118,"tt0816692":169,"tt0758758":148,"tt7349950":169,"tt0073195":124,"tt0266697":111,"tt0378194":137,"tt1540991":87,"tt13841850":107,"tt4786282":81,"tt0120735":107,"tt2872732":89,"tt26342662":114,"tt0175880":188,"tt0209144":113,"tt0386064":132,"tt8772262":148,"tt0340855":109,"tt0327056":138,"tt2872718":117,"tt0477348":122,"tt4550098":116,"tt0430622":115,"tt0364569":120,"tt0073486":133,"tt1602613":90,"tt0457430":118,"tt1022681":101,"tt14230458":141,"tt8613070":119,"tt2637276":97,"tt0390384":77,"tt0119698":134,"tt0110912":154,"tt0180093":102,"tt0105236":99,"tt7737786":84,"tt0086250":170,"tt0267506":87,"tt0304306":93,"tt6155076":105,"tt7565372":120,"tt0245429":125,"tt0383028":124,"tt2321549":93,"tt1457767":112,"tt1345836":164,"tt0428164":99,"tt2364582":132,"tt5595076":121,"tt0070047":122,"tt15474918":107,"tt0120689":189,"tt4016934":144,"tt1051906":124,"tt5715874":121,"tt8247114":108,"tt0361862":101,"tt13446168":130,"tt0287839":150,"tt0111161":142,"tt0081505":146,"tt1189073":120,"tt5215952":156,"tt4263482":92,"tt1596365":95,"tt0469494":158,"tt1187064":99,"tt1049413":96,"tt8368814":97,"tt0910970":98,"tt0409459":215,"tt16300962":99,"tt0094672":128,"tt0116996":116,"tt0443706":157,"tt23549418":60,"tt0944947":57,"tt14182806":60,"tt0141842":52,"tt3581920":60,"tt0306414":59,"tt2802850":60,"tt9656978":60,"tt3794028":11,"tt1628033":60};
 
-function fmtRT(id){
-  var m=RT[id];if(!m)return '';
+function fmtRT(id, itemRuntime){
+  var m=RT[id]||itemRuntime||0;if(!m)return '';
   var h=Math.floor(m/60),mn=m%60;
   return h>0?(h+'h '+(mn>0?mn+'m':'')):mn+'m';
+}
+function fmtRTItem(item){
+  return fmtRT(item.id, item.runtime);
 }
 function fmtTV(id){
   var tv=TV_INFO[id];if(!tv)return '';
@@ -951,7 +954,7 @@ function mkPC(item,cb){
     var em=document.createElement('div');em.className='pc-emoji';em.textContent=item.tp==='tv'?'📺':ge(item.g);
     var pt=document.createElement('div');pt.className='pc-pht';pt.textContent=item.t;
     var rtgEl=document.createElement('div');rtgEl.className='pc-rating';rtgEl.textContent=item.r?'★ '+item.r:'';
-    var rtEl=document.createElement('div');rtEl.className='pc-runtime';var rt=fmtRT(item.id);if(rt)rtEl.textContent='⏱ '+rt;
+    var rtEl=document.createElement('div');rtEl.className='pc-runtime';var rt=fmtRTItem(item);if(rt)rtEl.textContent='⏱ '+rt;
     ph.appendChild(em);ph.appendChild(pt);ph.appendChild(rtgEl);ph.appendChild(rtEl);
     imgWrap.appendChild(ph);
   }
@@ -1082,7 +1085,7 @@ function mkSwCard(item,interactive){
   ph.style.cssText='width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:20px;background:'+(item.poster?'linear-gradient(to top,rgba(0,0,0,.95) 0%,rgba(0,0,0,.4) 50%,transparent 100%)':'linear-gradient(135deg,#1a1a2e,#0a0a18)')+';position:relative;z-index:1;';
   var swEm=document.createElement('div');swEm.style.cssText='font-size:64px;margin-bottom:12px;';swEm.textContent=item.tp==='tv'?'📺':ge(item.g);
   var swTitle=document.createElement('div');swTitle.style.cssText='font-size:20px;font-weight:900;color:#fff;margin-bottom:8px;padding:0 16px;text-align:center;line-height:1.3;';swTitle.textContent=item.t;
-  var swRt=fmtRT(item.id);
+  var swRt=fmtRTItem(item);
   var swMeta=document.createElement('div');swMeta.style.cssText='display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:10px;';
   // Year - always show
   swMeta.innerHTML+='<span style="background:rgba(255,255,255,.12);color:#e2e8f0;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;">'+item.y+'</span>';
@@ -1284,7 +1287,7 @@ function renderLib(){
     }
     var rt=fmtRT(item.id);
     var body=document.createElement('div');body.className='li-body';
-    var tvInfo=item.tp==='tv'?fmtTV(item.id):'';body.innerHTML='<div class="li-title">'+item.t.replace(/</g,'&lt;')+'</div><div class="li-sub">'+item.y+' \u00b7 '+item.g+(tvInfo?' \u00b7 '+tvInfo:rt?' \u00b7 '+rt:'')+'</div><div class="li-badges">'+(item.r?'<span class="sb2 sb-rt" style="font-size:9px">★ '+item.r+'</span>':'')+(item.q==='4K'?'<span class="sb2 sb-4k" style="font-size:9px">4K</span>':'')+(item.tp==='tv'?'<span class="sb2 sb-gn" style="font-size:9px">TV</span>':'')+'</div>';
+    var tvInfo=item.tp==='tv'?fmtTV(item.id):'';var rt=fmtRTItem(item);body.innerHTML='<div class="li-title">'+item.t.replace(/</g,'&lt;')+'</div><div class="li-sub">'+item.y+' \u00b7 '+item.g+(tvInfo?' \u00b7 '+tvInfo:rt?' \u00b7 '+rt:'')+'</div><div class="li-badges">'+(item.r?'<span class="sb2 sb-rt" style="font-size:9px">★ '+item.r+'</span>':'')+(item.q==='4K'?'<span class="sb2 sb-4k" style="font-size:9px">4K</span>':'')+(item.tp==='tv'?'<span class="sb2 sb-gn" style="font-size:9px">TV</span>':'')+'</div>';
     var right=document.createElement('div');right.className='li-right';
     right.innerHTML='<div class="'+(item.watched?'wd':'uwd')+'"></div>'+(item.watchlist&&!item.watched?'<div style="font-size:10px;color:var(--accent2)">📋</div>':'');
     div.appendChild(th);div.appendChild(body);div.appendChild(right);
