@@ -840,13 +840,15 @@ if(!LIB||!Array.isArray(LIB)||LIB.length===0){
   LIB=SEED.map(function(m){return Object.assign({},m,{watched:false,watchlist:false,swiped:false,swipedAt:null});});
   sv('lib2',LIB);
 } else {
-  // Mark 4K/1080p films as downloaded if not already set
+  // Mark 4K/1080p films as downloaded (always check, not just undefined)
+  var dlChanged=false;
   LIB.forEach(function(m,i){
-    if(m.downloaded===undefined&&(m.q==='4K'||m.q==='1080p')){
+    if((m.q==='4K'||m.q==='1080p')&&!m.downloaded){
       LIB[i].downloaded=true;
+      dlChanged=true;
     }
   });
-  sv('lib2',LIB);
+  if(dlChanged)sv('lib2',LIB);
   // Merge any new seed titles not already in saved library
   var existingIds = LIB.map(function(m){return m.id||m.t;});
   var added = 0;
@@ -1286,6 +1288,7 @@ function renderLib(){
   else if(libFG==='TV')items=items.filter(function(m){return m.tp==='tv';});
   else if(libFG==='Watched')items=items.filter(function(m){return m.watched;});
   else if(libFG==='Unwatched')items=items.filter(function(m){return !m.watched;});
+  else if(libFG==='Downloaded')items=items.filter(function(m){return m.downloaded;});
   else if(libFG!=='All')items=items.filter(function(m){return m.g===libFG;});
   // Sort: default ABC, but keep rating sort available
   items.sort(function(a,b){
@@ -1332,7 +1335,7 @@ function openDet(key){
   } else {
     ph.textContent=item.tp==='tv'?'📺':ge(item.g);ph.style.display='';
   }
-  var rt=fmtRT(item.id);
+  var rt=fmtRTItem(item);
   document.getElementById('det-title').textContent=item.t;
   var detSubEl=document.getElementById('det-subtitle');
   if(detSubEl){
@@ -1343,7 +1346,7 @@ function openDet(key){
       detSubEl.style.display='none';
     }
   }
-  document.getElementById('det-meta').innerHTML='<span class="sb2 sb-yr">'+item.y+'</span>'+(item.r?'<span class="sb2 sb-rt">★ '+item.r+'</span>':'')+(rt?'<span class="sb2 sb-yr">⏱ '+rt+'</span>':'')+'<span class="sb2 sb-gn">'+item.g+'</span>'+(item.q==='4K'?'<span class="sb2 sb-4k">4K</span>':'')+(item.tp==='tv'?'<span class="sb2" style="background:rgba(6,182,212,.15);color:var(--cyan);font-size:10px">TV</span>':'')+(item.id?'<a href="https://www.imdb.com/title/'+item.id+'/" target="_blank" style="background:rgba(251,191,36,.15);color:var(--yellow);padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;">IMDb ↗</a>':'')+' <a href="https://www.youtube.com/results?search_query='+encodeURIComponent(item.t+' '+item.y+' official trailer')+'" target="_blank" style="background:rgba(239,68,68,.15);color:#f87171;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;">▶ Trailer</a>';
+  document.getElementById('det-meta').innerHTML='<span class="sb2 sb-yr">'+item.y+'</span>'+(item.r?'<span class="sb2 sb-rt">★ '+item.r+'</span>':'')+(rt?'<span class="sb2 sb-yr">⏱ '+rt+'</span>':'')+'<span class="sb2 sb-gn">'+item.g+'</span>'+(item.q==='4K'?'<span class="sb2 sb-4k">4K</span>':'')+(item.tp==='tv'?'<span class="sb2" style="background:rgba(6,182,212,.15);color:var(--cyan);font-size:10px">TV</span>':'')+(item.id?'<a href="https://www.imdb.com/title/'+item.id+'/" target="_blank" style="background:rgba(251,191,36,.15);color:var(--yellow);padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;">IMDb ↗</a>':'')+' <a href="https://www.youtube.com/results?search_query='+encodeURIComponent(item.t+' '+item.y+' official trailer')+'" target="_blank" style="background:rgba(239,68,68,.15);color:#f87171;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;">▶ Trailer</a>'+'<a href="https://www.justwatch.com/uk/search?q='+encodeURIComponent(item.t)+'" target="_blank" style="background:rgba(16,185,129,.12);color:var(--green);padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;">▶ JustWatch</a>';
   document.getElementById('det-desc').textContent=item.d||'';
   // Status banner
   var statusEl=document.getElementById('det-status');
