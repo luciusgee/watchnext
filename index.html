@@ -96,7 +96,7 @@ body{display:flex;flex-direction:column;}
 @keyframes swU{to{transform:translateY(-130%) scale(.8);opacity:0;}}
 .sw-post{width:100%;height:320px;position:relative;overflow:hidden;background:var(--card);}
 .sw-post img{width:100%;height:100%;object-fit:cover;display:block;}
-.sw-post-ph{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;background:linear-gradient(135deg,#1a1a2e,#0a0a18);}
+.sw-post-ph{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:20px;}
 .sw-grad{position:absolute;bottom:0;left:0;right:0;height:55%;background:linear-gradient(to top,rgba(15,15,28,1),transparent);}
 .sw-info{padding:16px;}
 .sw-title{font-size:20px;font-weight:900;letter-spacing:-.5px;margin-bottom:6px;}
@@ -490,8 +490,8 @@ input.srch:focus{border-color:var(--accent);}
     <!-- ENRICH -->
     <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">🔍 Movie Info</div>
     <div style="background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);margin-bottom:20px;">
-      <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Fetch missing IMDB IDs, runtimes and info for films added via batch import. Runs automatically in the background but you can trigger it manually here.</div>
-      <button onclick="enrichAllNow()" style="width:100%;padding:13px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;font-size:14px;font-weight:700;cursor:pointer;">🔍 Fetch Missing Movie Info</button>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Fetch ratings, runtimes, descriptions and poster art for all films from OMDb. Run this after importing your library or adding new titles.</div>
+      <button onclick="enrichAllNow()" style="width:100%;padding:13px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;font-size:14px;font-weight:700;cursor:pointer;">🔍 Fetch All Data</button>
       <div id="enrich-status" style="font-size:12px;color:var(--muted);margin-top:8px;text-align:center;"></div>
     </div>
 
@@ -1058,7 +1058,14 @@ function renderSw(){
 function mkSwCard(item,interactive){
   var card=document.createElement('div');card.className='sw-card';
   var post=document.createElement('div');post.className='sw-post';
+  if(item.poster){
+    var swImg=document.createElement('img');
+    swImg.src=item.poster;
+    swImg.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;';
+    post.appendChild(swImg);
+  }
   var ph=document.createElement('div');ph.className='sw-post-ph';
+  ph.style.cssText='width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:20px;background:'+(item.poster?'linear-gradient(to top,rgba(0,0,0,.95) 0%,rgba(0,0,0,.4) 50%,transparent 100%)':'linear-gradient(135deg,#1a1a2e,#0a0a18)')+';position:relative;z-index:1;';
   var swEm=document.createElement('div');swEm.style.cssText='font-size:64px;margin-bottom:12px;';swEm.textContent=item.tp==='tv'?'📺':ge(item.g);
   var swTitle=document.createElement('div');swTitle.style.cssText='font-size:20px;font-weight:900;color:#fff;margin-bottom:8px;padding:0 16px;text-align:center;line-height:1.3;';swTitle.textContent=item.t;
   var swRt=fmtRT(item.id);
@@ -1252,8 +1259,15 @@ function renderLib(){
   items.forEach(function(item){
     var div=document.createElement('div');div.className='li';var _key=item.id||item.t;div.onclick=function(){openDet(_key);};
     var col=gc(item.g);
-    var th=document.createElement('div');th.className='li-th';th.style.cssText='background:'+col+'22;color:'+col+';font-size:22px;display:flex;align-items:center;justify-content:center;';
-    th.textContent=item.tp==='tv'?'📺':ge(item.g);
+    var th=document.createElement('div');th.className='li-th';th.style.cssText='background:'+col+'22;color:'+col+';font-size:22px;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;';
+    if(item.poster){
+      var liImg=document.createElement('img');liImg.src=item.poster;
+      liImg.style.cssText='width:100%;height:100%;object-fit:cover;';
+      liImg.onerror=function(){this.style.display='none';th.textContent=item.tp==='tv'?'📺':ge(item.g);};
+      th.appendChild(liImg);
+    } else {
+      th.textContent=item.tp==='tv'?'📺':ge(item.g);
+    }
     var rt=fmtRT(item.id);
     var body=document.createElement('div');body.className='li-body';
     var tvInfo=item.tp==='tv'?fmtTV(item.id):'';body.innerHTML='<div class="li-title">'+item.t.replace(/</g,'&lt;')+'</div><div class="li-sub">'+item.y+' \u00b7 '+item.g+(tvInfo?' \u00b7 '+tvInfo:rt?' \u00b7 '+rt:'')+'</div><div class="li-badges">'+(item.r?'<span class="sb2 sb-rt" style="font-size:9px">★ '+item.r+'</span>':'')+(item.q==='4K'?'<span class="sb2 sb-4k" style="font-size:9px">4K</span>':'')+(item.tp==='tv'?'<span class="sb2 sb-gn" style="font-size:9px">TV</span>':'')+'</div>';
@@ -1863,83 +1877,90 @@ renderHome();
 initSplash();
 
 // ── AUTO-ENRICH MISSING IMDB IDs ──
-function searchCinemeta(title, year, type, cb){
-  var t = type||'movie';
-  var q = encodeURIComponent(title + (year?' '+year:''));
-  fetch('https://v3-cinemeta.strem.io/catalog/'+t+'/top/search='+q+'.json')
+var OMDB_KEY='b02e4dc6';
+
+function omdbSearch(title, year, tp, cb){
+  var mtype=tp==='tv'?'series':'movie';
+  var url='https://www.omdbapi.com/?t='+encodeURIComponent(title)+'&type='+mtype+'&apikey='+OMDB_KEY;
+  if(year&&year<2026)url+='&y='+year;
+  fetch(url)
     .then(function(r){return r.json();})
     .then(function(d){
-      var metas=d&&d.metas;
-      if(!metas||!metas.length){cb(null);return;}
-      var qt=title.toLowerCase();
-      var best=null;
-      for(var i=0;i<Math.min(metas.length,8);i++){
-        var mt=(metas[i].name||'').toLowerCase();
-        if(mt===qt){best=metas[i];break;}
-        if(!best&&(mt.indexOf(qt)>-1||qt.indexOf(mt)>-1))best=metas[i];
+      if(d&&d.Response==='True'){cb(d);}
+      else{
+        // Try without year
+        fetch('https://www.omdbapi.com/?t='+encodeURIComponent(title)+'&type='+mtype+'&apikey='+OMDB_KEY)
+          .then(function(r2){return r2.json();})
+          .then(function(d2){cb(d2&&d2.Response==='True'?d2:null);})
+          .catch(function(){cb(null);});
       }
-      if(!best)best=metas[0];
-      cb(best&&best.id&&best.id.startsWith('tt')?best:null);
     })
     .catch(function(){cb(null);});
 }
 
-function enrichOneFilm(item, cb){
-  var types = item.tp==='tv'?['series','movie']:['movie','series'];
-  var ti=0;
-  function next(){
-    if(ti>=types.length){cb(null);return;}
-    searchCinemeta(item.t, item.y, types[ti++], function(meta){
-      if(meta)cb(meta);
-      else next();
-    });
+function omdbById(imdbId, cb){
+  fetch('https://www.omdbapi.com/?i='+imdbId+'&apikey='+OMDB_KEY)
+    .then(function(r){return r.json();})
+    .then(function(d){cb(d&&d.Response==='True'?d:null);})
+    .catch(function(){cb(null);});
+}
+
+var GENRE_MAP={'Horror':'Horror','Thriller':'Thriller','Sci-Fi':'Sci-Fi','Science Fiction':'Sci-Fi','Action':'Action','Drama':'Drama','Crime':'Crime','Comedy':'Comedy','Animation':'Animation','Romance':'Romance','Documentary':'Documentary','Mystery':'Thriller','Adventure':'Action','Fantasy':'Sci-Fi','History':'Drama','War':'Drama','Biography':'Drama','Western':'Drama'};
+function mapGenre(str){if(!str||str==='N/A')return null;var parts=str.split(', ');for(var i=0;i<parts.length;i++){if(GENRE_MAP[parts[i]])return GENRE_MAP[parts[i]];}return null;}
+function parseRT(str){if(!str||str==='N/A')return null;try{return parseInt(str.replace(' min',''));}catch(e){return null;}}
+function parseRating(str){if(!str||str==='N/A')return null;try{return Math.round(parseFloat(str)*10)/10;}catch(e){return null;}}
+
+function enrichFromOMDb(item, idx, cb){
+  function applyData(d){
+    if(!d){cb(false);return;}
+    var changed=false;
+    if(d.imdbID&&d.imdbID!=='N/A'){LIB[idx].id=d.imdbID;changed=true;}
+    var r=parseRating(d.imdbRating);if(r){LIB[idx].r=r;changed=true;}
+    var rt=parseRT(d.Runtime);if(rt){LIB[idx].runtime=rt;changed=true;}
+    if(d.Plot&&d.Plot!=='N/A'){LIB[idx].d=d.Plot;changed=true;}
+    var g=mapGenre(d.Genre);if(g){LIB[idx].g=g;changed=true;}
+    if(d.Year&&d.Year!=='N/A'){try{var y=parseInt(d.Year);if(y){LIB[idx].y=y;changed=true;}}catch(e){}}
+    if(d.Poster&&d.Poster!=='N/A'){LIB[idx].poster=d.Poster;changed=true;}
+    cb(changed);
   }
-  next();
+  if(item.id){omdbById(item.id,applyData);}
+  else{omdbSearch(item.t,item.y,item.tp||'movie',applyData);}
 }
 
 function enrichMissingFilms(){
-  var missing=LIB.filter(function(m){return !m.id;}).slice(0,5);
+  var missing=LIB.filter(function(m){return !m.id||!m.r||!m.d;}).slice(0,5);
   if(!missing.length)return;
   var done=0;
   missing.forEach(function(item){
-    enrichOneFilm(item,function(meta){
-      if(meta){
-        var idx=LIB.findIndex(function(m){return m.t===item.t&&!m.id;});
-        if(idx>=0){
-          LIB[idx].id=meta.id;
-          if(meta.description&&!LIB[idx].d)LIB[idx].d=meta.description;
-        }
-      }
+    var idx2=LIB.findIndex(function(m){return m.t===item.t;});
+    enrichFromOMDb(item,idx2,function(changed){
       done++;
-      if(done===missing.length){sv('lib2',LIB);setTimeout(enrichMissingFilms,3000);}
+      if(done===missing.length&&changed){sv('lib2',LIB);setTimeout(enrichMissingFilms,3000);}
+      else if(done===missing.length){setTimeout(enrichMissingFilms,3000);}
     });
   });
 }
 
 function enrichAllNow(){
   var statusEl=document.getElementById('enrich-status');
-  var missing=LIB.filter(function(m){return !m.id;});
-  if(!missing.length){if(statusEl)statusEl.innerHTML='<span style="color:var(--green)">All films already have info! ✓</span>';return;}
-  var total=missing.length, done=0, found=0;
+  var toEnrich=LIB.slice(); // ALL films
+  if(!toEnrich.length){if(statusEl)statusEl.innerHTML='<span style="color:var(--green)">Library is empty!</span>';return;}
+  var total=toEnrich.length,done=0,found=0;
   if(statusEl)statusEl.innerHTML='Starting... 0/'+total;
   function next(i){
     if(i>=total){
       sv('lib2',LIB);
-      if(statusEl)statusEl.innerHTML='<span style="color:var(--green)">Done! Found '+found+' of '+total+' ✓</span>';
+      if(statusEl)statusEl.innerHTML='<span style="color:var(--green)">Done! Updated '+found+' of '+total+' ✓</span>';
       toast('Movie info updated for '+found+' films!');
       return;
     }
-    var item=missing[i];
-    if(statusEl)statusEl.innerHTML='Checking: '+item.t+' ('+i+'/'+total+')';
-    enrichOneFilm(item,function(meta){
-      if(meta){
-        var idx=LIB.findIndex(function(m){return m.t===item.t&&!m.id;});
-        if(idx>=0){
-          LIB[idx].id=meta.id;found++;
-          if(meta.description&&!LIB[idx].d)LIB[idx].d=meta.description;
-        }
-      }
-      setTimeout(function(){next(i+1);},300);
+    var item=toEnrich[i];
+    var idx2=LIB.findIndex(function(m){return m.t===item.t;});
+    if(statusEl)statusEl.textContent='Checking: '+item.t+' ('+i+'/'+total+')';
+    enrichFromOMDb(item,idx2,function(changed){
+      if(changed)found++;
+      if(changed&&found%10===0){sv('lib2',LIB);} // save every 10
+      setTimeout(function(){next(i+1);},200);
     });
   }
   next(0);
