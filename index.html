@@ -1911,9 +1911,15 @@ function parseRT(str){if(!str||str==='N/A')return null;try{return parseInt(str.r
 function parseRating(str){if(!str||str==='N/A')return null;try{return Math.round(parseFloat(str)*10)/10;}catch(e){return null;}}
 
 function enrichFromOMDb(item, idx, cb){
-  function applyData(d){
-    if(!d){cb(false);return;}
+  function applyData(d, flagAmbiguous){
+    if(!d){cb(false,false);return;}
     var changed=false;
+    // Check if year is way off - possible wrong match
+    var yearOff=false;
+    if(d.Year&&d.Year!=='N/A'&&item.y){
+      var returnedY=parseInt(d.Year);
+      if(Math.abs(returnedY-item.y)>3)yearOff=true;
+    }
     if(d.imdbID&&d.imdbID!=='N/A'){LIB[idx].id=d.imdbID;changed=true;}
     var r=parseRating(d.imdbRating);if(r){LIB[idx].r=r;changed=true;}
     var rt=parseRT(d.Runtime);if(rt){LIB[idx].runtime=rt;changed=true;}
@@ -1921,10 +1927,21 @@ function enrichFromOMDb(item, idx, cb){
     var g=mapGenre(d.Genre);if(g){LIB[idx].g=g;changed=true;}
     if(d.Year&&d.Year!=='N/A'){try{var y=parseInt(d.Year);if(y){LIB[idx].y=y;changed=true;}}catch(e){}}
     if(d.Poster&&d.Poster!=='N/A'){LIB[idx].poster=d.Poster;changed=true;}
-    cb(changed);
+    cb(changed, yearOff||flagAmbiguous);
   }
-  if(item.id){omdbById(item.id,applyData);}
-  else{omdbSearch(item.t,item.y,item.tp||'movie',applyData);}
+  if(item.id){omdbById(item.id,function(d){applyData(d,false);});}
+  else{
+    // Use search endpoint to check for multiple matches
+    fetch('https://www.omdbapi.com/?s='+encodeURIComponent(item.t)+'&type='+(item.tp==='tv'?'series':'movie')+'&apikey='+OMDB_KEY)
+      .then(function(r){return r.json();})
+      .then(function(sd){
+        var multipleMatches=sd.Search&&sd.Search.length>1;
+        omdbSearch(item.t,item.y,item.tp||'movie',function(d){applyData(d,multipleMatches);});
+      })
+      .catch(function(){omdbSearch(item.t,item.y,item.tp||'movie',function(d){applyData(d,false);});});
+    return; // early return, cb called inside
+  }
+
 }
 
 function enrichMissingFilms(){
@@ -1941,29 +1958,176 @@ function enrichMissingFilms(){
   });
 }
 
+var failedFilms=[];var ambiguousFilms=[];
+
 function enrichAllNow(){
   var statusEl=document.getElementById('enrich-status');
-  var toEnrich=LIB.slice(); // ALL films
+  var toEnrich=LIB.slice();
   if(!toEnrich.length){if(statusEl)statusEl.innerHTML='<span style="color:var(--green)">Library is empty!</span>';return;}
   var total=toEnrich.length,done=0,found=0;
+  failedFilms=[];ambiguousFilms=[];
   if(statusEl)statusEl.innerHTML='Starting... 0/'+total;
   function next(i){
     if(i>=total){
       sv('lib2',LIB);
-      if(statusEl)statusEl.innerHTML='<span style="color:var(--green)">Done! Updated '+found+' of '+total+' ✓</span>';
-      toast('Movie info updated for '+found+' films!');
+      var doneHtml='<span style="color:var(--green)">Done! Updated '+found+' of '+total+' ✓</span>';
+      if(failedFilms.length)doneHtml+=' <button onclick="showDisambig(failedFilms)" style="margin-left:4px;padding:4px 10px;border-radius:6px;background:rgba(251,191,36,.2);color:var(--yellow);border:1px solid rgba(251,191,36,.3);font-size:11px;font-weight:700;cursor:pointer;">Fix '+failedFilms.length+' failed ↗</button>';
+      if(ambiguousFilms.length)doneHtml+=' <button onclick="showDisambig(ambiguousFilms)" style="margin-left:4px;padding:4px 10px;border-radius:6px;background:rgba(6,182,212,.15);color:var(--cyan);border:1px solid rgba(6,182,212,.3);font-size:11px;font-weight:700;cursor:pointer;">Check '+ambiguousFilms.length+' duplicates ↗</button>';
+      if(statusEl)statusEl.innerHTML=doneHtml;
+      toast('Updated '+found+' films!'+(failedFilms.length?' · '+failedFilms.length+' failed':'')+(ambiguousFilms.length?' · '+ambiguousFilms.length+' may need checking':''));
+      renderHome();
       return;
     }
     var item=toEnrich[i];
     var idx2=LIB.findIndex(function(m){return m.t===item.t;});
-    if(statusEl)statusEl.textContent='Checking: '+item.t+' ('+i+'/'+total+')';
-    enrichFromOMDb(item,idx2,function(changed){
+    if(statusEl)statusEl.textContent='Checking: '+item.t+' ('+(i+1)+'/'+total+')';
+    enrichFromOMDb(item,idx2,function(changed,ambiguous){
       if(changed)found++;
-      if(changed&&found%10===0){sv('lib2',LIB);} // save every 10
+      else failedFilms.push(item);
+      if(changed&&ambiguous)ambiguousFilms.push(item);
+      if(found%10===0)sv('lib2',LIB);
       setTimeout(function(){next(i+1);},200);
     });
   }
   next(0);
+}
+
+// ── DISAMBIGUATION UI ──
+function showDisambig(filmList){
+  var panel=document.getElementById('disambig-panel');
+  if(panel){panel.remove();}
+  if(!filmList||!filmList.length){toast('Nothing to fix!');return;}
+  
+  var overlay=document.createElement('div');
+  overlay.id='disambig-panel';
+  overlay.style.cssText='position:fixed;inset:0;z-index:5000;background:rgba(0,0,0,.85);display:flex;flex-direction:column;';
+  
+  var header=document.createElement('div');
+  header.style.cssText='padding:20px 20px 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);flex-shrink:0;';
+  var htitle=document.createElement('div');htitle.style.cssText='font-size:18px;font-weight:800;';htitle.textContent='Fix Failed Films';
+  var hsub=document.createElement('div');hsub.style.cssText='font-size:12px;color:var(--muted);margin-top:2px;';hsub.textContent=failedFilms.length+' films need identifying';
+  var hleft=document.createElement('div');hleft.appendChild(htitle);hleft.appendChild(hsub);
+  var hclose=document.createElement('button');hclose.textContent='Done';hclose.style.cssText='padding:8px 14px;border-radius:10px;background:var(--card);color:var(--text);border:1px solid var(--border);font-size:13px;font-weight:700;cursor:pointer;';
+  hclose.onclick=function(){document.getElementById('disambig-panel').remove();};
+  header.appendChild(hleft);header.appendChild(hclose);
+  overlay.appendChild(header);
+  
+  var scroll=document.createElement('div');
+  scroll.style.cssText='flex:1;overflow-y:auto;padding:16px;';
+  
+  var disambigIdx=0;
+  function showNextDisambig(){
+    scroll.innerHTML='';
+    if(disambigIdx>=filmList.length){
+      scroll.innerHTML='<div style="text-align:center;padding:40px;color:var(--green);font-size:18px;font-weight:700;">All done! ✓</div>';
+      return;
+    }
+    var film=filmList[disambigIdx];
+    var card=document.createElement('div');
+    card.style.cssText='background:var(--card);border-radius:14px;padding:16px;margin-bottom:16px;border:1px solid var(--border);';
+    card.innerHTML='<div style="font-size:16px;font-weight:800;margin-bottom:4px;">'+film.t.replace(/</g,"&lt;")+'</div><div style="font-size:12px;color:var(--muted);margin-bottom:12px;">'+film.y+' · '+film.g+'</div>';
+    
+    // Search input
+    var searchWrap=document.createElement('div');
+    searchWrap.style.cssText='display:flex;gap:8px;margin-bottom:12px;';
+    var inp=document.createElement('input');
+    inp.value=film.t;
+    inp.style.cssText='flex:1;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:14px;outline:none;';
+    var searchBtn=document.createElement('button');
+    searchBtn.textContent='Search';
+    searchBtn.style.cssText='padding:10px 14px;border-radius:10px;background:var(--accent);color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;';
+    searchWrap.appendChild(inp);searchWrap.appendChild(searchBtn);
+    card.appendChild(searchWrap);
+    
+    var results=document.createElement('div');
+    results.id='disambig-results';
+    card.appendChild(results);
+    
+    // Add another version button
+    var addBtn=document.createElement('button');
+    addBtn.textContent='+ Add another version of this film';
+    addBtn.style.cssText='width:100%;padding:10px;border-radius:10px;background:rgba(124,58,237,.15);color:var(--accent2);border:1px solid rgba(124,58,237,.3);font-size:13px;font-weight:700;cursor:pointer;margin-top:8px;';
+    addBtn.onclick=function(){
+      // Show search and when user picks, add as NEW entry with year
+      addBtn.textContent='Search above and pick the version to add as new entry';
+      addBtn.disabled=true;
+      // Override row click behaviour to add new instead of update
+      addBtn.dataset.addMode='true';
+    };
+    card.appendChild(addBtn);
+
+    var skipBtn=document.createElement('button');
+    skipBtn.textContent='Skip →';
+    skipBtn.style.cssText='width:100%;padding:10px;border-radius:10px;background:transparent;color:var(--muted);border:1px solid var(--border);font-size:13px;cursor:pointer;margin-top:6px;';
+    skipBtn.onclick=function(){disambigIdx++;showNextDisambig();};
+    card.appendChild(skipBtn);
+    
+    scroll.appendChild(card);
+    
+    function doSearch(q){
+      results.innerHTML='<div style="color:var(--muted);font-size:12px;padding:8px 0;">Searching...</div>';
+      var tp=film.tp==='tv'?'series':'movie';
+      fetch('https://www.omdbapi.com/?s='+encodeURIComponent(q)+'&type='+tp+'&apikey='+OMDB_KEY)
+        .then(function(r){return r.json();})
+        .then(function(d){
+          results.innerHTML='';
+          if(!d.Search||!d.Search.length){results.innerHTML='<div style="color:var(--muted);font-size:12px;padding:8px 0;">No results. Try a different search.</div>';return;}
+          d.Search.slice(0,6).forEach(function(r2){
+            var row=document.createElement('div');
+            row.style.cssText='display:flex;gap:12px;align-items:center;padding:10px;background:var(--bg3);border-radius:10px;margin-bottom:8px;cursor:pointer;border:1px solid var(--border);';
+            row.innerHTML='<img src="'+(r2.Poster&&r2.Poster!=="N/A"?r2.Poster:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="60"><rect width="40" height="60" fill="%23333"/></svg>')+'" style="width:40px;height:58px;object-fit:cover;border-radius:6px;flex-shrink:0;"><div><div style="font-size:14px;font-weight:700;">'+r2.Title+'</div><div style="font-size:11px;color:var(--muted);">'+r2.Year+'</div></div>';
+            row.onclick=function(){
+              // Apply this match
+              var libIdx=LIB.findIndex(function(m){return m.t===film.t;});
+              if(libIdx>=0){
+                // Check if another entry already has this IMDB ID (true duplicate in library)
+                var existingMatch=LIB.findIndex(function(m,mi){return mi!==libIdx&&m.id===r2.imdbID;});
+                // If selecting a different year version, rename with year
+                var selectedYear=parseInt(r2.Year)||film.y;
+                var nameWithYear=r2.Title+' ('+selectedYear+')';
+                // Check if library already has a film with this name+year (user adding a second copy)
+                var alreadyHasYear=LIB.findIndex(function(m){return m.t===nameWithYear;});
+                if(alreadyHasYear>=0&&alreadyHasYear!==libIdx){
+                  // Already have this exact one - just update the current entry's year title
+                  LIB[libIdx].t=nameWithYear;
+                } else if(existingMatch>=0){
+                  // Another library entry has same ID - rename this one with year to differentiate
+                  LIB[libIdx].t=nameWithYear;
+                }
+                LIB[libIdx].id=r2.imdbID;
+                LIB[libIdx].y=selectedYear;
+                if(r2.Poster&&r2.Poster!=='N/A')LIB[libIdx].poster=r2.Poster;
+                sv('lib2',LIB);
+                omdbById(r2.imdbID,function(full){
+                  if(full){
+                    var r=parseRating(full.imdbRating);if(r)LIB[libIdx].r=r;
+                    var rt=parseRT(full.Runtime);if(rt)LIB[libIdx].runtime=rt;
+                    if(full.Plot&&full.Plot!=='N/A')LIB[libIdx].d=full.Plot;
+                    var g=mapGenre(full.Genre);if(g)LIB[libIdx].g=g;
+                    if(full.Poster&&full.Poster!=='N/A')LIB[libIdx].poster=full.Poster;
+                    sv('lib2',LIB);
+                    renderHome();renderLib();
+                  }
+                });
+              }
+              toast('"'+r2.Title+'" matched! ✓');
+              disambigIdx++;showNextDisambig();
+            };
+            results.appendChild(row);
+          });
+        })
+        .catch(function(){results.innerHTML='<div style="color:var(--red);font-size:12px;">Search failed. Try again.</div>';});
+    }
+    
+    searchBtn.onclick=function(){doSearch(inp.value);};
+    inp.onkeydown=function(e){if(e.key==='Enter')doSearch(inp.value);};
+    // Auto search
+    doSearch(film.t);
+  }
+  
+  showNextDisambig();
+  overlay.appendChild(scroll);
+  document.body.appendChild(overlay);
 }
 
 setTimeout(enrichMissingFilms,4000);
