@@ -227,6 +227,10 @@ input.srch:focus{border-color:var(--accent);}
     </div></div>
     <div style="background:rgba(255,255,255,.04);border-top:1px solid rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06);"><div class="frow" id="h-pills"></div></div>
     <div class="frow" id="h-genres"></div>
+    <div class="sec" id="h-dl-sec" style="display:none">
+      <div class="sec-hd"><div class="sec-t">💾 Downloaded</div><div class="sec-a" onclick="showDownloadedList()">See all →</div></div>
+      <div class="hs" id="h-dl-scroll"></div>
+    </div>
     <div class="sec" id="h-wl-sec" style="display:none">
       <div class="sec-hd"><div class="sec-t">📋 Up Next</div><div class="sec-a" onclick="openWL()">See all →</div></div>
       <div class="hs" id="h-wl-scroll"></div>
@@ -404,7 +408,7 @@ input.srch:focus{border-color:var(--accent);}
     </div>
     <div style="font-size:10px;color:var(--muted);margin-top:6px;">Get a free key at console.anthropic.com</div>
   </div>
-  <div class="scroll" id="chat-messages" style="padding:16px;display:flex;flex-direction:column;gap:12px;">
+  <div class="scroll" id="chat-messages" onclick="handleChatClick(event)" style="padding:16px;display:flex;flex-direction:column;gap:12px;">
     <div class="ai-msg ai-msg-assistant">
       <div class="ai-bubble">Hey! I know your entire library. Tell me what you're in the mood for — genre, length, how scary, something similar to a film you love — and I'll pick something perfect for tonight. 🎬</div>
     </div>
@@ -532,6 +536,9 @@ input.srch:focus{border-color:var(--accent);}
     <div id="det-seasons-wrap" style="margin-bottom:20px;display:none;">
       <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:12px;">Seasons</div>
       <div id="det-seasons"></div>
+    </div>
+    <div style="margin-bottom:12px;">
+      <button id="det-dl-btn" onclick="togDownload()" style="width:100%;padding:13px;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;"></button>
     </div>
     <div style="margin-bottom:20px;">
       <button id="det-remove-btn" onclick="removeFromLibrary()" style="width:100%;padding:13px;border-radius:12px;background:rgba(239,68,68,.08);color:var(--red);border:1px solid rgba(239,68,68,.2);font-size:13px;font-weight:700;cursor:pointer;">🗑 Remove from Library</button>
@@ -833,6 +840,13 @@ if(!LIB||!Array.isArray(LIB)||LIB.length===0){
   LIB=SEED.map(function(m){return Object.assign({},m,{watched:false,watchlist:false,swiped:false,swipedAt:null});});
   sv('lib2',LIB);
 } else {
+  // Mark 4K/1080p films as downloaded if not already set
+  LIB.forEach(function(m,i){
+    if(m.downloaded===undefined&&(m.q==='4K'||m.q==='1080p')){
+      LIB[i].downloaded=true;
+    }
+  });
+  sv('lib2',LIB);
   // Merge any new seed titles not already in saved library
   var existingIds = LIB.map(function(m){return m.id||m.t;});
   var added = 0;
@@ -903,6 +917,12 @@ function renderHome(){
   document.getElementById('h-cont-sec').style.display=rw.length?'':'none';
   var cs=document.getElementById('h-cont');cs.innerHTML='';
   rw.forEach(function(item){cs.appendChild(mkPC(item));});
+  // Downloaded section
+  var downloaded=LIB.filter(function(m){return m.downloaded;}).sort(function(a,b){return (b.r||0)-(a.r||0);});
+  document.getElementById('h-dl-sec').style.display=downloaded.length?'':'none';
+  var dls=document.getElementById('h-dl-scroll');dls.innerHTML='';
+  downloaded.slice(0,12).forEach(function(item){dls.appendChild(mkPC(item));});
+
   // Watchlist up next
   var upnext=LIB.filter(function(m){return m.watchlist&&!m.watched;}).sort(function(a,b){return (b.r||0)-(a.r||0);});
   document.getElementById('h-wl-sec').style.display=upnext.length?'':'none';
@@ -961,6 +981,7 @@ function mkPC(item,cb){
 
   if(item.watched){var wb=document.createElement('div');wb.className='wb';wb.textContent='✓';imgWrap.appendChild(wb);}
   if(item.watchlist&&!item.watched){var wlb=document.createElement('div');wlb.className='wb';wlb.style.cssText='position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;background:rgba(124,58,237,.85);display:flex;align-items:center;justify-content:center;font-size:11px;';wlb.textContent='📋';imgWrap.appendChild(wlb);}
+  if(item.downloaded){var dlb=document.createElement('div');dlb.style.cssText='position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(6,182,212,.85);display:flex;align-items:center;justify-content:center;font-size:11px;';dlb.textContent='💾';imgWrap.appendChild(dlb);}
 
   var meta=document.createElement('div');
   meta.innerHTML='<div class="pc-title">'+item.t.replace(/</g,'&lt;')+'</div><div class="pc-sub">'+item.y+(item.r?' · ★'+item.r:'')+(item.tp==='tv'?' · TV':'')+'</div>';
@@ -1345,6 +1366,17 @@ function openDet(key){
     addDetBtn(actsEl,'✓ Mark as Watched','rgba(16,185,129,.2)','var(--green)','1px solid rgba(16,185,129,.3)',function(){togW();});
     addDetBtn(actsEl,'+ Add to Watchlist','linear-gradient(135deg,var(--accent),var(--accent2))','#fff','none',function(){togWL();});
   }
+  // Download button
+  var dlBtn=document.getElementById('det-dl-btn');
+  if(dlBtn){
+    if(item.downloaded){
+      dlBtn.textContent='💾 Downloaded';
+      dlBtn.style.cssText='width:100%;padding:13px;border-radius:12px;background:rgba(6,182,212,.15);color:var(--cyan);border:1px solid rgba(6,182,212,.3);font-size:13px;font-weight:700;cursor:pointer;';
+    } else {
+      dlBtn.textContent='+ Mark as Downloaded';
+      dlBtn.style.cssText='width:100%;padding:13px;border-radius:12px;background:rgba(255,255,255,.05);color:var(--muted);border:1px solid rgba(255,255,255,.1);font-size:13px;font-weight:700;cursor:pointer;';
+    }
+  }
   // TV seasons
   var seasWrap=document.getElementById('det-seasons-wrap');
   var seasEl=document.getElementById('det-seasons');
@@ -1403,6 +1435,16 @@ function openSwipeDetail(){
   openDet(key);
   if(curDet)curDet._fromSwipe=true;
 }
+function togDownload(){
+  if(!curDet)return;
+  var idx=LIB.findIndex(function(m){return (m.id||m.t)===(curDet.id||curDet.t);});
+  if(idx<0)return;
+  LIB[idx].downloaded=!LIB[idx].downloaded;
+  curDet=LIB[idx];sv('lib2',LIB);
+  toast(LIB[idx].downloaded?'Marked as downloaded! 💾':'Removed from downloads');
+  openDet(curDet.id||curDet.t);renderHome();
+}
+
 function togW(){if(!curDet)return;var idx=LIB.findIndex(function(m){return (m.id||m.t)===(curDet.id||curDet.t);});if(idx<0)return;
   var wasWatched = LIB[idx].watched;
   LIB[idx].watched=!wasWatched;LIB[idx].watchedAt=LIB[idx].watched?Date.now():null;
@@ -1444,6 +1486,32 @@ function openWL(){
   document.getElementById('wl').classList.add('open');
 }
 function closeWL(){document.getElementById('wl').classList.remove('open');}
+function showDownloadedList(){
+  var body=document.getElementById('wl-body');body.innerHTML='';
+  var items=LIB.filter(function(m){return m.downloaded;}).sort(function(a,b){
+    var ta=(a.t||'').replace(/^(the |a |an )/i,'').toLowerCase();
+    var tb=(b.t||'').replace(/^(the |a |an )/i,'').toLowerCase();
+    return ta<tb?-1:ta>tb?1:0;
+  });
+  var sec=document.createElement('div');sec.style.cssText='padding:16px 16px 0;';
+  sec.innerHTML='<div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">💾 Downloaded ('+items.length+')</div>';
+  items.forEach(function(item){
+    var div=document.createElement('div');div.className='li';div.onclick=function(){openDet(item.id||item.t);};
+    var col=gc(item.g);
+    var th=document.createElement('div');th.className='li-th';th.style.cssText='overflow:hidden;flex-shrink:0;';
+    if(item.poster){var img=document.createElement('img');img.src=item.poster;img.style.cssText='width:100%;height:100%;object-fit:cover;';th.appendChild(img);}
+    else{th.style.cssText+='background:'+col+'22;color:'+col+';font-size:22px;display:flex;align-items:center;justify-content:center;';th.textContent=item.tp==='tv'?'📺':ge(item.g);}
+    var bdy=document.createElement('div');bdy.className='li-body';
+    var rt=fmtRTItem(item);
+    bdy.innerHTML='<div class="li-title">'+item.t.replace(/</g,'&lt;')+'</div><div class="li-sub">'+item.y+' · '+item.g+(rt?' · '+rt:'')+'</div><div class="li-badges">'+(item.q==='4K'?'<span class="sb2 sb-4k" style="font-size:9px">4K</span>':'')+(item.q==='1080p'?'<span class="sb2 sb-yr" style="font-size:9px">HD</span>':'')+'</div>';
+    var right=document.createElement('div');right.className='li-right';
+    right.innerHTML='<div class="'+(item.watched?'wd':'uwd')+'"></div>';
+    div.appendChild(th);div.appendChild(bdy);div.appendChild(right);sec.appendChild(div);
+  });
+  body.appendChild(sec);
+  document.getElementById('wl').classList.add('open');
+  document.querySelector('#wl .nav-title').textContent='Downloaded';
+}
 
 
 // ── ADD ──
@@ -1503,7 +1571,46 @@ function getAPIKey(){return localStorage.getItem('wn_apikey')||'';}
 function saveAPIKey(){var key=document.getElementById('api-key-input').value.trim();if(!key){toast('Please enter an API key');return;}localStorage.setItem('wn_apikey',key);document.getElementById('ai-settings').style.display='none';toast('API key saved! ✓');}
 function toggleAISettings(){var s=document.getElementById('ai-settings');s.style.display=s.style.display==='none'?'':'none';if(s.style.display!=='none'){var k=getAPIKey();if(k)document.getElementById('api-key-input').value=k;}}
 function clearChat(){chatHistory=[];var msgs=document.getElementById('chat-messages');msgs.innerHTML='';addMsg('assistant','Hey! I know your whole library. Tell me what you are in the mood for tonight — genre, how scary, short or long, or a film you love — and I will find the perfect pick from your unwatched list. 🎬');}
-function addMsg(role,text){var msgs=document.getElementById('chat-messages');var div=document.createElement('div');div.className='ai-msg ai-msg-'+role;var bubble=document.createElement('div');bubble.className='ai-bubble';bubble.textContent=text;div.appendChild(bubble);msgs.appendChild(div);msgs.scrollTop=msgs.scrollHeight;}
+function formatChatText(text){
+  var lines = text.split('\n');
+  var html = lines.map(function(line){ return line.replace(/</g,'&lt;'); }).join('<br>');
+  // Bold **text** -> styled span, clickable if in library
+  var parts = html.split('**');
+  var result = '';
+  for(var i=0;i<parts.length;i++){
+    if(i%2===0){ result+=parts[i]; }
+    else{
+      var title=parts[i];
+      var libMatch=LIB.find(function(m){return m.t.toLowerCase()===title.toLowerCase().trim();});
+      if(libMatch){
+        var key=libMatch.id||libMatch.t;
+        window._chatKeys=window._chatKeys||{};
+        var kref='k'+Object.keys(window._chatKeys).length;
+        window._chatKeys[kref]=key;
+        result+='<span data-ckey="'+kref+'" class="chat-film-link" style="color:var(--accent2);font-weight:700;text-decoration:underline;cursor:pointer;">'+title+'</span>';
+      } else {
+        result+='<strong>'+title+'</strong>';
+      }
+    }
+  }
+  return result;
+}
+
+function handleChatClick(e){
+  var el = e.target;
+  if(el.classList.contains('chat-film-link')){
+    var kref = el.dataset.ckey;
+    var key = window._chatKeys && window._chatKeys[kref];
+    if(key) closeChatAndOpen(key);
+  }
+}
+
+function closeChatAndOpen(key){
+  goTab('home');
+  setTimeout(function(){ openDet(key); }, 100);
+}
+
+function addMsg(role,text){var msgs=document.getElementById('chat-messages');var div=document.createElement('div');div.className='ai-msg ai-msg-'+role;var bubble=document.createElement('div');bubble.className='ai-bubble';if(role==='assistant'){bubble.innerHTML=formatChatText(text);}else{bubble.textContent=text;}div.appendChild(bubble);msgs.appendChild(div);msgs.scrollTop=msgs.scrollHeight;}
 function sendChat(){
   var input=document.getElementById('chat-input');
   var text=input.value.trim();if(!text)return;
@@ -1515,7 +1622,7 @@ function sendChat(){
   var watched=LIB.filter(function(m){return m.watched;});
   var libLines=unwatched.map(function(m){var rt=RT[m.id];var rtStr=rt?(Math.floor(rt/60)+'h'+(rt%60?rt%60+'m':'')):'';return m.t+' ('+m.y+') '+m.g+(m.r?' R:'+m.r:'')+(rtStr?' '+rtStr:'');}).join(', ');
   var watchedStr=watched.map(function(m){return m.t;}).join(', ')||'none yet';
-  var sysPrompt='You are a movie picker assistant for a personal library app called Watch Next. Recommend ONLY from the unwatched list. Be friendly and concise - 2 to 4 picks max. For each pick mention the title, runtime and why it fits. UNWATCHED ('+unwatched.length+'): '+libLines+'. ALREADY WATCHED: '+watchedStr;
+  var sysPrompt='You are a movie picker assistant for a personal library app called Watch Next. Recommend ONLY from the unwatched list. When recommending, mention if a film is on a popular streaming service if you know. Users can check JustWatch UK for where to stream. Be friendly and concise - 2 to 4 picks max. For each pick mention the title, runtime and why it fits. UNWATCHED ('+unwatched.length+'): '+libLines+'. ALREADY WATCHED: '+watchedStr;
   fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:1024,system:sysPrompt,messages:chatHistory})})
   .then(function(r){return r.json();})
   .then(function(d){
