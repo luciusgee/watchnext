@@ -932,21 +932,35 @@ function getSugg(){var w=LIB.filter(function(m){return m.watched;});if(!w.length
 // ── POSTER CARD ──
 function mkPC(item,cb){
   var div=document.createElement('div');div.className='pc';
-  div.onclick=cb||(function(){openDet(item.id||item.t);});
+  var _key=item.id||item.t;
+  div.onclick=cb||(function(){openDet(_key);});
   var imgWrap=document.createElement('div');imgWrap.className='pc-img';
-  var ph=document.createElement('div');ph.className='pc-ph';
-  var em=document.createElement('div');em.className='pc-emoji';em.textContent=item.tp==='tv'?'📺':ge(item.g);
-  var pt=document.createElement('div');pt.className='pc-pht';pt.textContent=item.t;
-  var rtEl=document.createElement('div');rtEl.className='pc-runtime';
-  var rt=fmtRT(item.id);if(rt)rtEl.textContent='⏱ '+rt;
-  var rtgEl=document.createElement('div');rtgEl.className='pc-rating';rtgEl.textContent=item.r?'★ '+item.r:'';
-  ph.appendChild(em);ph.appendChild(pt);ph.appendChild(rtgEl);ph.appendChild(rtEl);
-  if(item.id){var imdbEl=document.createElement('a');imdbEl.className='pc-imdb';imdbEl.href='https://www.imdb.com/title/'+item.id+'/';imdbEl.target='_blank';imdbEl.textContent='IMDb';imdbEl.onclick=function(e){e.stopPropagation();};ph.appendChild(imdbEl);}
-  var trailerEl=document.createElement('a');trailerEl.href='https://www.youtube.com/results?search_query='+encodeURIComponent(item.t+' '+item.y+' official trailer');trailerEl.target='_blank';trailerEl.style.cssText='color:#f87171;font-size:9px;font-weight:700;text-decoration:none;padding:2px 6px;border-radius:4px;background:rgba(239,68,68,.15);margin-top:2px;display:inline-block;';trailerEl.textContent='▶ Trailer';trailerEl.onclick=function(e){e.stopPropagation();};ph.appendChild(trailerEl);
-  imgWrap.appendChild(ph);
+
+  if(item.poster){
+    var img=document.createElement('img');
+    img.src=item.poster;
+    img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:10px;';
+    var ph2=document.createElement('div');ph2.className='pc-ph';ph2.style.display='none';
+    ph2.innerHTML='<div class="pc-emoji">'+(item.tp==='tv'?'📺':ge(item.g))+'</div>';
+    img.onerror=function(){this.style.display='none';ph2.style.display='flex';};
+    var grad=document.createElement('div');
+    grad.style.cssText='position:absolute;bottom:0;left:0;right:0;height:60%;border-radius:0 0 10px 10px;background:linear-gradient(to top,rgba(0,0,0,.8),transparent);pointer-events:none;';
+    imgWrap.appendChild(img);imgWrap.appendChild(grad);imgWrap.appendChild(ph2);
+  } else {
+    var ph=document.createElement('div');ph.className='pc-ph';
+    var em=document.createElement('div');em.className='pc-emoji';em.textContent=item.tp==='tv'?'📺':ge(item.g);
+    var pt=document.createElement('div');pt.className='pc-pht';pt.textContent=item.t;
+    var rtgEl=document.createElement('div');rtgEl.className='pc-rating';rtgEl.textContent=item.r?'★ '+item.r:'';
+    var rtEl=document.createElement('div');rtEl.className='pc-runtime';var rt=fmtRT(item.id);if(rt)rtEl.textContent='⏱ '+rt;
+    ph.appendChild(em);ph.appendChild(pt);ph.appendChild(rtgEl);ph.appendChild(rtEl);
+    imgWrap.appendChild(ph);
+  }
+
   if(item.watched){var wb=document.createElement('div');wb.className='wb';wb.textContent='✓';imgWrap.appendChild(wb);}
+  if(item.watchlist&&!item.watched){var wlb=document.createElement('div');wlb.className='wb';wlb.style.cssText='position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;background:rgba(124,58,237,.85);display:flex;align-items:center;justify-content:center;font-size:11px;';wlb.textContent='📋';imgWrap.appendChild(wlb);}
+
   var meta=document.createElement('div');
-  meta.innerHTML='<div class="pc-title">'+item.t.replace(/</g,'&lt;')+'</div><div class="pc-sub">'+item.y+(item.r?' \u00b7 \u2605'+item.r:'')+'</div>';
+  meta.innerHTML='<div class="pc-title">'+item.t.replace(/</g,'&lt;')+'</div><div class="pc-sub">'+item.y+(item.r?' · ★'+item.r:'')+(item.tp==='tv'?' · TV':'')+'</div>';
   div.appendChild(imgWrap);div.appendChild(meta);
   return div;
 }
@@ -1873,6 +1887,70 @@ function handleImport(e){
   e.target.value = '';
 }
 
+// ── IMDB LINK PASTE ──
+function applyIMDbLink(url, filmTitle){
+  var match = url.match(/tt\d+/);
+  if(!match){toast('Invalid IMDb link!');return;}
+  var imdbId = match[0];
+  var libIdx = LIB.findIndex(function(m){return m.t===filmTitle;});
+  if(libIdx<0){toast('Film not found in library');return;}
+  LIB[libIdx].id = imdbId;
+  omdbById(imdbId, function(d){
+    if(d){
+      var r=parseRating(d.imdbRating);if(r)LIB[libIdx].r=r;
+      var rt=parseRT(d.Runtime);if(rt)LIB[libIdx].runtime=rt;
+      if(d.Plot&&d.Plot!=='N/A')LIB[libIdx].d=d.Plot;
+      var g=mapGenre(d.Genre);if(g)LIB[libIdx].g=g;
+      if(d.Poster&&d.Poster!=='N/A')LIB[libIdx].poster=d.Poster;
+      if(d.Year&&d.Year!=='N/A')try{LIB[libIdx].y=parseInt(d.Year);}catch(e){}
+    }
+    sv('lib2',LIB);
+    toast(filmTitle+' updated! ✓');
+    renderHome();renderLib();
+  });
+}
+
+// ── DUPLICATE SCAN ──
+function scanForDuplicates(cb){
+  var candidates = LIB.filter(function(m){return m.id;});
+  var dupes = [];
+  var done = 0;
+  if(!candidates.length){cb([]);return;}
+  // Find library items whose title matches another OMDb title exactly
+  // Simple approach: check if any LIB titles appear multiple times with different IDs
+  var titleMap = {};
+  LIB.forEach(function(m){
+    var t = m.t.toLowerCase().trim();
+    if(!titleMap[t])titleMap[t]=[];
+    titleMap[t].push(m);
+  });
+  var dupeTitles = Object.values(titleMap).filter(function(arr){return arr.length>1;});
+  if(dupeTitles.length){
+    var flat = dupeTitles.map(function(arr){return arr[0];});
+    ambiguousFilms = flat;
+    cb(flat);
+  } else {
+    // Also search OMDb for top candidates and check for multiple results
+    var toCheck = LIB.filter(function(m){return !m.id;}).slice(0,20);
+    var ambig = [];
+    var checked = 0;
+    if(!toCheck.length){cb([]);return;}
+    toCheck.forEach(function(item){
+      fetch('https://www.omdbapi.com/?s='+encodeURIComponent(item.t)+'&apikey='+OMDB_KEY)
+        .then(function(r){return r.json();})
+        .then(function(d){
+          if(d.Search&&d.Search.length>1){
+            var sameTitle=d.Search.filter(function(r){return r.Title.toLowerCase()===item.t.toLowerCase();});
+            if(sameTitle.length>1)ambig.push(item);
+          }
+          checked++;
+          if(checked===toCheck.length){ambiguousFilms=ambig;cb(ambig);}
+        })
+        .catch(function(){checked++;if(checked===toCheck.length){ambiguousFilms=ambig;cb(ambig);}});
+    });
+  }
+}
+
 renderHome();
 initSplash();
 
@@ -2029,7 +2107,7 @@ function showDisambig(filmList){
     
     // Search input
     var searchWrap=document.createElement('div');
-    searchWrap.style.cssText='display:flex;gap:8px;margin-bottom:12px;';
+    searchWrap.style.cssText='display:flex;gap:8px;margin-bottom:8px;';
     var inp=document.createElement('input');
     inp.value=film.t;
     inp.style.cssText='flex:1;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:14px;outline:none;';
@@ -2038,6 +2116,18 @@ function showDisambig(filmList){
     searchBtn.style.cssText='padding:10px 14px;border-radius:10px;background:var(--accent);color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;';
     searchWrap.appendChild(inp);searchWrap.appendChild(searchBtn);
     card.appendChild(searchWrap);
+    // IMDb paste field
+    var pasteWrap=document.createElement('div');pasteWrap.style.cssText='display:flex;gap:8px;margin-bottom:12px;';
+    var pasteInp=document.createElement('input');pasteInp.placeholder='Paste IMDb link: https://www.imdb.com/title/tt...';
+    pasteInp.style.cssText='flex:1;background:var(--bg);border:1px solid rgba(251,191,36,.3);border-radius:10px;padding:8px 12px;color:var(--text);font-size:12px;outline:none;';
+    var pasteBtn=document.createElement('button');pasteBtn.textContent='Use';
+    pasteBtn.style.cssText='padding:8px 12px;border-radius:10px;background:rgba(251,191,36,.2);color:var(--yellow);border:1px solid rgba(251,191,36,.3);font-size:12px;font-weight:700;cursor:pointer;';
+    pasteBtn.onclick=function(){
+      applyIMDbLink(pasteInp.value.trim(), film.t);
+      setTimeout(function(){disambigIdx++;showNextDisambig();},800);
+    };
+    pasteWrap.appendChild(pasteInp);pasteWrap.appendChild(pasteBtn);
+    card.appendChild(pasteWrap);
     
     var results=document.createElement('div');
     results.id='disambig-results';
