@@ -124,8 +124,122 @@ function boot() {
   navigate(TABS.some((t) => t.id === start) || SHOW[start] ? start : 'tonight');
 
   exposeTestHooks();
+  registerServiceWorker();
   document.body.classList.add('is-ready');
 }
+
+/**
+ * Offline support.
+ *
+ * Registered after the app has rendered so it never delays first paint, and
+ * skipped entirely under automation — a worker caching the shell between test
+ * runs would make failures depend on which test ran first.
+ */
+const SW_DISABLED_KEY = 'wn.sw.disabled';
+
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  if (location.protocol === 'file:') return;
+  if (new URLSearchParams(location.search).has('test')) return;
+  if (navigator.webdriver) return;
+  /* Set by wn.disableOffline() — a permanent opt-out, so support can rule the
+     worker out as a cause without the next reload quietly bringing it back. */
+  try {
+    if (localStorage.getItem(SW_DISABLED_KEY)) return;
+  } catch {
+    /* storage unavailable: proceed as normal */
+  }
+
+  /* Deliberately NOT gated on the load event. `load` waits for every image on
+     the page, so on a slow connection with a screen full of posters it can be
+     many seconds away — or never arrive, if the user navigates first. Tying
+     registration to it means offline support quietly fails to activate exactly
+     for the people who most need it. Idle-with-a-deadline instead: off the
+     critical path, but guaranteed to run. */
+  const schedule =
+    window.requestIdleCallback || ((fn) => setTimeout(fn, 1200));
+  schedule(start, { timeout: 3000 });
+
+  async function start() {
+    try {
+      const reg = await navigator.serviceWorker.register('./sw.js');
+
+      /* When a new version takes over, reload once so the running page is not
+         a mix of old modules and new ones. The guard stops a reload loop if
+         the worker changes again during that reload. */
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloading) return;
+        reloading = true;
+        location.reload();
+      });
+
+      /* A worker already waiting means a deploy landed while the app was open.
+         Tell it to take over rather than sitting on the old build until every
+         tab is closed. */
+      if (reg.waiting) reg.waiting.postMessage('skip-waiting');
+      reg.addEventListener('updatefound', () => {
+        const next = reg.installing;
+        if (!next) return;
+        next.addEventListener('statechange', () => {
+          if (next.state === 'installed' && navigator.serviceWorker.controller) {
+            next.postMessage('skip-waiting');
+          }
+        });
+      });
+    } catch (err) {
+      /* Offline support is a bonus, never a dependency. */
+      console.warn('[sw] registration failed', err);
+    }
+  }
+}
+
+/*
+ * Escape hatches, for when the worker is the suspect. Both are reachable from
+ * the console; neither touches the library.
+ *
+ *   wn.resetOfflineCache()  purge everything cached and reload onto fresh code.
+ *                           Offline support stays on and re-primes itself.
+ *   wn.disableOffline()     the same, but the worker stays gone across reloads
+ *                           until wn.enableOffline() is called.
+ */
+async function purgeAndReload() {
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((k) => k.startsWith('wn-')).map((k) => caches.delete(k)));
+  } catch {
+    /* best effort — the reload below is what actually matters */
+  }
+  const reg = await navigator.serviceWorker?.getRegistration();
+  if (reg) {
+    try {
+      await reg.unregister();
+    } catch {
+      /* ignore */
+    }
+  }
+  location.reload();
+}
+
+window.wn = Object.assign(window.wn || {}, {
+  resetOfflineCache: purgeAndReload,
+  async disableOffline() {
+    try {
+      localStorage.setItem(SW_DISABLED_KEY, '1');
+    } catch {
+      /* nothing else to do */
+    }
+    await purgeAndReload();
+  },
+  async enableOffline() {
+    try {
+      localStorage.removeItem(SW_DISABLED_KEY);
+    } catch {
+      /* nothing else to do */
+    }
+    location.reload();
+  },
+});
 
 /**
  * Automation surface for the end-to-end suite. Only attached when running

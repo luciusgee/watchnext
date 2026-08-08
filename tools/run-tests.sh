@@ -18,7 +18,7 @@ if ! curl -s -o /dev/null "http://127.0.0.1:$PORT/index.html"; then
 fi
 
 FAILED=0
-for suite in migration legacy-scale meta-e2e e2e; do
+for suite in migration legacy-scale meta-e2e offline e2e; do
   echo ""
   echo "── $suite ───────────────────────────────────────"
   node "tools/$suite.js" || FAILED=1

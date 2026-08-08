@@ -167,7 +167,7 @@ synced to cloud storage.
 ./tools/run-tests.sh
 ```
 
-Five suites, 168 assertions:
+Six suites, 189 assertions:
 
 | suite | covers |
 | --- | --- |
@@ -175,6 +175,7 @@ Five suites, 168 assertions:
 | `migration.js` | upgrading a v1 `wn_lib2` library without losing history |
 | `legacy-scale.js` | the same upgrade at 513 titles, including two rows sharing one bad id |
 | `meta-e2e.js` | the enrichment pipeline, run identically against mock OMDb **and** mock TMDB |
+| `offline.js` | service worker: offline boot, deploy propagation, cache limits, escape hatches |
 | `e2e.js` | full app: navigation, watch state, undo, search, a11y, persistence |
 
 `legacy-scale.js` uses a synthetic fixture shaped like a real library. To run it
@@ -187,6 +188,32 @@ REAL_BACKUP=~/watchnext-backup.json node tools/legacy-scale.js
 The e2e suites drive a real Chromium at an iPhone viewport via Playwright. Every
 Tier-0 bug found in the previous build has an explicit regression test, so none
 of them can come back quietly.
+
+## Offline
+
+A service worker caches the app shell and poster art, so the library opens with
+no connection — which is the point of an app built around what you already own
+and can watch on a plane.
+
+The design constraint that shaped it: **never strand anyone on a stale build.**
+Code and markup are network-first, so a deploy is picked up on the next load
+with a connection and the cache is only ever an offline fallback. Images are
+cache-first, capped at 400 entries and evicted oldest-first. API traffic is
+never cached — stale metadata or a stale recommendation would be worse than
+none.
+
+Registration is scheduled on idle with a deadline rather than on the `load`
+event, because `load` waits for every image on the page: on a slow connection
+with a screen full of posters, gating on it means offline support fails to
+activate for exactly the people who need it most.
+
+Two escape hatches, both from the console and neither touching your library:
+
+```js
+wn.resetOfflineCache()  // purge caches, reload onto fresh code, stay offline-capable
+wn.disableOffline()     // the same, but the worker stays gone across reloads
+wn.enableOffline()      // undo the above
+```
 
 ## Accessibility
 
