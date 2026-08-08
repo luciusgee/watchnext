@@ -182,6 +182,21 @@ export const tmdb = {
        half-populated record would look like data loss. */
     return this.details(String(hit.id), movie ? 'movie' : 'tv', ctx);
   },
+
+  /**
+   * Is this key usable right now? /configuration is TMDB's cheapest authorised
+   * endpoint and returns 401 for a bad key or a v4 token pasted where a v3 key
+   * belongs, which is the mistake people actually make.
+   */
+  async verifyKey(key, { signal } = {}) {
+    try {
+      await call('/configuration', {}, { key, signal });
+      return { ok: true };
+    } catch (err) {
+      if (err.code === 'network') return { ok: null, message: 'Could not reach TMDB — check your connection.' };
+      return { ok: false, message: err.message };
+    }
+  },
 };
 
 export default tmdb;

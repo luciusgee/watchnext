@@ -39,7 +39,15 @@ function unwrap(data) {
   if (!data) return null;
   if (data.Response === 'False') {
     if (/invalid api key|no api key/i.test(data.Error || '')) {
-      throw providerError('That OMDb API key was rejected.', 'auth');
+      /* OMDb returns this identical error for a made-up key and for a real key
+         that has never been activated — they email the key and a separate
+         activation link, and the key does nothing until that link is clicked.
+         Saying only "rejected" sends people off to request another key, which
+         then fails with "a key has already been assigned to that email". */
+      throw providerError(
+        'OMDb rejected that key. If it is new, click the activation link in the email OMDb sent you — keys do nothing until you do.',
+        'auth'
+      );
     }
     if (/request limit reached/i.test(data.Error || '')) {
       throw providerError('This OMDb key has hit its daily limit.', 'budget');
@@ -129,6 +137,28 @@ export const omdb = {
   /** OMDb is keyed on IMDb ids already, so this is the same call. */
   async byImdbId(imdbId, opts) {
     return this.details(imdbId, null, opts);
+  },
+
+  /**
+   * Is this key usable right now? One lookup of a fixed, permanent id.
+   *
+   * Worth the single request: without it the only signal a key is bad arrives
+   * part-way through a several-hundred-title sweep, and a saved-but-dead key
+   * otherwise sits in the UI labelled "Connected".
+   */
+  async verifyKey(key, { signal } = {}) {
+    try {
+      await this.details('tt0111161', null, { key, signal });
+      return { ok: true };
+    } catch (err) {
+      /* A dead network is not a bad key — do not tell someone to go and get a
+         new one because their train went into a tunnel. */
+      if (err.code === 'network') return { ok: null, message: 'Could not reach OMDb — check your connection.' };
+      if (err.code === 'budget') {
+        return { ok: true, message: 'Key works, but it has already hit today’s limit. It resets tomorrow.' };
+      }
+      return { ok: false, message: err.message };
+    }
   },
 };
 

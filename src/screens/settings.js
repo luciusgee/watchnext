@@ -124,23 +124,77 @@ function connectionsGroup() {
     'aria-label': active.keyLabel,
   });
   keyRow.appendChild(keyInput);
-  keyRow.appendChild(
-    button('Save', {
-      kind: 'secondary',
-      onClick: () => {
-        store.updateSettings({ dataKeys: { ...(store.settings().dataKeys || {}), [active.id]: keyInput.value.trim() } });
-        toast(keyInput.value.trim() ? 'Key saved' : 'Key cleared');
+
+  /* Saving a key checks it. Storing a string and calling that "Connected" is
+     how someone ends up discovering their key never worked part-way through a
+     500-title sweep — the state we actually want to show is "this key answered
+     a request", not "this box is non-empty". */
+  const keyStatus = el('div', { style: 'font-size:12px;margin-top:8px;line-height:1.5' });
+
+  const paintStatus = (state, message) => {
+    const colour = { ok: 'var(--sage)', bad: 'var(--ember)', busy: 'var(--ash)', idle: 'var(--ash)' }[state];
+    keyStatus.style.color = colour;
+    keyStatus.textContent = message;
+  };
+
+  const saved = (s.keyStatus || {})[active.id];
+  if (!keys[active.id]) paintStatus('idle', '');
+  else if (saved?.ok === true) paintStatus('ok', 'Connected — this key answered a test request.');
+  else if (saved?.ok === false) paintStatus('bad', saved.message || 'This key was rejected.');
+  else paintStatus('idle', 'Saved, but not checked yet.');
+
+  const saveBtn = button('Save', {
+    kind: 'secondary',
+    onClick: async () => {
+      const value = keyInput.value.trim();
+      store.updateSettings({ dataKeys: { ...(store.settings().dataKeys || {}), [active.id]: value } });
+
+      if (!value) {
+        store.updateSettings({ keyStatus: { ...(store.settings().keyStatus || {}), [active.id]: null } });
+        toast('Key cleared');
         render();
-      },
-    })
-  );
+        return;
+      }
+
+      paintStatus('busy', `Checking the key with ${active.label}…`);
+      let result;
+      try {
+        result = await active.verifyKey(value);
+      } catch (err) {
+        result = { ok: null, message: err?.message || 'Could not check the key.' };
+      }
+
+      /* ok === null means we could not tell (offline, provider down). Recording
+         that as a failure would be a lie, so it is left unverified. */
+      if (result.ok === null) {
+        store.updateSettings({ keyStatus: { ...(store.settings().keyStatus || {}), [active.id]: null } });
+        paintStatus('idle', result.message);
+        return;
+      }
+
+      store.updateSettings({
+        keyStatus: {
+          ...(store.settings().keyStatus || {}),
+          [active.id]: { ok: result.ok, message: result.message || '', at: Date.now() },
+        },
+      });
+
+      if (result.ok) {
+        paintStatus('ok', result.message || 'Connected — this key answered a test request.');
+        toast('Key saved and working');
+        render();
+      } else {
+        paintStatus('bad', result.message || 'This key was rejected.');
+      }
+    },
+  });
+  keyRow.appendChild(saveBtn);
+
   box.appendChild(keyRow);
   box.appendChild(
     el('div', { style: 'font-size:12px;color:var(--ash);margin-top:8px;line-height:1.5', text: active.keyHint })
   );
-  if (keys[active.id]) {
-    box.appendChild(el('div', { style: 'font-size:12px;color:var(--sage);margin-top:8px', text: 'Connected' }));
-  }
+  box.appendChild(keyStatus);
   g.appendChild(box);
 
   /* Anthropic */
@@ -347,7 +401,16 @@ async function runSweep(opts, statusEl) {
 
   if (result.error?.code === 'auth') {
     statusEl.textContent = '';
-    toast(`That ${provider.label} key was rejected`);
+    /* The provider's own message says what to do about it; the generic
+       "rejected" left people requesting a second key they cannot be issued. */
+    toast(result.error.message || `That ${provider.label} key was rejected`, { duration: 9000 });
+    store.updateSettings({
+      keyStatus: {
+        ...(store.settings().keyStatus || {}),
+        [provider.id]: { ok: false, message: result.error.message || '', at: Date.now() },
+      },
+    });
+    render();
     return;
   }
   if (result.error?.code === 'budget') {
@@ -767,23 +830,49 @@ function aboutBlock() {
   box.appendChild(el('div', { style: 'margin-top:6px', text: `Build ${BUILD}` }));
 
   /* Layout diagnostics. Screen-fit bugs are device-specific and invisible from
-     a screenshot, so the numbers are here to be read out rather than guessed. */
+     a screenshot, so the numbers are here to be read out rather than guessed.
+     The decisive pair is `screen` against `viewport`: the shell can only fill
+     the viewport it is given, so when those two disagree the space is being
+     withheld by iOS before any of this code runs, and no CSS will win it back. */
   const app = document.getElementById('app');
   const bar = document.querySelector('.tabbar');
   const rect = app?.getBoundingClientRect();
   const barRect = bar?.getBoundingClientRect();
-  const kb = getComputedStyle(document.documentElement).getPropertyValue('--kb').trim() || '0px';
+  const css = getComputedStyle(document.documentElement);
+  const kb = css.getPropertyValue('--kb').trim() || '0px';
   const standalone =
     window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 
+  /* env() inside a custom property is not resolved by getPropertyValue on every
+     engine, so the insets are measured off a real element instead of read as
+     text. A zero top inset while the bottom is non-zero is itself the tell:
+     it means the status bar sits outside the web view. */
+  const probe = el('div', {
+    style:
+      'position:absolute;visibility:hidden;pointer-events:none;top:0;left:0;' +
+      'padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)',
+  });
+  document.body.appendChild(probe);
+  const probeStyle = getComputedStyle(probe);
+  const safeTop = Math.round(parseFloat(probeStyle.paddingTop) || 0);
+  const safeBottom = Math.round(parseFloat(probeStyle.paddingBottom) || 0);
+  probe.remove();
+
+  const lost = screen.height - window.innerHeight;
+
   const bits = [
+    `screen ${screen.width}x${screen.height}`,
     `viewport ${window.innerWidth}x${window.innerHeight}`,
     rect ? `shell ${Math.round(rect.width)}x${Math.round(rect.height)}` : null,
+    rect ? `shell y ${Math.round(rect.top)}→${Math.round(rect.bottom)}` : null,
     barRect ? `gap below bar ${Math.round(window.innerHeight - barRect.bottom)}px` : null,
     window.visualViewport ? `visual ${Math.round(window.visualViewport.height)}` : null,
     `kb ${kb}`,
-    `safe-bottom ${getComputedStyle(document.documentElement).getPropertyValue('--sb').trim() || '?'}`,
+    `safe ${safeTop}/${safeBottom}`,
+    `dpr ${window.devicePixelRatio}`,
     standalone ? 'home screen' : 'in browser',
+    /* The headline number: anything other than 0 is screen the app never got. */
+    lost > 1 ? `⚠ ${lost}pt withheld by iOS` : 'fills screen',
   ].filter(Boolean);
 
   box.appendChild(

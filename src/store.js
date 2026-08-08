@@ -95,6 +95,7 @@ function emptyState() {
       name: '',
       provider: 'tmdb',
       dataKeys: {},      // { tmdb: '…', omdb: '…' } — one per source
+      keyStatus: {},     // { omdb: { ok, message, at } } — did the key actually answer?
       aiKey: '',
       aiEnabled: false,
       libraryView: 'list',
