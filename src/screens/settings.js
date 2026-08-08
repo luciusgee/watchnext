@@ -827,7 +827,12 @@ function aboutBlock() {
     style: 'padding:24px 16px 40px;text-align:center;font-size:12px;color:var(--faint);line-height:1.7',
   });
   box.appendChild(el('div', { text: `Watch Next · ${s.total} titles, ${s.owned} in your collection` }));
-  box.appendChild(el('div', { style: 'margin-top:6px', text: `Build ${BUILD}` }));
+  box.appendChild(
+    el('div', {
+      style: 'margin-top:6px;user-select:text;-webkit-user-select:text',
+      text: `Build ${BUILD}`,
+    })
+  );
 
   /* Layout diagnostics. Screen-fit bugs are device-specific and invisible from
      a screenshot, so the numbers are here to be read out rather than guessed.
@@ -875,12 +880,43 @@ function aboutBlock() {
     lost > 1 ? `⚠ ${lost}pt withheld by iOS` : 'fills screen',
   ].filter(Boolean);
 
-  box.appendChild(
-    el('div', {
-      style: 'margin-top:10px;font-size:11px;color:var(--faint);line-height:1.6',
-      text: bits.join(' · '),
-    })
-  );
+  /* Selectable, unlike the rest of the chrome — these numbers exist to be sent
+     to someone, and a screenshot of them cannot be pasted into a search or a
+     bug report. The button is the fast path; the selection is the fallback for
+     when the clipboard API is unavailable or refused. */
+  const report = [`Watch Next build ${BUILD}`, bits.join(' · '), navigator.userAgent].join('\n');
+
+  const diag = el('div', {
+    style:
+      'margin-top:10px;font-size:11px;color:var(--faint);line-height:1.6;' +
+      'user-select:text;-webkit-user-select:text',
+    text: bits.join(' · '),
+  });
+  box.appendChild(diag);
+
+  const copyBtn = el('button', {
+    type: 'button',
+    class: 'link-btn',
+    style:
+      'margin-top:10px;font-size:12px;color:var(--ash);background:none;border:0;' +
+      'padding:8px 12px;text-decoration:underline;cursor:pointer',
+    text: 'Copy build info',
+    onclick: async () => {
+      try {
+        await navigator.clipboard.writeText(report);
+        toast('Build info copied');
+      } catch {
+        /* Clipboard blocked — select it instead so a long-press can copy. */
+        const range = document.createRange();
+        range.selectNodeContents(diag);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        toast('Selected — long-press to copy');
+      }
+    },
+  });
+  box.appendChild(copyBtn);
 
   /* Attribution is a condition of use for both sources, so it is rendered
      rather than buried in a readme. */

@@ -160,6 +160,125 @@ async function measure(page) {
     smallWhileFocused === '0px', `--kb=${smallWhileFocused}`);
 
   await ctx.close();
+
+  /*
+   * iOS shrinks a home-screen web app's viewport by the status bar height the
+   * first time a keyboard opens and never restores it — innerHeight drops from
+   * 932 to 873 and stays there, leaving a dead band under the tab bar. The only
+   * known cure is to blank a full-height element so WebKit re-measures.
+   *
+   * Simulated faithfully: innerHeight reports the shrunk value until the shell
+   * is actually flipped to display:none, then reports the true one. Nothing
+   * here is a test-only branch in app code — the app sees ordinary DOM.
+   */
+  const REAL = 932, SHRUNK = 873;
+
+  const standaloneCtx = async (healable) => {
+    const c = await browser.newContext({ ...devices['iPhone 13 Pro'] });
+    await c.route('**://image.tmdb.org/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    await c.route('**://m.media-amazon.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    const p = await c.newPage();
+    await p.addInitScript(
+      ([real, shrunk, canHeal]) => {
+        Object.defineProperty(navigator, 'standalone', { get: () => true, configurable: true });
+        window.__flips = 0;
+        window.__healed = false;
+        Object.defineProperty(window.screen, 'height', { get: () => real, configurable: true });
+        Object.defineProperty(window, 'innerHeight', {
+          get: () => (window.__healed ? real : shrunk),
+          configurable: true,
+        });
+        document.addEventListener('DOMContentLoaded', () => {
+          const app = document.getElementById('app');
+          /* The shell is blanked and restored inside one task, so by the time an
+             observer callback runs the style is already back. The restore is
+             what identifies a completed flip — match on the value it came FROM,
+             not the value it currently has. */
+          new MutationObserver((records) => {
+            for (const r of records) {
+              if ((r.oldValue || '').includes('display: none')) {
+                window.__flips++;
+                if (canHeal) window.__healed = true;
+                break;
+              }
+            }
+          }).observe(app, { attributes: true, attributeFilter: ['style'], attributeOldValue: true });
+        });
+      },
+      [REAL, SHRUNK, healable]
+    );
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.waitForSelector('body.is-ready');
+    return { c, p };
+  };
+
+  console.log('\n─── recovering from the iOS keyboard viewport shrink ───');
+  {
+    const { c, p } = await standaloneCtx(true);
+    await p.waitForTimeout(1200); // the startup heal runs at 400ms
+
+    /* Only the *reported* height can be faked here — Chromium's real layout
+       viewport stays 390x664 — so the shell's own rect is not meaningful in
+       this section. That the shell fills whatever viewport it is handed is
+       already asserted against real geometry further up. What matters here is
+       the number the app reasons from: does the withheld space reach zero. */
+    const after = await p.evaluate(() => ({
+      flips: window.__flips,
+      innerHeight: window.innerHeight,
+      withheld: window.screen.height - window.innerHeight,
+    }));
+    check('a viewport that boots short is healed', after.flips >= 1, `${after.flips} flips`);
+    check('the viewport is restored to the full screen', after.innerHeight === REAL, `${after.innerHeight}`);
+    check('no screen height is left withheld', after.withheld === 0, `${after.withheld}pt`);
+
+    /* Healing must not cost the user their place in a 500-title list. */
+    await p.click('[data-tab="library"]');
+    await p.waitForTimeout(400);
+    const scrolled = await p.evaluate(async () => {
+      const s = document.querySelector('#screen-library .scroll');
+      s.scrollTop = 600;
+      await new Promise((r) => setTimeout(r, 60));
+      window.__healed = false; // shrink again
+      document.dispatchEvent(new Event('focusout'));
+      await new Promise((r) => setTimeout(r, 700));
+      return { top: Math.round(s.scrollTop), healed: window.__healed };
+    });
+    check('healing preserves scroll position', scrolled.top === 600, `scrollTop=${scrolled.top}`);
+    check('a later shrink is healed too', scrolled.healed === true);
+
+    console.log('\n─── it does not fight a keyboard that is genuinely open ───');
+    const withFocus = await p.evaluate(async () => {
+      document.querySelector('[data-tab="ask"]').click();
+      await new Promise((r) => setTimeout(r, 300));
+      const before = window.__flips;
+      window.__healed = false; // viewport shrinks, as it legitimately does
+      document.getElementById('ask-input').focus();
+      document.dispatchEvent(new Event('focusout')); // fires while the field still holds focus
+      await new Promise((r) => setTimeout(r, 600));
+      return { flipsAdded: window.__flips - before };
+    });
+    check('no heal while a text field holds focus', withFocus.flipsAdded === 0, `${withFocus.flipsAdded} flips`);
+
+    await c.close();
+  }
+
+  console.log('\n─── it gives up rather than flickering forever ───');
+  {
+    /* If a future iOS shrinks the viewport for a reason the flip cannot fix,
+       blanking the app on every keyboard dismissal would be worse than the bug. */
+    const { c, p } = await standaloneCtx(false);
+    await p.waitForTimeout(1000);
+    const flips = await p.evaluate(async () => {
+      for (let i = 0; i < 4; i++) {
+        document.dispatchEvent(new Event('focusout'));
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      return window.__flips;
+    });
+    check('stops after two ineffective attempts', flips <= 2, `${flips} flips`);
+    await c.close();
+  }
+
   console.log(`\n══════════  ${pass} passed, ${fail} failed  ══════════`);
   if (failures.length) { console.log('\nFailures:'); failures.forEach((f) => console.log('  · ' + f)); }
   await browser.close();

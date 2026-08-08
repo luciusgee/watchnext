@@ -187,6 +187,95 @@ function syncViewport() {
   document.addEventListener('focusin', apply);
   document.addEventListener('focusout', () => setTimeout(apply, 50));
   apply();
+
+  initViewportHeal(isEditing, apply);
+}
+
+/**
+ * Undo iOS's permanent viewport shrink.
+ *
+ * In a home-screen web app, the first time the on-screen keyboard opens iOS
+ * shrinks the layout viewport by the height of the status bar and then never
+ * gives it back — innerHeight, visualViewport.height and 100dvh all drop
+ * together (932 → 873 on this phone) and stay there until the app is force
+ * quit. Everything downstream is then correct about a wrong number: the shell
+ * fills the viewport perfectly, the viewport is simply 59pt shorter than the
+ * screen, and the difference shows up as a dead band under the tab bar.
+ *
+ * Toggling display on a full-height element forces WebKit to re-measure, which
+ * restores the real height. It is a blunt instrument — it costs a reflow and
+ * blanks the shell for one frame — so it only runs when there is a measured
+ * shortfall and no field is focused, and it gives up rather than flickering
+ * forever if it turns out not to help on some future iOS.
+ */
+function initViewportHeal(isEditing, afterHeal) {
+  const standalone =
+    window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  if (!standalone) return; // mobile Safari does not have this bug
+
+  const app = document.getElementById('app');
+  if (!app) return;
+
+  let tallest = window.innerHeight;
+
+  /* A launch can inherit the shrink from a previous session, so the screen is
+     used as a second opinion — but only when the gap is status-bar sized. A
+     wildly different number means something we do not understand, and healing
+     towards it would be guessing. */
+  const plausible = screen.height - window.innerHeight;
+  if (plausible > 0 && plausible <= 120) tallest = Math.max(tallest, screen.height);
+
+  let givenUp = false;
+  let failures = 0;
+
+  window.addEventListener('resize', () => {
+    tallest = Math.max(tallest, window.innerHeight);
+  });
+
+  function heal() {
+    if (givenUp) return;
+    if (isEditing()) return; // the keyboard is genuinely up; the shrink is real
+    const before = window.innerHeight;
+    if (tallest - before <= 4) return;
+
+    /* Blanking the shell resets every scroll container inside it. */
+    const scrollers = [...document.querySelectorAll('.scroll')];
+    const tops = scrollers.map((s) => s.scrollTop);
+
+    app.style.display = 'none';
+    void app.offsetHeight; // force a synchronous reflow while it is gone
+    app.style.display = '';
+
+    scrollers.forEach((s, i) => {
+      s.scrollTop = tops[i];
+    });
+
+    requestAnimationFrame(() => {
+      if (window.innerHeight > before) {
+        failures = 0;
+        afterHeal();
+      } else if (++failures >= 2) {
+        /* Two flips with nothing to show for it: stop, rather than blinking the
+           whole app at someone on every keyboard dismissal for no benefit. */
+        givenUp = true;
+        console.info('[viewport] shrink could not be healed — leaving it alone');
+      }
+    });
+  }
+
+  /* Dismissing the keyboard is what leaves the viewport stuck, so that is the
+     moment to check. The delay lets iOS finish its own animation first. */
+  document.addEventListener('focusout', () => setTimeout(heal, 160));
+  /* And returning to the app, which is when a shrink inherited from earlier in
+     the session becomes visible again. */
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) setTimeout(heal, 120);
+  });
+  window.addEventListener('pageshow', () => setTimeout(heal, 120));
+
+  /* Finally, once at startup — this is the case the user actually reported: the
+     app opened already short, with no keyboard involved. */
+  setTimeout(heal, 400);
 }
 
 /**
