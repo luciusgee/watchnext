@@ -167,14 +167,14 @@ synced to cloud storage.
 ./tools/run-tests.sh
 ```
 
-Five suites, 132 assertions:
+Five suites, 168 assertions:
 
 | suite | covers |
 | --- | --- |
 | `match.test.mjs` | matcher scoring, offline fixtures for every known wrong-match case |
 | `migration.js` | upgrading a v1 `wn_lib2` library without losing history |
 | `legacy-scale.js` | the same upgrade at 513 titles, including two rows sharing one bad id |
-| `meta-e2e.js` | the enrichment pipeline against a mock OMDb |
+| `meta-e2e.js` | the enrichment pipeline, run identically against mock OMDb **and** mock TMDB |
 | `e2e.js` | full app: navigation, watch state, undo, search, a11y, persistence |
 
 `legacy-scale.js` uses a synthetic fixture shaped like a real library. To run it
