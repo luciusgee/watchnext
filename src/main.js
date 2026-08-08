@@ -127,6 +127,7 @@ async function boot() {
   exposeTestHooks();
   registerServiceWorker();
   protectStorage();
+  syncViewport();
   document.body.classList.add('is-ready');
 }
 
@@ -137,6 +138,36 @@ async function boot() {
  * skipped entirely under automation — a worker caching the shell between test
  * runs would make failures depend on which test ran first.
  */
+/**
+ * Keep the shell matched to the *visible* viewport.
+ *
+ * The shell is position:fixed so it always fills the screen, but a fixed
+ * element does not shrink when the on-screen keyboard appears — iOS shrinks
+ * the visual viewport and leaves the layout viewport alone, so the composer on
+ * the Ask tab and the search field in Library end up hidden behind the
+ * keyboard. VisualViewport is the only reliable way to know how much room the
+ * keyboard has taken.
+ */
+function syncViewport() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+
+  let frame = 0;
+  const apply = () => {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      /* How much of the layout viewport the keyboard is covering. Clamped at
+         zero so rubber-band scrolling never yields a negative offset. */
+      const covered = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      document.documentElement.style.setProperty('--kb', `${Math.round(covered)}px`);
+    });
+  };
+
+  vv.addEventListener('resize', apply);
+  vv.addEventListener('scroll', apply);
+  apply();
+}
+
 /**
  * Ask the browser not to evict us, and recover if it already has.
  *

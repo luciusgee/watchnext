@@ -96,6 +96,11 @@ html,
 body {
   height: 100%;
   overflow: hidden;
+  /* Belt and braces for the app shell height. `100%` chains off the initial
+     containing block, which on iOS standalone with viewport-fit=cover does not
+     reliably resolve to the full screen — the app ends up short by the home
+     indicator inset and the tab bar floats above a black band. */
+  height: 100dvh;
 }
 
 body {
@@ -158,9 +163,17 @@ img {
    ============================================================ */
 
 #app {
+  /* Pinned to the viewport rather than sized by percentage. This is what
+     actually guarantees the shell fills the screen on iOS standalone: `fixed`
+     resolves against the viewport itself, so it cannot come up short however
+     `100%` happens to be computed. */
+  position: fixed;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* Shrunk by the keyboard when one is open — see syncViewport() in main.js.
+     Without this the composer sits behind the keyboard on the Ask tab. */
+  bottom: var(--kb, 0px);
 }
 
 .screen {
