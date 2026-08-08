@@ -12,6 +12,8 @@
  *  · Schema is versioned and migrated forward, never silently reshaped.
  */
 
+import { writeMirror, readMirror } from './durability.js';
+
 const KEY = 'wn.state.v3';
 const LEGACY_KEY = 'wn_lib2';
 const LEGACY_ACTIVITY = 'wn_activity';
@@ -196,9 +198,23 @@ function migrate(s) {
   return s;
 }
 
+let lastMirror = 0;
+const MIRROR_EVERY_MS = 30_000;
+
+/** Second copy in IndexedDB, throttled. Never blocks the primary write. */
+function mirror(force = false) {
+  const now = Date.now();
+  if (!force && now - lastMirror < MIRROR_EVERY_MS) return;
+  lastMirror = now;
+  writeMirror(state).catch(() => {
+    /* a missing mirror is not worth surfacing; the primary write succeeded */
+  });
+}
+
 function persist() {
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
+    mirror();
     return true;
   } catch (e) {
     /* Quota — almost always the poster URLs on a very large library.
@@ -248,13 +264,39 @@ export function emit(reason = 'change') {
 
 /* ── access ── */
 
-export function init(seedFn) {
+/**
+ * Boot the store.
+ *
+ * Order matters and is the whole point: localStorage, then the legacy key,
+ * then the IndexedDB mirror, and only then the starter seed. Seeding before
+ * checking the mirror would hand someone whose storage was evicted a fresh
+ * 228-title starter library and quietly bury the 500 titles they actually had.
+ *
+ * Async because reading the mirror is, and callers await it before first
+ * paint. That costs one IndexedDB `get` on a cold start, and only when
+ * localStorage came back empty.
+ */
+export async function init(seedFn) {
   state = read();
+
+  if (!state.items.length) {
+    const snapshot = await readMirror();
+    if (snapshot?.state?.items?.length) {
+      state = migrate(snapshot.state);
+      saveNow();
+      console.warn(
+        `[store] primary storage was empty; restored ${state.items.length} titles from the on-device backup`
+      );
+      emit('recovered');
+      return state;
+    }
+  }
 
   if (!state.settings.seeded && !state.items.length && typeof seedFn === 'function') {
     state.items = seedFn().map(makeItem);
     state.settings.seeded = true;
     saveNow();
+    mirror(true);
   } else if (state.migratedFrom) {
     /* A library was just imported from the old `wn_lib2` format. Write it out
        immediately — otherwise nothing persists until the user happens to make
@@ -262,6 +304,7 @@ export function init(seedFn) {
        discarding anything derived since). The old key is deliberately left in
        place as a safety net. */
     saveNow();
+    mirror(true);
   }
 
   return state;

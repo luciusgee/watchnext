@@ -13,6 +13,7 @@ import { el, clear, poster, button, toast, openSheet, confirmDestructive, emptyS
 import { icon } from '../icons.js';
 import * as meta from '../metadata.js';
 import { getProvider, listProviders } from '../providers/index.js';
+import { storageHealth, markBackedUp, requestPersistence } from '../durability.js';
 import { runtime } from '../format.js';
 
 let root = null;
@@ -47,8 +48,9 @@ function render() {
   bodyEl.appendChild(groupLabel('Library data'));
   bodyEl.appendChild(dataGroup());
 
-  bodyEl.appendChild(groupLabel('Backup'));
+  bodyEl.appendChild(groupLabel('Your data'));
   bodyEl.appendChild(backupGroup());
+  refreshStorageHealth();
 
   bodyEl.appendChild(groupLabel('Recent activity'));
   bodyEl.appendChild(activityGroup());
@@ -504,8 +506,66 @@ function reviewCard(item, closeAll) {
 
 /* ── backup ── */
 
+/* Filled in asynchronously — the storage APIs are promise-based and this
+   should never hold up rendering the rest of Settings. */
+async function refreshStorageHealth() {
+  const slot = bodyEl.querySelector('[data-region="storage-health"]');
+  if (!slot) return;
+  const h = await storageHealth(store.stats());
+  clear(slot);
+
+  const line = (text, tone) =>
+    el('div', {
+      style: `font-size:12px;line-height:1.55;color:var(--${tone || 'ash'})`,
+      text,
+    });
+
+  if (h.supported && h.persisted) {
+    slot.appendChild(line('This device has agreed to keep your library — it will not be cleared automatically.', 'sage'));
+  } else if (h.supported) {
+    slot.appendChild(
+      line(
+        'Your browser has not guaranteed to keep this data. Browsers can clear a site’s storage after a long gap without visiting. Adding Watch Next to your home screen usually earns that guarantee — and an export is the only thing that survives everything.',
+        'ash'
+      )
+    );
+    const ask = button('Ask to keep my data', {
+      kind: 'secondary',
+      size: 'sm',
+      onClick: async () => {
+        const { persisted } = await requestPersistence();
+        toast(persisted ? 'Your library is now protected' : 'The browser declined — export a backup instead');
+        refreshStorageHealth();
+      },
+    });
+    slot.appendChild(el('div', { style: 'margin-top:10px' }, ask));
+  }
+
+  if (h.usage) {
+    const mb = (n) => `${(n / 1048576).toFixed(1)} MB`;
+    slot.appendChild(
+      el('div', {
+        style: 'font-size:12px;color:var(--faint);margin-top:8px',
+        text: h.quota ? `Using ${mb(h.usage)} of about ${mb(h.quota)} available.` : `Using ${mb(h.usage)}.`,
+      })
+    );
+  }
+
+  if (h.lastBackupAt) {
+    slot.appendChild(
+      el('div', {
+        style: 'font-size:12px;color:var(--faint);margin-top:4px',
+        text: `Last export ${relative(h.lastBackupAt)}.`,
+      })
+    );
+  }
+}
+
 function backupGroup() {
   const g = el('div', { class: 'group' });
+
+  const health = el('div', { class: 'group-pad', 'data-region': 'storage-health' });
+  g.appendChild(health);
 
   g.appendChild(
     settingsRow('upload', 'Export my library', 'A JSON file with everything except your API keys', () => {
@@ -517,6 +577,8 @@ function backupGroup() {
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
+      markBackedUp();
+      refreshStorageHealth();
       toast('Exported');
     })
   );

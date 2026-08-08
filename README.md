@@ -167,7 +167,7 @@ synced to cloud storage.
 ./tools/run-tests.sh
 ```
 
-Six suites, 189 assertions:
+Seven suites, 206 assertions:
 
 | suite | covers |
 | --- | --- |
@@ -176,6 +176,7 @@ Six suites, 189 assertions:
 | `legacy-scale.js` | the same upgrade at 513 titles, including two rows sharing one bad id |
 | `meta-e2e.js` | the enrichment pipeline, run identically against mock OMDb **and** mock TMDB |
 | `offline.js` | service worker: offline boot, deploy propagation, cache limits, escape hatches |
+| `durability.js` | surviving a storage wipe: the mirror, recovery ordering, never clobbering good data |
 | `e2e.js` | full app: navigation, watch state, undo, search, a11y, persistence |
 
 `legacy-scale.js` uses a synthetic fixture shaped like a real library. To run it
@@ -188,6 +189,40 @@ REAL_BACKUP=~/watchnext-backup.json node tools/legacy-scale.js
 The e2e suites drive a real Chromium at an iPhone viewport via Playwright. Every
 Tier-0 bug found in the previous build has an explicit regression test, so none
 of them can come back quietly.
+
+## Keeping your library
+
+The library is the only thing in this app that cannot be regenerated. Posters
+re-fetch and metadata re-resolves, but nobody is re-entering five hundred titles
+and which ones they have watched.
+
+`localStorage` alone is not safe. WebKit deletes script-writable storage —
+localStorage, IndexedDB and service worker caches alike — after seven days of
+Safari **use** without visiting the site. (Days of browser use, not calendar
+days, so a quiet fortnight offline does not trip it.) Home-screen web apps are
+documented as exempt, but the WebKit issue tracking whether that exemption is
+genuinely honoured is still open, so it is not something to bet on.
+
+Three defences, in `src/durability.js`:
+
+1. **Ask for persistent storage.** `navigator.storage.persist()` on boot. Often
+   granted for installed web apps, and it takes the origin out of eviction.
+2. **Keep a second copy in IndexedDB**, written alongside every save and
+   throttled to once every 30 seconds. It does not survive a deliberate purge —
+   ITP clears both — but it does survive the far more common cases: a cleared
+   localStorage, a quota error, a partial wipe.
+3. **Tell the user the truth and make exporting easy.** Settings shows whether
+   the browser has actually guaranteed to keep the data, how much space is in
+   use, and when you last exported. An export is the only defence that survives
+   everything, so that is the one the UI nudges — but only once there is
+   something worth losing.
+
+Boot order is load-bearing and tested: localStorage → the legacy `wn_lib2` key →
+the IndexedDB mirror → *only then* the starter seed. Seeding before checking the
+mirror would hand someone whose storage was evicted a fresh 228-title starter
+library and quietly bury the five hundred they actually had. Recovery only ever
+fires into an empty store, so it can never overwrite good data with a stale
+snapshot.
 
 ## Offline
 

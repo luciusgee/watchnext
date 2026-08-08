@@ -100,6 +100,22 @@ function tmdbRoute(route, hits) {
   return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
 }
 
+
+/* Clearing localStorage alone no longer gives a clean slate: the store keeps an
+   IndexedDB mirror and restores from it when the primary copy comes back empty.
+   That is the point of the mirror, so tests that want an empty library have to
+   say so explicitly. */
+async function wipeAllStorage(page) {
+  await page.evaluate(async () => {
+    localStorage.clear();
+    await new Promise((resolve) => {
+      const req = indexedDB.deleteDatabase('watchnext');
+      req.onsuccess = req.onerror = req.onblocked = () => resolve();
+      setTimeout(resolve, 1500);
+    });
+  });
+}
+
 const PROVIDERS = [
   { id: 'omdb', pattern: '**://www.omdbapi.com/**', handler: omdbRoute },
   { id: 'tmdb', pattern: '**://api.themoviedb.org/**', handler: tmdbRoute },
@@ -122,13 +138,14 @@ const PROVIDERS = [
     await page.goto('http://127.0.0.1:8899/index.html', { waitUntil: 'networkidle' });
     await page.waitForSelector('body.is-ready');
 
+    await wipeAllStorage(page);
     await page.evaluate((pid) => {
-      const k = 'wn.state.v3';
-      const s = JSON.parse(localStorage.getItem(k));
-      s.items = [];
-      s.settings.provider = pid;
-      s.settings.dataKeys = { [pid]: 'testkey' };
-      localStorage.setItem(k, JSON.stringify(s));
+      /* A seeded-but-empty state: the store must not re-seed or recover over it. */
+      localStorage.setItem('wn.state.v3', JSON.stringify({
+        schema: 3, items: [], activity: [],
+        settings: { name: '', provider: pid, dataKeys: { [pid]: 'testkey' },
+                    aiKey: '', aiEnabled: false, libraryView: 'list', seeded: true },
+      }));
     }, prov.id);
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForSelector('body.is-ready');

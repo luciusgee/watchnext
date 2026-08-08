@@ -7,6 +7,7 @@
 
 import * as store from './store.js';
 import { seedLibrary } from './seed.js';
+import { requestPersistence } from './durability.js';
 import { icon } from './icons.js';
 import { el, toast } from './ui.js';
 
@@ -90,8 +91,8 @@ function wireChrome() {
   });
 }
 
-function boot() {
-  store.init(seedLibrary);
+async function boot() {
+  await store.init(seedLibrary);
 
   document.getElementById('app').appendChild(buildTabBar());
   wireChrome();
@@ -125,6 +126,7 @@ function boot() {
 
   exposeTestHooks();
   registerServiceWorker();
+  protectStorage();
   document.body.classList.add('is-ready');
 }
 
@@ -135,6 +137,24 @@ function boot() {
  * skipped entirely under automation — a worker caching the shell between test
  * runs would make failures depend on which test ran first.
  */
+/**
+ * Ask the browser not to evict us, and recover if it already has.
+ *
+ * WebKit deletes script-writable storage after seven days of browser use
+ * without a visit, so a user who leaves the app alone for a while can lose a
+ * library nobody is going to re-enter by hand. Persistence usually gets granted
+ * for installed web apps, which takes the origin out of eviction entirely.
+ */
+function protectStorage() {
+  requestPersistence()
+    .then(({ persisted }) => {
+      if (!persisted) {
+        console.info('[storage] not persisted — the browser may evict this data');
+      }
+    })
+    .catch(() => {});
+}
+
 const SW_DISABLED_KEY = 'wn.sw.disabled';
 
 function registerServiceWorker() {
@@ -300,7 +320,9 @@ function exposeTestHooks() {
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot);
+  document.addEventListener('DOMContentLoaded', () => {
+    boot().catch((e) => console.error('[boot] failed', e));
+  });
 } else {
-  boot();
+  boot().catch((e) => console.error('[boot] failed', e));
 }
