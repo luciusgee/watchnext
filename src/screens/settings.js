@@ -12,6 +12,7 @@ import * as actions from '../actions.js';
 import { el, clear, poster, button, toast, openSheet, confirmDestructive, emptyState } from '../ui.js';
 import { icon } from '../icons.js';
 import * as meta from '../metadata.js';
+import { getProvider, listProviders } from '../providers/index.js';
 import { runtime } from '../format.js';
 
 let root = null;
@@ -79,50 +80,65 @@ function connectionsGroup() {
   const g = el('div', { class: 'group' });
   const s = store.settings();
 
-  /* OMDb */
-  const omdb = el('div', { class: 'group-pad' });
-  omdb.appendChild(
-    el('div', { class: 'group-item-t', text: 'Film database key', style: 'margin-bottom:4px' })
-  );
-  omdb.appendChild(
+  /* Metadata source */
+  const active = getProvider(s.provider);
+  const box = el('div', { class: 'group-pad' });
+  box.appendChild(el('div', { class: 'group-item-t', text: 'Film database', style: 'margin-bottom:4px' }));
+  box.appendChild(
     el('div', {
       class: 'group-item-s',
       style: 'margin-bottom:12px',
-      text: 'Watch Next looks up posters, runtimes and descriptions from OMDb. A free key takes a minute to get at omdbapi.com and is yours alone — the shared key the old version used is long past its daily limit.',
+      text: 'Where posters, runtimes and descriptions come from. TMDB is the better maintained of the two and the only one whose terms allow a paid app; OMDb is kept for anyone already using it.',
     })
   );
-  const omdbRow = el('div', { style: 'display:flex;gap:8px' });
-  const omdbInput = el('input', {
-    id: 'omdb-key',
+
+  const seg = el('div', { class: 'seg', style: 'margin-bottom:14px' });
+  for (const p of listProviders()) {
+    seg.appendChild(
+      el('button', {
+        type: 'button',
+        'aria-pressed': String(p.id === active.id),
+        text: p.label,
+        onclick: () => {
+          store.updateSettings({ provider: p.id });
+          render();
+        },
+      })
+    );
+  }
+  box.appendChild(seg);
+
+  const keys = s.dataKeys || {};
+  const keyRow = el('div', { style: 'display:flex;gap:8px' });
+  const keyInput = el('input', {
+    id: 'data-key',
     class: 'input',
     type: 'password',
     autocomplete: 'off',
     spellcheck: 'false',
-    placeholder: 'OMDb API key',
-    value: s.omdbKey || '',
-    'aria-label': 'OMDb API key',
+    placeholder: active.keyPlaceholder,
+    value: keys[active.id] || '',
+    'aria-label': active.keyLabel,
   });
-  omdbRow.appendChild(omdbInput);
-  omdbRow.appendChild(
+  keyRow.appendChild(keyInput);
+  keyRow.appendChild(
     button('Save', {
       kind: 'secondary',
       onClick: () => {
-        store.updateSettings({ omdbKey: omdbInput.value.trim() });
-        toast(omdbInput.value.trim() ? 'Key saved' : 'Key cleared');
+        store.updateSettings({ dataKeys: { ...(store.settings().dataKeys || {}), [active.id]: keyInput.value.trim() } });
+        toast(keyInput.value.trim() ? 'Key saved' : 'Key cleared');
         render();
       },
     })
   );
-  omdb.appendChild(omdbRow);
-  if (s.omdbKey) {
-    omdb.appendChild(
-      el('div', {
-        style: 'font-size:12px;color:var(--sage);margin-top:8px',
-        text: 'Connected',
-      })
-    );
+  box.appendChild(keyRow);
+  box.appendChild(
+    el('div', { style: 'font-size:12px;color:var(--ash);margin-top:8px;line-height:1.5', text: active.keyHint })
+  );
+  if (keys[active.id]) {
+    box.appendChild(el('div', { style: 'font-size:12px;color:var(--sage);margin-top:8px', text: 'Connected' }));
   }
-  g.appendChild(omdb);
+  g.appendChild(box);
 
   /* Anthropic */
   const ai = el('div', { class: 'group-pad', style: 'border-top:1px solid var(--hairline)' });
@@ -247,10 +263,12 @@ function dataGroup() {
 }
 
 async function runSweep(opts, statusEl) {
-  const key = store.settings().omdbKey;
+  const settings = store.settings();
+  const provider = getProvider(settings.provider);
+  const key = (settings.dataKeys || {})[provider.id];
   if (!key) {
-    toast('Add an OMDb key first');
-    document.getElementById('omdb-key')?.focus();
+    toast(`Add a ${provider.label} key first`);
+    document.getElementById('data-key')?.focus();
     return;
   }
   if (sweepController) {
@@ -283,10 +301,11 @@ async function runSweep(opts, statusEl) {
     return;
   }
 
-  const budget = new meta.RequestBudget();
+  const budget = new meta.RequestBudget(provider.dailyLimit, provider.id);
   sweepController = new AbortController();
 
   const result = await meta.sweep(list, {
+    provider,
     key,
     budget,
     signal: sweepController.signal,
@@ -295,7 +314,7 @@ async function runSweep(opts, statusEl) {
     },
     apply: (item, res) => {
       if (res.status === 'matched' && res.chosen) {
-        store.update(item.uid, meta.toPatch(item, res.chosen, res.confidence));
+        store.update(item.uid, meta.toPatch(item, res.chosen, res.confidence, provider.id));
       } else {
         store.update(item.uid, {
           meta: {
@@ -303,12 +322,15 @@ async function runSweep(opts, statusEl) {
             status: res.status,
             at: Date.now(),
             confidence: res.confidence,
+            /* Store the neutral Record shape so the review queue does not
+               need to know which provider produced it. */
             candidates: (res.candidates || []).slice(0, 6).map((c) => ({
-              imdbId: c.imdbID,
-              title: c.Title,
-              year: c.Year,
-              type: c.Type,
-              poster: c.Poster && c.Poster !== 'N/A' ? c.Poster : null,
+              sourceId: c.sourceId,
+              imdbId: c.imdbId,
+              title: c.title,
+              year: c.year,
+              type: c.type,
+              poster: c.poster,
             })),
           },
         });
@@ -322,7 +344,7 @@ async function runSweep(opts, statusEl) {
 
   if (result.error?.code === 'auth') {
     statusEl.textContent = '';
-    toast('That OMDb key was rejected');
+    toast(`That ${provider.label} key was rejected`);
     return;
   }
   if (result.error?.code === 'budget') {
@@ -414,21 +436,30 @@ function reviewCard(item, closeAll) {
       style:
         'display:flex;gap:10px;align-items:center;width:100%;padding:8px;border-radius:10px;border:1px solid var(--hairline);margin-bottom:8px;text-align:left',
       onclick: async () => {
-        const key = store.settings().omdbKey;
+        const settings = store.settings();
+        const provider = getProvider(settings.provider);
+        const key = (settings.dataKeys || {})[provider.id];
         store.update(item.uid, {
-          imdbId: c.imdbId,
-          meta: { v: meta.META_VERSION, status: 'matched', at: Date.now(), confidence: 1, source: 'user' },
+          imdbId: c.imdbId || null,
+          meta: {
+            v: meta.META_VERSION,
+            status: 'matched',
+            at: Date.now(),
+            confidence: 1,
+            source: 'user',
+            sourceId: c.sourceId,
+          },
         });
         if (key) {
           try {
-            const full = await fetch(
-              `https://www.omdbapi.com/?i=${encodeURIComponent(c.imdbId)}&plot=short&apikey=${encodeURIComponent(key)}`
-            ).then((r) => r.json());
-            if (full?.Response === 'True') {
-              store.update(item.uid, meta.toPatch(store.byUid(item.uid), full, 1));
-            }
+            const full = await provider.details(c.sourceId, c.type, {
+              provider,
+              key,
+              budget: new meta.RequestBudget(provider.dailyLimit, provider.id),
+            });
+            if (full) store.update(item.uid, meta.toPatch(store.byUid(item.uid), full, 1, provider.id));
           } catch {
-            /* the id is saved either way; details fill in on the next sweep */
+            /* the choice is saved either way; details fill in on the next sweep */
           }
         }
         store.emit('item');
@@ -665,8 +696,23 @@ function settingsRow(iconName, title, sub, onClick, danger = false) {
 
 function aboutBlock() {
   const s = store.stats();
-  return el('div', {
+  const active = getProvider(store.settings().provider);
+  const box = el('div', {
     style: 'padding:24px 16px 40px;text-align:center;font-size:12px;color:var(--faint);line-height:1.7',
-    text: `Watch Next · ${s.total} titles, ${s.owned} in your collection\nFilm data from OMDb`,
   });
+  box.appendChild(el('div', { text: `Watch Next · ${s.total} titles, ${s.owned} in your collection` }));
+
+  /* Attribution is a condition of use for both sources, so it is rendered
+     rather than buried in a readme. */
+  if (active.attribution) {
+    const a = el('a', {
+      href: active.attribution.url,
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      style: 'display:block;margin-top:10px;color:var(--ash);text-decoration:none',
+      text: active.attribution.text,
+    });
+    box.appendChild(a);
+  }
+  return box;
 }

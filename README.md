@@ -61,9 +61,23 @@ Enrichment records a `meta` stamp on each item, so re-running a lookup only
 touches what is actually missing. Fields you edit yourself are added to
 `locked` and are never overwritten.
 
-You need your own free OMDb key (Settings → Connections). The previous version
-shipped one shared key for all users; it has been over its daily limit for some
-time, which is why lookups silently stopped working.
+### Sources
+
+Two are implemented, chosen in Settings → Connections. Adding a third means
+writing a module exposing `{ id, label, search, details, byImdbId }` that
+returns the neutral `Record` shape from `providers/shared.js`, and listing it in
+`providers/index.js` — the matcher never learns which source it is talking to.
+`tools/meta-e2e.js` runs the identical scenario suite against every provider.
+
+**TMDB** (default). Better maintained, hosts its own artwork, and the only one
+of the two whose terms contemplate a paid app at all. Accepts either the v3 API
+key or the v4 read access token — paste whichever your account page shows.
+Rate limit is roughly 40 requests/second and enforced **per IP, not per key**,
+so 429s are handled with backoff and retry.
+
+**OMDb**. Kept for anyone already set up on it. You need your own free key; the
+previous version shipped one shared key for every user, and it has been over its
+1000/day limit for a long time, which is why lookups silently stopped working.
 
 Ids inherited from the old build are marked `stale` rather than trusted. They
 are re-verified with a single `?i=` lookup — if the returned title and year
@@ -80,6 +94,61 @@ taste affinity from your history, rating, whether you own it, the quality you
 own it in, and how long it is relative to the time of day. It returns a short
 reason for each pick, because a recommendation you cannot interrogate is noise.
 The daily seed keeps the pick stable while you are looking at it.
+
+## Licensing — read before monetising
+
+Researched and verified against the primary sources in August 2026. None of this
+is legal advice, and TMDB reserve the right to change their terms unilaterally
+(§10.H), so re-check before you ship.
+
+**Neither source permits a commercial app on its free tier.**
+
+*OMDb* is the harder block of the two. Its content is licensed CC BY-NC 4.0, and
+§4.2.5 of its terms reads "You may not build a business utilizing the
+Contributions, **whether or not for profit**." Its `Poster` field also hotlinks
+IMDb's CDN rather than artwork OMDb licenses. Treat OMDb as personal-use only.
+
+*TMDB* requires a commercial subscription — **$149/month** for projects under
+$1M revenue (confirmed by TMDB staff on the public forum, 2026-03-31). The
+trigger is not a revenue threshold, it is any monetisation at all. TMDB staff
+explicitly **reversed** their earlier 2024 position that paid features unrelated
+to TMDB data were acceptable: "If your app generates revenue, it is considered
+commercial." Ads and IAP both count.
+
+**The AI clause is the one to resolve before building a paid AI feature.**
+§1.C of the TMDB terms prohibits: *"Use the TMDB APIs or TMDB Content in
+connection with, including for training, a machine learning (ML) or artificial
+intelligence (AI) based Application."* This is drafted as an absolute
+restriction on the licence, not as a commercial-use trigger, and §2.A separately
+names *"interactive query-response system (including large language model (LLM)
+… or chatbots)"* as a commercial use. Nothing in the terms states that buying the
+commercial subscription lifts §1.C.
+
+That matters here because the Ask tab sends TMDB-derived titles, genres and
+runtimes to an LLM as prompt context. It does not train on them, and TMDB staff
+told a developer building a RAG film recommender "yup, that's fine" in 2024 —
+but that was a non-commercial project and a forum reply is not a licence
+amendment. **Get this in writing from TMDB before shipping Ask as a paid
+feature.** Apple's Guideline 5.2.2 requires you to produce authorization for
+third-party content on request anyway.
+
+Two other obligations are implemented rather than documented-and-forgotten:
+
+- **Caching.** §1.C forbids caching TMDB content for longer than six months.
+  `CACHE_TTL_MS` in `metadata.js` expires resolved records at 180 days so they
+  fall back into the lookup queue.
+- **Attribution.** §3 specifies the wording verbatim and requires it in an
+  "About" or "Credits" section — it renders in Settings → About. The terms also
+  require TMDB's logo alongside it, taken from their approved set, unmodified in
+  colour, aspect ratio or rotation, and less prominent than your own marks.
+  **The logo is not yet added** — do that before any public release.
+
+Alternatives worth knowing about if the TMDB terms prove unworkable: TheTVDB is
+free under $50k/year revenue then $1,000/year (though their KB and pricing pages
+currently contradict each other on whether end-user subscriptions are required);
+Trakt staff state on their forum that the API is free for commercial use, but
+their site ToS §5 grants only "personal, non-commercial use" — an unresolved
+conflict worth an email. Watchmode is $349/month and forbids resale.
 
 ## Backups
 

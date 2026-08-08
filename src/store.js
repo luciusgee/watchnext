@@ -91,7 +91,8 @@ function emptyState() {
     activity: [],
     settings: {
       name: '',
-      omdbKey: '',
+      provider: 'tmdb',
+      dataKeys: {},      // { tmdb: '…', omdb: '…' } — one per source
       aiKey: '',
       aiEnabled: false,
       libraryView: 'list',
@@ -177,8 +178,20 @@ function readLegacy() {
 }
 
 function migrate(s) {
+  /* Settings gained a provider choice; anyone who already saved an OMDb key
+     keeps it and stays on OMDb rather than silently losing their setup. */
+  if (s.settings && !s.settings.dataKeys) {
+    s.settings.dataKeys = {};
+    if (s.settings.omdbKey) {
+      s.settings.dataKeys.omdb = s.settings.omdbKey;
+      s.settings.provider = 'omdb';
+    }
+    delete s.settings.omdbKey;
+  }
+  if (s.settings && !s.settings.provider) s.settings.provider = 'tmdb';
+
   if (s.schema === SCHEMA) return s;
-  /* future migrations land here, oldest first */
+  /* future schema migrations land here, oldest first */
   s.schema = SCHEMA;
   return s;
 }

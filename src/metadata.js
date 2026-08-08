@@ -1,78 +1,37 @@
 /*
- * Metadata engine.
+ * Metadata matching.
  *
- * Replaces the previous approach, which had two fatal flaws:
+ * Source-agnostic: everything here works on the neutral Record shape defined in
+ * providers/shared.js, so swapping OMDb for TMDB changes which provider module
+ * is passed in and nothing else.
  *
- *  1. It queried OMDb's `?t=` endpoint, which does FUZZY title matching and
- *     always returns *something*. Asking for "1899" with &type=movie returns
- *     "Making 1899", a completely different film — and the old code then wrote
- *     that film's poster, genre, year and runtime over the user's entry with no
- *     verification at all. Hence "it pulls the wrong movie images sometimes".
+ * It exists because the previous build had two fatal flaws:
  *
- *  2. It re-fetched every single row on every run, because nothing was ever
- *     recorded about what had already been resolved. Hence "it does all
- *     entries every time".
+ *  1. It asked OMDb's `?t=` endpoint for an exact title. That endpoint does
+ *     FUZZY matching and always returns something — "1899" with &type=movie
+ *     returns "Making 1899" — and the old code wrote that film's poster, genre,
+ *     year and runtime over the entry with no verification. It also trusted
+ *     hardcoded IMDb ids, a third of which pointed at the wrong film.
  *
- * The engine below searches for CANDIDATES, scores each one on title, year and
- * type, and only writes when it is confident. Anything uncertain goes to a
- * review queue for the user to arbitrate rather than being silently applied.
+ *  2. It re-fetched every row on every run, because nothing recorded what had
+ *     already been resolved.
+ *
+ * So: search for CANDIDATES, score each on title, year and type, write only
+ * above a confidence threshold, and send anything uncertain to a review queue
+ * rather than guessing. Record a stamp on every item so re-runs are cheap.
  */
 
 import { META_VERSION, normaliseTitle, isLocked } from './store.js';
+import { pickGenre, parseRuntime, parseRating, parseYear } from './providers/shared.js';
 
-const API = 'https://www.omdbapi.com/';
+export { RequestBudget, parseRuntime, parseRating, parseYear, pickGenre } from './providers/shared.js';
 
-/* Confidence thresholds. Tuned against the real library — see tools/match-test.js */
+/* Confidence thresholds. Tuned against the real library — see tools/match.test.mjs */
 const AUTO_ACCEPT = 0.82; // write without asking
-const REVIEW_FLOOR = 0.5; // below this we do not even offer it as a candidate
-
-/* OMDb's free tier allows 1000 requests/day. Track locally so a big sweep
-   degrades gracefully instead of silently returning errors for everything. */
-const BUDGET_KEY = 'wn.omdb.budget';
-const DAILY_LIMIT = 950;
-
-export class RequestBudget {
-  constructor(limit = DAILY_LIMIT) {
-    this.limit = limit;
-    this.load();
-  }
-  today() {
-    return new Date().toISOString().slice(0, 10);
-  }
-  load() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(BUDGET_KEY) || 'null');
-      if (raw && raw.day === this.today()) {
-        this.used = raw.used;
-        return;
-      }
-    } catch {
-      /* fall through to reset */
-    }
-    this.used = 0;
-    this.persist();
-  }
-  persist() {
-    try {
-      localStorage.setItem(BUDGET_KEY, JSON.stringify({ day: this.today(), used: this.used }));
-    } catch {
-      /* non-fatal */
-    }
-  }
-  spend(n = 1) {
-    this.used += n;
-    this.persist();
-  }
-  get remaining() {
-    return Math.max(0, this.limit - this.used);
-  }
-  get exhausted() {
-    return this.remaining <= 0;
-  }
-}
+const REVIEW_FLOOR = 0.5; // below this, not even offered as a candidate
 
 /* ── string similarity: Sørensen–Dice over character bigrams ──
-   Robust to word order and small typos, cheap to compute, no deps. */
+   Robust to word order and small typos, cheap, no dependencies. */
 function bigrams(s) {
   const out = new Map();
   for (let i = 0; i < s.length - 1; i++) {
@@ -103,28 +62,26 @@ export function similarity(a, b) {
 }
 
 /**
- * Score one OMDb search result against what we were looking for.
- * Returns { score, reasons } where score is 0..1.
+ * Score one candidate Record against what we were looking for.
+ * @returns {{score:number, reasons:string[]}} score is 0..1
  */
 export function scoreCandidate(query, candidate) {
   const reasons = [];
-  const title = similarity(query.title, candidate.Title);
+  const title = similarity(query.title, candidate.title);
 
-  /* Title is the dominant signal. A candidate whose title barely resembles
-     the query is never right, no matter how well the year lines up. */
-  if (title < 0.45) {
-    return { score: 0, reasons: ['title mismatch'] };
-  }
+  /* Title dominates. A candidate whose title barely resembles the query is
+     never right, however well the year lines up. */
+  if (title < 0.45) return { score: 0, reasons: ['title mismatch'] };
 
   let score = title * 0.62;
   if (title === 1) reasons.push('exact title');
   else if (title > 0.85) reasons.push('near-exact title');
 
   /* Containment. "Dune" should prefer "Dune: Part One" over "Planet Dune":
-     a subtitle appended to the query is a far likelier match than the query
-     appearing as the tail of some other film's name. */
+     a subtitle appended to the query is far likelier than the query appearing
+     as the tail of some other film's name. */
   const q = normaliseTitle(query.title);
-  const c = normaliseTitle(candidate.Title);
+  const c = normaliseTitle(candidate.title);
   if (c !== q) {
     if (c.startsWith(q)) {
       score += 0.14;
@@ -138,9 +95,8 @@ export function scoreCandidate(query, candidate) {
   }
 
   /* Year */
-  const candYear = parseInt(String(candidate.Year || '').slice(0, 4), 10);
-  if (query.year && candYear) {
-    const delta = Math.abs(candYear - query.year);
+  if (query.year && candidate.year) {
+    const delta = Math.abs(candidate.year - query.year);
     if (delta === 0) {
       score += 0.26;
       reasons.push('year matches');
@@ -155,212 +111,36 @@ export function scoreCandidate(query, candidate) {
       reasons.push(`year off by ${delta}`);
     }
   } else if (!query.year) {
-    /* No year to check against — neither credit nor penalty, but cap the
-       ceiling so a title-only match can't auto-accept on its own. */
+    /* Nothing to verify against — no credit, no penalty, but the ceiling stays
+       low enough that a title-only match cannot auto-accept on its own. */
     score += 0.12;
     reasons.push('no year to verify');
   }
 
-  /* Type */
-  const candType = candidate.Type === 'series' ? 'tv' : 'movie';
-  if (query.type && candType === query.type) {
+  /* Type. The old code FORCED type=movie, which is what produced the 1899
+     failure. A cross-type match is allowed but has to pay for itself. */
+  if (query.type && candidate.type === query.type) {
     score += 0.12;
     reasons.push('type matches');
-  } else if (query.type && candType !== query.type) {
-    /* The old code FORCED &type=movie, which is what produced the "1899"
-       failure. We allow a cross-type match but make it pay for itself: it
-       only wins if the title is otherwise excellent. */
+  } else if (query.type && candidate.type !== query.type) {
     score -= 0.18;
-    reasons.push(`type differs (${candType})`);
+    reasons.push(`type differs (${candidate.type})`);
   }
 
-  if (candidate.Poster && candidate.Poster !== 'N/A') score += 0.02;
+  if (candidate.poster) score += 0.02;
 
   return { score: Math.max(0, Math.min(1, score)), reasons };
 }
 
-/* ── network ── */
-
-async function omdb(params, key, budget, signal) {
-  if (budget && budget.exhausted) {
-    const err = new Error('Daily OMDb request limit reached.');
-    err.code = 'budget';
-    throw err;
-  }
-  const url = new URL(API);
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
-  });
-  url.searchParams.set('apikey', key);
-
-  const res = await fetch(url, { signal });
-  if (budget) budget.spend();
-  if (!res.ok) {
-    const err = new Error(`OMDb returned ${res.status}`);
-    err.code = 'http';
-    err.status = res.status;
-    throw err;
-  }
-  const data = await res.json();
-  if (data.Response === 'False') {
-    /* OMDb signals both "no results" and "bad key" this way — distinguish. */
-    if (/invalid api key|no api key/i.test(data.Error || '')) {
-      const err = new Error('That OMDb API key was rejected.');
-      err.code = 'auth';
-      throw err;
-    }
-    return null;
-  }
-  return data;
-}
-
-/* ── field parsing ── */
-
-export function parseRuntime(str, type) {
-  if (!str || str === 'N/A') return null;
-  const n = parseInt(String(str).replace(/[^\d]/g, '').slice(0, 4), 10);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  /* Sanity bounds — OMDb occasionally returns malformed values like "56S min".
-     An episode runtime for a series is fine; a 40-hour "film" is not. */
-  const max = type === 'tv' ? 400 : 600;
-  return n > max ? null : n;
-}
-
-export function parseRating(str) {
-  if (!str || str === 'N/A') return null;
-  const n = parseFloat(str);
-  return Number.isFinite(n) && n >= 0 && n <= 10 ? Math.round(n * 10) / 10 : null;
-}
-
-export function parseYear(str) {
-  if (!str || str === 'N/A') return null;
-  const n = parseInt(String(str).slice(0, 4), 10);
-  return Number.isFinite(n) && n > 1870 && n < 2100 ? n : null;
-}
-
-const GENRE_MAP = {
-  Horror: 'Horror',
-  Thriller: 'Thriller',
-  Mystery: 'Thriller',
-  'Sci-Fi': 'Sci-Fi',
-  Fantasy: 'Fantasy',
-  Action: 'Action',
-  Adventure: 'Adventure',
-  Drama: 'Drama',
-  Crime: 'Crime',
-  Comedy: 'Comedy',
-  Animation: 'Animation',
-  Family: 'Family',
-  Romance: 'Romance',
-  Documentary: 'Documentary',
-  Biography: 'Biography',
-  History: 'History',
-  War: 'War',
-  Western: 'Western',
-  Music: 'Music',
-  Musical: 'Musical',
-  Sport: 'Sport',
-};
-
-/* Order matters: the first listed genre OMDb returns is usually the loosest
-   ("Action, Crime, Drama" for Heat). Prefer the most characterful one. */
-const GENRE_PRIORITY = [
-  'Horror', 'Animation', 'Documentary', 'Sci-Fi', 'Fantasy', 'Western', 'Musical',
-  'Music', 'War', 'Crime', 'Thriller', 'Romance', 'Comedy', 'Adventure', 'Action',
-  'Biography', 'History', 'Family', 'Sport', 'Drama',
-];
-
-export function pickGenre(str) {
-  if (!str || str === 'N/A') return null;
-  const parts = String(str)
-    .split(',')
-    .map((s) => GENRE_MAP[s.trim()])
-    .filter(Boolean);
-  if (!parts.length) return null;
-  for (const g of GENRE_PRIORITY) if (parts.includes(g)) return g;
-  return parts[0];
-}
-
-/** Upgrade OMDb's poster URL to a larger render. Their CDN honours SX<width>. */
-export function posterAt(url, width = 600) {
-  if (!url || url === 'N/A') return null;
-  return url.replace(/\._V1_.*?\.jpg$/i, `._V1_SX${width}.jpg`);
-}
-
-/* ── the matcher ── */
-
 /**
- * Find the best OMDb match for an item.
- * Returns { status, confidence, chosen, candidates, reasons }
- *   status: 'matched' | 'review' | 'unmatched'
+ * Rank candidates and decide. Pure — no network — so it is unit-testable.
+ * @returns {{status:'matched'|'review'|'unmatched', confidence, chosen, candidates, reasons}}
  */
-export async function findMatch(item, key, budget, signal) {
-  const query = { title: item.title, year: item.year, type: item.type };
-
-  /* Fast path: we already verified this id ourselves. `?i=` is exact —
-     no fuzzy matching, no chance of drifting onto a different film. */
-  if (item.imdbId && /^tt\d+$/.test(item.imdbId) && item.meta?.status === 'matched') {
-    const exact = await omdb({ i: item.imdbId, plot: 'short' }, key, budget, signal);
-    if (exact) {
-      return { status: 'matched', confidence: 1, chosen: exact, candidates: [exact], reasons: ['known IMDb id'] };
-    }
-  }
-
-  /* Cheap re-verification for ids inherited from the old build, which were
-     roughly a third wrong. One `?i=` lookup tells us whether the stored id
-     actually resolves to this film: if the returned title and year agree, we
-     are done in a single request; only the mismatches pay for a full search.
-     Over a 500-title library that is the difference between ~1000 requests
-     (past the free daily limit) and ~600. */
-  if (item.imdbId && /^tt\d+$/.test(item.imdbId) && item.meta?.status === 'stale') {
-    const held = await omdb({ i: item.imdbId, plot: 'short' }, key, budget, signal);
-    if (held) {
-      const titleAgrees = similarity(item.title, held.Title) >= 0.85;
-      const heldYear = parseYear(held.Year);
-      const yearAgrees = !item.year || !heldYear || Math.abs(heldYear - item.year) <= 1;
-      if (titleAgrees && yearAgrees) {
-        return {
-          status: 'matched',
-          confidence: 1,
-          chosen: held,
-          candidates: [held],
-          reasons: ['stored id verified'],
-        };
-      }
-      /* The id points somewhere else — fall through and search properly. */
-    }
-  }
-
-  /* Gather candidates. Search WITHOUT forcing a type first — the stored type
-     flag is frequently wrong (everything batch-added defaulted to "movie"),
-     and forcing it is exactly what produced the 1899 → "Making 1899" bug. */
-  const seen = new Map();
-  const collect = (data) => {
-    if (!data?.Search) return;
-    for (const r of data.Search) if (r.imdbID && !seen.has(r.imdbID)) seen.set(r.imdbID, r);
-  };
-
-  collect(await omdb({ s: item.title }, key, budget, signal));
-
-  /* If an unfiltered search found nothing useful, try the typed search and,
-     as a last resort, the fuzzy `?t=` endpoint — but everything still has to
-     survive scoring below, so a bad fuzzy hit cannot slip through. */
-  if (seen.size === 0) {
-    collect(await omdb({ s: item.title, type: item.type === 'tv' ? 'series' : 'movie' }, key, budget, signal));
-  }
-  if (seen.size === 0) {
-    const fuzzy = await omdb({ t: item.title, y: item.year || undefined }, key, budget, signal);
-    if (fuzzy?.imdbID) seen.set(fuzzy.imdbID, fuzzy);
-  }
-
-  if (seen.size === 0) {
-    return { status: 'unmatched', confidence: 0, chosen: null, candidates: [], reasons: ['no results'] };
-  }
-
-  const scored = [...seen.values()]
-    .map((c) => ({ candidate: c, ...scoreCandidate(query, c) }))
+export function decide(query, candidates) {
+  const scored = candidates
+    .map((candidate) => ({ candidate, ...scoreCandidate(query, candidate) }))
     .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => b.score - a.score || (b.candidate.votes || 0) - (a.candidate.votes || 0));
 
   if (!scored.length) {
     return { status: 'unmatched', confidence: 0, chosen: null, candidates: [], reasons: ['no plausible title match'] };
@@ -369,56 +149,111 @@ export async function findMatch(item, key, budget, signal) {
   const best = scored[0];
   const runnerUp = scored[1];
 
-  /* A candidate that agrees on both title and year is decisive.
-     Type is deliberately NOT required here: the stored type is the least
-     reliable field we hold (everything batch-added defaults to "movie", which
-     is how a TV series like "1899" ends up flagged as a film), whereas an exact
-     title plus an exact year is a very strong pair of independent signals. If
-     two candidates both match title and year exactly, the ambiguity check below
-     still sends it to review rather than guessing. */
-  const bestYear = parseInt(String(best.candidate.Year || '').slice(0, 4), 10);
+  /* A candidate agreeing on both title and year is decisive. Type is
+     deliberately not required: the stored type is the least reliable field we
+     hold (batch-added rows all default to "movie", which is how a series like
+     1899 ends up flagged as a film), whereas exact title plus exact year is a
+     strong pair of independent signals. */
   const decisive =
-    normaliseTitle(best.candidate.Title) === normaliseTitle(item.title) &&
-    !!item.year &&
-    bestYear === item.year;
+    normaliseTitle(best.candidate.title) === normaliseTitle(query.title) &&
+    !!query.year &&
+    best.candidate.year === query.year;
 
-  /* Otherwise, treat it as ambiguous only when the top two are genuinely
-     indistinguishable — same title, same year (remakes released together,
-     duplicate OMDb entries). A different year means the year signal already
-     did the discriminating, so a close score is not real ambiguity. */
+  /* Ambiguity comes in two forms.
+     · With a year to compare, the top two are only indistinguishable when they
+       agree on title AND year — a different year means the year already did the
+       discriminating, so a close score is not real ambiguity.
+     · With NO year on the item, two identically-titled candidates cannot be
+       told apart at all. "Nosferatu" against the 1922 and 2024 films scores
+       identically for both, and picking whichever the provider happened to
+       return first is exactly the silent-wrong-answer behaviour this matcher
+       exists to prevent. */
+  const sameTitleAsRunnerUp =
+    runnerUp && normaliseTitle(runnerUp.candidate.title) === normaliseTitle(best.candidate.title);
+
   const ambiguous =
     !decisive &&
     runnerUp &&
     best.score - runnerUp.score < 0.08 &&
-    normaliseTitle(runnerUp.candidate.Title) === normaliseTitle(best.candidate.Title) &&
-    parseInt(String(runnerUp.candidate.Year || '').slice(0, 4), 10) === bestYear;
+    sameTitleAsRunnerUp &&
+    (!query.year || runnerUp.candidate.year === best.candidate.year);
+
+  const shortlist = scored.filter((s) => s.score >= REVIEW_FLOOR).slice(0, 6).map((s) => s.candidate);
 
   if ((decisive || best.score >= AUTO_ACCEPT) && !ambiguous) {
-    /* Pull full details for the winner — search results omit plot/runtime. */
-    const full = await omdb({ i: best.candidate.imdbID, plot: 'short' }, key, budget, signal);
     return {
       status: 'matched',
       confidence: best.score,
-      chosen: full || best.candidate,
-      candidates: scored.slice(0, 6).map((s) => s.candidate),
+      chosen: best.candidate,
+      candidates: shortlist,
       reasons: best.reasons,
     };
   }
-
   return {
     status: best.score >= REVIEW_FLOOR ? 'review' : 'unmatched',
     confidence: best.score,
     chosen: null,
-    candidates: scored.filter((s) => s.score >= REVIEW_FLOOR).slice(0, 6).map((s) => s.candidate),
+    candidates: shortlist,
     reasons: ambiguous ? ['two candidates scored almost equally', ...best.reasons] : best.reasons,
   };
 }
 
 /**
- * Turn an OMDb record into a patch for an item, respecting locked fields
- * and never blanking data we already hold with something worse.
+ * Resolve one item against a provider.
+ * @param {object} item      library item
+ * @param {object} ctx       { provider, key, budget, signal }
  */
-export function toPatch(item, data, confidence) {
+export async function findMatch(item, ctx) {
+  const { provider, key, budget, signal } = ctx;
+  const query = { title: item.title, year: item.year, type: item.type };
+
+  /* Fast path: an id this matcher verified itself. An id lookup is exact —
+     no fuzzy matching, no chance of drifting onto a different film. */
+  if (item.meta?.status === 'matched' && item.meta?.sourceId) {
+    const held = await provider.details(item.meta.sourceId, item.type, ctx);
+    if (held) {
+      return { status: 'matched', confidence: 1, chosen: held, candidates: [held], reasons: ['known id'] };
+    }
+  }
+
+  /* Cheap re-verification for ids inherited from the old build, roughly a
+     third of which were wrong. One lookup tells us whether the stored id
+     actually resolves to this film: if title and year agree we are done in a
+     single request, and only the mismatches pay for a full search. Across a
+     500-title library that is ~600 requests rather than ~1000, which matters
+     against a 1000/day free tier. */
+  if (item.meta?.status === 'stale' && item.imdbId && provider.byImdbId) {
+    const held = await provider.byImdbId(item.imdbId, ctx);
+    if (held) {
+      const titleAgrees = similarity(item.title, held.title) >= 0.85;
+      const yearAgrees = !item.year || !held.year || Math.abs(held.year - item.year) <= 1;
+      if (titleAgrees && yearAgrees) {
+        return { status: 'matched', confidence: 1, chosen: held, candidates: [held], reasons: ['stored id verified'] };
+      }
+      /* Points elsewhere — fall through and search properly. */
+    }
+  }
+
+  const candidates = await provider.search(query, ctx);
+  if (!candidates.length) {
+    return { status: 'unmatched', confidence: 0, chosen: null, candidates: [], reasons: ['no results'] };
+  }
+
+  const verdict = decide(query, candidates);
+
+  /* Search results are lightweight; fetch the full record for a winner. */
+  if (verdict.status === 'matched' && verdict.chosen && !verdict.chosen.overview) {
+    const full = await provider.details(verdict.chosen.sourceId, verdict.chosen.type, ctx);
+    if (full) verdict.chosen = full;
+  }
+  return verdict;
+}
+
+/**
+ * Turn a Record into a patch, respecting locked fields and never replacing
+ * data we hold with something emptier.
+ */
+export function toPatch(item, record, confidence, providerId = 'omdb') {
   const patch = {};
   const set = (field, value) => {
     if (value === null || value === undefined || value === '') return;
@@ -426,20 +261,20 @@ export function toPatch(item, data, confidence) {
     patch[field] = value;
   };
 
-  const type = data.Type === 'series' ? 'tv' : 'movie';
-  set('type', type);
-  set('imdbId', /^tt\d+$/.test(data.imdbID || '') ? data.imdbID : null);
-  set('year', parseYear(data.Year));
-  set('rating', parseRating(data.imdbRating));
-  set('runtime', parseRuntime(data.Runtime, type));
-  set('genre', pickGenre(data.Genre));
-  set('poster', posterAt(data.Poster));
-  if (data.Plot && data.Plot !== 'N/A') set('overview', data.Plot);
+  set('type', record.type);
+  set('imdbId', record.imdbId);
+  set('year', record.year);
+  set('rating', record.rating);
+  set('runtime', record.runtime);
+  set('genre', record.genre || (record.genres.length ? pickGenre(record.genres) : null));
+  set('poster', record.poster);
+  set('overview', record.overview);
+  if (record.genres?.length && !isLocked(item, 'genre')) patch.genres = record.genres;
 
-  /* Adopt OMDb's canonical title only when it is essentially the same film —
-     this stops "Alien" quietly becoming "Aliens". */
-  if (data.Title && !isLocked(item, 'title') && similarity(item.title, data.Title) >= 0.9) {
-    patch.title = data.Title;
+  /* Adopt the provider's canonical title only when it is essentially the same
+     film — this stops "Alien" quietly becoming "Aliens". */
+  if (record.title && !isLocked(item, 'title') && similarity(item.title, record.title) >= 0.9) {
+    patch.title = record.title;
   }
 
   patch.meta = {
@@ -447,17 +282,26 @@ export function toPatch(item, data, confidence) {
     status: 'matched',
     at: Date.now(),
     confidence: Math.round(confidence * 100) / 100,
-    source: 'omdb',
+    source: providerId,
+    sourceId: record.sourceId,
   };
   return patch;
 }
 
+/* TMDB's terms forbid caching their content for longer than six months, so
+   resolved records expire and are re-checked rather than being kept forever.
+   It also keeps ratings and artwork from drifting years out of date. */
+export const CACHE_TTL_MS = 180 * 24 * 60 * 60 * 1000;
+
 /** Items that actually need work — this is what makes re-runs cheap. */
-export function needsEnrichment(item, { force = false } = {}) {
+export function needsEnrichment(item, { force = false, now = Date.now() } = {}) {
   if (force) return true;
   const m = item.meta || {};
-  if (m.status === 'matched' && m.v >= META_VERSION) return false; // already done
   if (m.status === 'skipped') return false; // user dismissed it
+  if (m.status === 'matched' && m.v >= META_VERSION) {
+    /* Expired records fall back into the queue. */
+    return !!m.at && now - m.at > CACHE_TTL_MS;
+  }
   return true;
 }
 
@@ -470,8 +314,8 @@ export function enrichmentSummary(list) {
     else if (st === 'unmatched') s.unmatched += 1;
     else if (st === 'skipped') s.skipped += 1;
     /* `stale` means "carried over from the old build" — it has details, they
-       just have not been checked by this matcher yet. Worth saying separately
-       from "we know nothing about this title". */
+       just have not been checked by this matcher. Worth saying separately from
+       "we know nothing about this title". */
     else if (st === 'stale') s.stale += 1;
     else s.pending += 1;
   }
@@ -480,15 +324,15 @@ export function enrichmentSummary(list) {
 }
 
 /**
- * Sweep a list of items. Sequential with a small delay — OMDb rate-limits
- * bursts, and a personal library is never so large that parallelism is worth
- * the risk of being throttled mid-run.
+ * Sweep a list of items. Sequential with a small delay — providers rate-limit
+ * bursts, and a personal library is never large enough for parallelism to be
+ * worth being throttled mid-run.
  *
- * onProgress({ index, total, item, result })
- * Returns { matched, review, unmatched, stopped }
+ * @returns {{matched:number, review:number, unmatched:number, stopped:boolean, error:Error?}}
  */
-export async function sweep(list, { key, budget, signal, onProgress, delay = 120, apply }) {
+export async function sweep(list, { provider, key, budget, signal, onProgress, delay = 120, apply }) {
   const out = { matched: 0, review: 0, unmatched: 0, stopped: false, error: null };
+  const ctx = { provider, key, budget, signal };
 
   for (let i = 0; i < list.length; i++) {
     if (signal?.aborted) {
@@ -498,12 +342,14 @@ export async function sweep(list, { key, budget, signal, onProgress, delay = 120
     const item = list[i];
     let result;
     try {
-      result = await findMatch(item, key, budget, signal);
+      result = await findMatch(item, ctx);
     } catch (err) {
       if (err.name === 'AbortError') {
         out.stopped = true;
         break;
       }
+      /* Budget and auth failures affect every subsequent call, so stop rather
+         than burning through the list marking everything unmatched. */
       if (err.code === 'budget' || err.code === 'auth') {
         out.stopped = true;
         out.error = err;
