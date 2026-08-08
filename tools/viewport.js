@@ -99,6 +99,10 @@ async function measure(page) {
     const KEYBOARD = 300;
     const vv = window.visualViewport;
     if (!vv) return { supported: false };
+    /* A keyboard only appears because a field has focus, and that focus is the
+       gate the app uses to tell a keyboard from browser chrome. Simulating the
+       viewport shrink without it would be testing a state that cannot occur. */
+    document.getElementById('ask-input').focus();
     Object.defineProperty(vv, 'height', { get: () => window.innerHeight - KEYBOARD, configurable: true });
     Object.defineProperty(vv, 'offsetTop', { get: () => 0, configurable: true });
     vv.dispatchEvent(new Event('resize'));
@@ -115,6 +119,45 @@ async function measure(page) {
   } else {
     console.log('  (VisualViewport unavailable — skipped)');
   }
+
+  console.log('\n─── browser chrome is not a keyboard ───');
+  /* The regression that caused the reported gap: Safari's visual viewport is
+     permanently shorter than the layout viewport by the height of the URL bar.
+     Measuring that difference unconditionally shrinks the shell by the height
+     of the address bar and leaves dead space under the tab bar. */
+  const chrome = await page.evaluate(async () => {
+    const URL_BAR = 90;
+    const vv = window.visualViewport;
+    document.activeElement?.blur();
+    Object.defineProperty(vv, 'height', { get: () => window.innerHeight - URL_BAR, configurable: true });
+    Object.defineProperty(vv, 'offsetTop', { get: () => 0, configurable: true });
+    vv.dispatchEvent(new Event('resize'));
+    await new Promise((r) => setTimeout(r, 300));
+    const app = document.getElementById('app').getBoundingClientRect();
+    const bar = document.querySelector('.tabbar').getBoundingClientRect();
+    return {
+      kb: getComputedStyle(document.documentElement).getPropertyValue('--kb').trim(),
+      shellBottom: Math.round(app.bottom),
+      gapBelowBar: Math.round(window.innerHeight - bar.bottom),
+      viewportH: window.innerHeight,
+    };
+  });
+  check('a URL bar sized shrink is ignored with nothing focused', chrome.kb === '0px', `--kb=${chrome.kb}`);
+  check('the shell still reaches the bottom with browser chrome showing',
+    chrome.shellBottom === chrome.viewportH, `${chrome.shellBottom}/${chrome.viewportH}`);
+  check('no dead space under the tab bar with browser chrome showing',
+    chrome.gapBelowBar === 0, `${chrome.gapBelowBar}px gap`);
+
+  /* And a small shrink while a field IS focused is still browser chrome, not a
+     keyboard — no phone keyboard is 90px tall. */
+  const smallWhileFocused = await page.evaluate(async () => {
+    document.getElementById('ask-input').focus();
+    window.visualViewport.dispatchEvent(new Event('resize'));
+    await new Promise((r) => setTimeout(r, 300));
+    return getComputedStyle(document.documentElement).getPropertyValue('--kb').trim();
+  });
+  check('a 90px shrink is not treated as a keyboard even when focused',
+    smallWhileFocused === '0px', `--kb=${smallWhileFocused}`);
 
   await ctx.close();
   console.log(`\n══════════  ${pass} passed, ${fail} failed  ══════════`);

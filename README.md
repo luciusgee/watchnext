@@ -167,7 +167,7 @@ synced to cloud storage.
 ./tools/run-tests.sh
 ```
 
-Eight suites, 225 assertions:
+Eight suites, 229 assertions:
 
 | suite | covers |
 | --- | --- |
@@ -177,7 +177,7 @@ Eight suites, 225 assertions:
 | `meta-e2e.js` | the enrichment pipeline, run identically against mock OMDb **and** mock TMDB |
 | `offline.js` | service worker: offline boot, deploy propagation, cache limits, escape hatches |
 | `durability.js` | surviving a storage wipe: the mirror, recovery ordering, never clobbering good data |
-| `viewport.js` | the shell fills the screen exactly, with and without notch insets, and yields to the keyboard |
+| `viewport.js` | the shell fills the screen exactly, with and without notch insets, yields to the keyboard, and does not mistake browser chrome for one |
 | `e2e.js` | full app: navigation, watch state, undo, search, a11y, persistence |
 
 `legacy-scale.js` uses a synthetic fixture shaped like a real library. To run it

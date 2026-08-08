@@ -152,19 +152,40 @@ function syncViewport() {
   const vv = window.visualViewport;
   if (!vv) return;
 
+  /* The difference between the layout and visual viewports is NOT necessarily
+     the keyboard. In Safari it is also the browser's own URL bar, which is
+     always there — so measuring the gap unconditionally shrinks the app by the
+     height of the address bar and leaves a dead band under the tab bar. Only a
+     focused text field can summon a keyboard, so that is the gate. */
+  const isEditing = () => {
+    const el = document.activeElement;
+    if (!el) return false;
+    return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
+  };
+
+  /* Below this, a shrink is browser chrome rather than a keyboard. No on-screen
+     keyboard is under ~150px on any phone. */
+  const KEYBOARD_MIN = 150;
+
   let frame = 0;
   const apply = () => {
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(() => {
-      /* How much of the layout viewport the keyboard is covering. Clamped at
-         zero so rubber-band scrolling never yields a negative offset. */
-      const covered = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      let covered = 0;
+      if (isEditing()) {
+        const gap = window.innerHeight - vv.height - vv.offsetTop;
+        if (gap >= KEYBOARD_MIN) covered = gap;
+      }
       document.documentElement.style.setProperty('--kb', `${Math.round(covered)}px`);
     });
   };
 
   vv.addEventListener('resize', apply);
   vv.addEventListener('scroll', apply);
+  /* Focus changes are what actually open and close the keyboard; the viewport
+     events alone can fire before activeElement has settled. */
+  document.addEventListener('focusin', apply);
+  document.addEventListener('focusout', () => setTimeout(apply, 50));
   apply();
 }
 

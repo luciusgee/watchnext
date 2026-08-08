@@ -14,6 +14,7 @@ import { icon } from '../icons.js';
 import * as meta from '../metadata.js';
 import { getProvider, listProviders } from '../providers/index.js';
 import { storageHealth, markBackedUp, requestPersistence } from '../durability.js';
+import { BUILD } from '../build.js';
 import { runtime } from '../format.js';
 
 let root = null;
@@ -763,6 +764,34 @@ function aboutBlock() {
     style: 'padding:24px 16px 40px;text-align:center;font-size:12px;color:var(--faint);line-height:1.7',
   });
   box.appendChild(el('div', { text: `Watch Next · ${s.total} titles, ${s.owned} in your collection` }));
+  box.appendChild(el('div', { style: 'margin-top:6px', text: `Build ${BUILD}` }));
+
+  /* Layout diagnostics. Screen-fit bugs are device-specific and invisible from
+     a screenshot, so the numbers are here to be read out rather than guessed. */
+  const app = document.getElementById('app');
+  const bar = document.querySelector('.tabbar');
+  const rect = app?.getBoundingClientRect();
+  const barRect = bar?.getBoundingClientRect();
+  const kb = getComputedStyle(document.documentElement).getPropertyValue('--kb').trim() || '0px';
+  const standalone =
+    window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+  const bits = [
+    `viewport ${window.innerWidth}x${window.innerHeight}`,
+    rect ? `shell ${Math.round(rect.width)}x${Math.round(rect.height)}` : null,
+    barRect ? `gap below bar ${Math.round(window.innerHeight - barRect.bottom)}px` : null,
+    window.visualViewport ? `visual ${Math.round(window.visualViewport.height)}` : null,
+    `kb ${kb}`,
+    `safe-bottom ${getComputedStyle(document.documentElement).getPropertyValue('--sb').trim() || '?'}`,
+    standalone ? 'home screen' : 'in browser',
+  ].filter(Boolean);
+
+  box.appendChild(
+    el('div', {
+      style: 'margin-top:10px;font-size:11px;color:var(--faint);line-height:1.6',
+      text: bits.join(' · '),
+    })
+  );
 
   /* Attribution is a condition of use for both sources, so it is rendered
      rather than buried in a readme. */
