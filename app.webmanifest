@@ -1,0 +1,14 @@
+{
+  "name": "Watch Next",
+  "short_name": "Watch Next",
+  "description": "Decide what to watch tonight from the films you already own.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0a09",
+  "theme_color": "#0b0a09",
+  "icons": [
+    { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

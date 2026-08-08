@@ -1,0 +1,247 @@
+/*
+ * Recommendation scoring.
+ *
+ * The previous version's "Suggested for you" was: take your three most-watched
+ * genres, filter unwatched titles to those genres, sort by IMDb rating. That
+ * surfaces the same handful of highly-rated films forever and ignores whether
+ * you can actually watch them tonight.
+ *
+ * This scores on taste, availability, effort and novelty, and is deliberately
+ * deterministic per day so the home screen doesn't reshuffle every render.
+ */
+
+/** Genre affinity from watch history, weighted towards recent viewing. */
+export function tasteProfile(items) {
+  const watched = items.filter((i) => i.watched);
+  const genres = new Map();
+  let totalWeight = 0;
+
+  const now = Date.now();
+  const YEAR = 365 * 24 * 3600 * 1000;
+
+  for (const item of watched) {
+    if (!item.genre) continue;
+    /* Something watched last month says more about current taste than
+       something watched two years ago. Unknown dates get a middling weight. */
+    const age = item.watchedAt ? (now - item.watchedAt) / YEAR : 1;
+    const weight = 1 / (1 + Math.max(0, age));
+    genres.set(item.genre, (genres.get(item.genre) || 0) + weight);
+    totalWeight += weight;
+  }
+
+  const affinity = new Map();
+  if (totalWeight > 0) {
+    for (const [g, w] of genres) affinity.set(g, w / totalWeight);
+  }
+
+  return {
+    affinity,
+    sampleSize: watched.length,
+    top: [...genres.entries()].sort((a, b) => b[1] - a[1]).map(([g]) => g),
+  };
+}
+
+/** Stable pseudo-random in [0,1) from a string — same result all day. */
+function jitter(seed) {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 10000) / 10000;
+}
+
+function dayStamp() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Score a single candidate. Returns { score, why } where `why` is a short
+ * human-readable reason we can show in the UI — a recommendation the user
+ * can't interrogate is just noise.
+ */
+export function scoreItem(item, profile, ctx) {
+  /* Owned libraries are overwhelmingly re-watch libraries. A film you rated
+     highly and last saw three years ago is a perfectly good answer to "what
+     tonight" — every incumbent tracker throws that signal away. */
+  const isRewatch = item.watched;
+  if (isRewatch && !ctx.allowRewatch) return null;
+
+  /* In "tonight" mode, ownership is a hard filter, not a bonus: the whole
+     premise is ranking what you can actually play right now. */
+  if (ctx.ownedOnly && !item.owned) return null;
+
+  let score = 0;
+  const why = [];
+
+  /* Taste — the dominant term once there's history to learn from. */
+  const aff = profile.affinity.get(item.genre) || 0;
+  if (profile.sampleSize >= 3 && aff > 0) {
+    score += aff * 40;
+    if (aff >= 0.18) why.push(`you watch a lot of ${item.genre.toLowerCase()}`);
+  }
+
+  /* Quality — real but secondary; a 9.0 you don't fancy is still not tonight. */
+  if (item.rating) {
+    score += (item.rating - 6) * 3.2;
+    if (item.rating >= 8) why.push(`rated ${item.rating.toFixed(1)}`);
+  }
+
+  /* Availability. This is the app's whole premise, so it outranks the
+     watchlist: something you can press play on right now beats something you
+     once meant to find. */
+  if (item.owned) {
+    score += 18;
+    why.push('you already have this');
+  }
+
+  /* Quality you actually hold. Nobody else ranks on this — trackers store
+     resolution and never use it. */
+  if (item.owned && item.quality) {
+    if (item.quality === '4K') {
+      score += ctx.primeTime ? 7 : 3;
+      if (ctx.primeTime) why.push('4K, and it is a good hour for it');
+    } else if (item.quality === '1080p') {
+      score += 2;
+    }
+  }
+
+  /* You already flagged it. */
+  if (item.saved) {
+    score += 12;
+    why.push('on your watchlist');
+  }
+
+  /* Re-watches need to earn their place: only genuinely loved films, and
+     only once enough time has passed that it feels like a treat. */
+  if (isRewatch) {
+    const yearsSince = item.watchedAt ? (Date.now() - item.watchedAt) / (365 * 24 * 3600 * 1000) : 3;
+    if (yearsSince < 1) return null;
+    score -= 14;
+    score += Math.min(yearsSince, 6) * 2.5;
+    if (item.rating >= 7.5) {
+      score += 6;
+      why.length = 0;
+      why.push(`you loved this ${Math.round(yearsSince)} years ago`);
+    } else {
+      return null;
+    }
+  }
+
+  /* Effort fit — late at night, a 3-hour epic is the wrong answer. */
+  if (item.runtime && ctx.hour !== null) {
+    const late = ctx.hour >= 22 || ctx.hour < 2;
+    if (late && item.runtime <= 105) {
+      score += 6;
+      why.push('short enough for tonight');
+    } else if (late && item.runtime >= 150) {
+      score -= 7;
+    }
+  }
+
+  /* Novelty — nudge away from things already dismissed in Discover. */
+  if (item.seen) score -= 10;
+
+  /* Series need a bigger commitment than a film. */
+  if (item.type === 'tv') score -= 3;
+
+  /* Missing artwork looks bad as a hero. Prefer something we can present. */
+  if (!item.poster) score -= 5;
+
+  /* Small stable shuffle so the top of the list isn't frozen forever, but
+     doesn't change while you're looking at it. */
+  score += jitter(item.uid + ctx.seed) * 6;
+
+  return { score, why: why.slice(0, 2) };
+}
+
+/**
+ * Rank unwatched items. `seed` defaults to today, so the pick is stable
+ * across renders and refreshes but rotates daily.
+ */
+export function rank(
+  items,
+  {
+    seed = dayStamp(),
+    hour = new Date().getHours(),
+    limit = 40,
+    ownedOnly = false,
+    allowRewatch = true,
+    maxRuntime = null,
+  } = {}
+) {
+  const profile = tasteProfile(items);
+  const ctx = {
+    seed,
+    hour,
+    ownedOnly,
+    allowRewatch,
+    /* 19:00–22:00 — the window where a 4K feature on the big screen makes
+       most sense. Outside it, quality matters less than length. */
+    primeTime: hour >= 19 && hour < 22,
+  };
+
+  if (maxRuntime) {
+    items = items.filter((i) => !i.runtime || i.runtime <= maxRuntime);
+  }
+
+  return items
+    .map((item) => {
+      const s = scoreItem(item, profile, ctx);
+      return s ? { item, ...s } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+/** The single hero pick, plus a few alternates for the "something else" shuffle. */
+export function tonightPick(items, { offset = 0, ...opts } = {}) {
+  const ranked = rank(items, { ...opts, limit: 24 });
+  if (!ranked.length) return null;
+  return ranked[offset % ranked.length];
+}
+
+/**
+ * "Something else" alternates, excluding whatever is currently shown.
+ * Falls back to relaxing the owned filter rather than returning nothing —
+ * an empty shelf is a worse answer than a slightly weaker suggestion.
+ */
+export function alternates(items, { exclude = [], limit = 12, ...opts } = {}) {
+  const skip = new Set(exclude);
+  let ranked = rank(items, { ...opts, limit: limit + skip.size }).filter((r) => !skip.has(r.item.uid));
+  if (!ranked.length && opts.ownedOnly) {
+    ranked = rank(items, { ...opts, ownedOnly: false, limit: limit + skip.size }).filter(
+      (r) => !skip.has(r.item.uid)
+    );
+  }
+  return ranked.slice(0, limit);
+}
+
+/**
+ * Similar titles — shares a genre, close in era, not the same film.
+ * Used on the detail screen.
+ */
+export function similarTo(item, items, limit = 12) {
+  return items
+    .filter((o) => o.uid !== item.uid)
+    .map((o) => {
+      let s = 0;
+      if (o.genre && o.genre === item.genre) s += 10;
+      if (o.type === item.type) s += 3;
+      if (o.year && item.year) {
+        const d = Math.abs(o.year - item.year);
+        if (d <= 3) s += 4;
+        else if (d <= 10) s += 2;
+      }
+      if (o.rating) s += (o.rating - 6) * 0.8;
+      if (o.owned) s += 2;
+      if (!o.watched) s += 2;
+      if (!o.poster) s -= 2;
+      return { item: o, score: s };
+    })
+    .filter((r) => r.score > 4)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((r) => r.item);
+}

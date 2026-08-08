@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="114" fill="#0b0a09"/>
+  <!-- film-leader countdown mark: a ring, a sweep, and a play triangle -->
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#231f1b" stroke-width="20"/>
+  <path d="M256 106a150 150 0 0 1 150 150" fill="none" stroke="#e8a33d" stroke-width="20" stroke-linecap="round"/>
+  <path d="M222 190 336 256 222 322Z" fill="#f7f4ef"/>
+</svg>
