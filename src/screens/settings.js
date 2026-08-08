@@ -62,6 +62,17 @@ function groupLabel(text) {
   return el('h2', { class: 'eyebrow group-label', text });
 }
 
+function summaryLine(s) {
+  const bits = [];
+  if (s.done) bits.push(`${s.done} verified`);
+  if (s.stale) bits.push(`${s.stale} to re-check`);
+  if (s.pending) bits.push(`${s.pending} never looked up`);
+  if (s.review) bits.push(`${s.review} need you to choose`);
+  if (s.unmatched) bits.push(`${s.unmatched} not found`);
+  if (!bits.length) return `All ${s.total} titles have verified details.`;
+  return `${s.total} titles — ` + bits.join(', ') + '.';
+}
+
 /* ── connections ── */
 
 function connectionsGroup() {
@@ -166,15 +177,16 @@ function dataGroup() {
   const summary = meta.enrichmentSummary(store.items());
 
   const status = el('div', { class: 'group-pad' });
-  status.appendChild(
-    el('div', {
-      class: 'group-item-s',
-      style: 'margin-bottom:12px',
-      text: `${summary.done} of ${summary.total} titles have verified details. ${summary.pending} still to look up${
-        summary.review ? `, ${summary.review} need you to choose` : ''
-      }${summary.unmatched ? `, ${summary.unmatched} could not be found` : ''}.`,
-    })
-  );
+  status.appendChild(el('div', { class: 'group-item-s', style: 'margin-bottom:12px', text: summaryLine(summary) }));
+  if (summary.stale) {
+    status.appendChild(
+      el('div', {
+        class: 'group-item-s',
+        style: 'margin-bottom:12px;color:var(--amber)',
+        text: 'These came across from the previous version, where roughly a third of titles had another film’s poster and description attached. Re-checking will correct them.',
+      })
+    );
+  }
 
   const bar = el('div', { class: 'progress-line', style: 'border-radius:2px;margin-bottom:14px' });
   bar.appendChild(
@@ -190,8 +202,8 @@ function dataGroup() {
 
   const controls = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' });
   controls.appendChild(
-    button(summary.pending ? `Look up ${summary.pending} missing` : 'Everything is up to date', {
-      kind: summary.pending ? 'primary' : 'quiet',
+    button(summary.todo ? `Check ${summary.todo} titles` : 'Everything is up to date', {
+      kind: summary.todo ? 'primary' : 'quiet',
       iconName: 'search',
       size: 'sm',
       onClick: () => runSweep({ force: false }, progressText),
@@ -247,7 +259,25 @@ async function runSweep(opts, statusEl) {
     return;
   }
 
-  const list = store.items().filter((i) => meta.needsEnrichment(i, opts));
+  const list = store.items()
+    .filter((i) => meta.needsEnrichment(i, opts))
+    /* Order by how likely you are to see it. A free key allows 1000 lookups a
+       day, so a large library may not finish in one go — this makes sure the
+       run that does happen fixes the titles on your watchlist and shelves
+       first, rather than whatever happens to be alphabetically early. */
+    .sort((a, b) => score(b) - score(a));
+
+  function score(i) {
+    let n = 0;
+    if (i.saved) n += 8;
+    if (i.owned) n += 5;
+    if (!i.watched) n += 3;
+    if (!i.poster) n += 4;          // visibly broken
+    if (!i.overview) n += 2;
+    if (i.meta?.status === 'stale') n += 1;
+    return n;
+  }
+
   if (!list.length) {
     toast('Nothing needs looking up');
     return;
@@ -471,9 +501,14 @@ function backupGroup() {
     try {
       const text = await file.text();
       const payload = JSON.parse(text);
+      const incoming = store.readBackup(payload);
+      if (!incoming) {
+        toast('That file does not look like a Watch Next backup');
+        return;
+      }
       openSheet({
         title: 'Restore from backup',
-        message: `This file has ${Array.isArray(payload.items) ? payload.items.length : 0} titles. Merge keeps what you already have.`,
+        message: `This file has ${incoming.length} titles. Merge keeps what you already have.`,
         actions: [
           {
             label: 'Merge into my library',

@@ -297,12 +297,37 @@ export function posterAt(url, width = 600) {
 export async function findMatch(item, key, budget, signal) {
   const query = { title: item.title, year: item.year, type: item.type };
 
-  /* Fast path: we already hold a verified IMDb id. `?i=` is exact —
+  /* Fast path: we already verified this id ourselves. `?i=` is exact —
      no fuzzy matching, no chance of drifting onto a different film. */
   if (item.imdbId && /^tt\d+$/.test(item.imdbId) && item.meta?.status === 'matched') {
     const exact = await omdb({ i: item.imdbId, plot: 'short' }, key, budget, signal);
     if (exact) {
       return { status: 'matched', confidence: 1, chosen: exact, candidates: [exact], reasons: ['known IMDb id'] };
+    }
+  }
+
+  /* Cheap re-verification for ids inherited from the old build, which were
+     roughly a third wrong. One `?i=` lookup tells us whether the stored id
+     actually resolves to this film: if the returned title and year agree, we
+     are done in a single request; only the mismatches pay for a full search.
+     Over a 500-title library that is the difference between ~1000 requests
+     (past the free daily limit) and ~600. */
+  if (item.imdbId && /^tt\d+$/.test(item.imdbId) && item.meta?.status === 'stale') {
+    const held = await omdb({ i: item.imdbId, plot: 'short' }, key, budget, signal);
+    if (held) {
+      const titleAgrees = similarity(item.title, held.Title) >= 0.85;
+      const heldYear = parseYear(held.Year);
+      const yearAgrees = !item.year || !heldYear || Math.abs(heldYear - item.year) <= 1;
+      if (titleAgrees && yearAgrees) {
+        return {
+          status: 'matched',
+          confidence: 1,
+          chosen: held,
+          candidates: [held],
+          reasons: ['stored id verified'],
+        };
+      }
+      /* The id points somewhere else — fall through and search properly. */
     }
   }
 
@@ -437,14 +462,20 @@ export function needsEnrichment(item, { force = false } = {}) {
 }
 
 export function enrichmentSummary(list) {
-  const s = { total: list.length, done: 0, pending: 0, review: 0, unmatched: 0 };
+  const s = { total: list.length, done: 0, pending: 0, stale: 0, review: 0, unmatched: 0, skipped: 0 };
   for (const i of list) {
     const st = i.meta?.status;
     if (st === 'matched' && i.meta.v >= META_VERSION) s.done += 1;
     else if (st === 'review') s.review += 1;
     else if (st === 'unmatched') s.unmatched += 1;
+    else if (st === 'skipped') s.skipped += 1;
+    /* `stale` means "carried over from the old build" — it has details, they
+       just have not been checked by this matcher yet. Worth saying separately
+       from "we know nothing about this title". */
+    else if (st === 'stale') s.stale += 1;
     else s.pending += 1;
   }
+  s.todo = s.pending + s.stale;
   return s;
 }
 

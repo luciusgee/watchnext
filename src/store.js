@@ -117,6 +117,40 @@ function read() {
   return emptyState();
 }
 
+/** The old build wrote "unlisted" for "I own it but didn't say what in". */
+export function normaliseQuality(q) {
+  if (!q || q === 'unlisted' || q === 'N/A') return null;
+  const map = { '4k': '4K', uhd: '4K', '2160p': '4K', '1080p': '1080p', hd: '1080p', '720p': '720p' };
+  return map[String(q).toLowerCase()] || q;
+}
+
+/** Convert one row of the old `wn_lib2` / v1-backup shape into an item. */
+export function fromLegacyRow(m) {
+  return makeItem({
+    title: m.t || '',
+    year: typeof m.y === 'number' ? m.y : parseInt(m.y) || null,
+    type: m.tp === 'tv' ? 'tv' : 'movie',
+    genre: m.g || null,
+    rating: typeof m.r === 'number' ? m.r : null,
+    runtime: m.runtime ?? null,
+    overview: m.d || '',
+    poster: m.poster || null,
+    imdbId: typeof m.id === 'string' && /^tt\d+$/.test(m.id) ? m.id : null,
+    quality: normaliseQuality(m.q),
+    owned: !!m.downloaded || m.q === '4K' || m.q === '1080p' || m.q === 'unlisted',
+    watched: !!m.watched,
+    watchedAt: m.watchedAt || null,
+    saved: !!m.watchlist,
+    saved_at: null,
+    seen: !!(m.swipedSeen || m.swiped),
+    seenAt: m.swipedAt || null,
+    /* Legacy rows were enriched by the old, unreliable matcher — roughly a
+       third of their ids point at a different film. Mark them for
+       re-verification rather than trusting them. */
+    meta: { v: 1, status: 'stale', at: null, confidence: null },
+  });
+}
+
 /** One-time import of the v1/v2 `wn_lib2` array so existing users keep their data. */
 function readLegacy() {
   let old;
@@ -128,30 +162,7 @@ function readLegacy() {
   if (!Array.isArray(old) || !old.length) return null;
 
   const s = emptyState();
-  s.items = old.map((m) =>
-    makeItem({
-      title: m.t || '',
-      year: typeof m.y === 'number' ? m.y : parseInt(m.y) || null,
-      type: m.tp === 'tv' ? 'tv' : 'movie',
-      genre: m.g || null,
-      rating: typeof m.r === 'number' ? m.r : null,
-      runtime: m.runtime ?? null,
-      overview: m.d || '',
-      poster: m.poster || null,
-      imdbId: typeof m.id === 'string' && /^tt\d+$/.test(m.id) ? m.id : null,
-      quality: m.q || null,
-      owned: !!m.downloaded || m.q === '4K' || m.q === '1080p',
-      watched: !!m.watched,
-      watchedAt: m.watchedAt || null,
-      saved: !!m.watchlist,
-      saved_at: null,
-      seen: !!(m.swipedSeen || m.swiped),
-      seenAt: m.swipedAt || null,
-      /* legacy rows were enriched by the old, unreliable matcher —
-         mark them for re-verification rather than trusting them */
-      meta: { v: 1, status: 'stale', at: null, confidence: null },
-    })
-  );
+  s.items = old.map(fromLegacyRow);
   s.settings.seeded = true;
 
   try {
@@ -396,14 +407,35 @@ export function exportPayload() {
 }
 
 /**
+ * Read either backup format and return items, or null if unrecognised.
+ *  · current  — { app:'watchnext', items:[ {title, year, …} ] }
+ *  · v1       — { version:1, library:[ {t, y, g, …} ], posterCache, apiKey }
+ * The v1 shape is what the previous build exported, so files people already
+ * have on disk must keep working.
+ */
+export function readBackup(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  if (Array.isArray(payload.items)) {
+    return payload.items.map((raw) => makeItem(raw));
+  }
+  if (Array.isArray(payload.library)) {
+    return payload.library.map(fromLegacyRow);
+  }
+  /* A bare array of either shape is also accepted. */
+  if (Array.isArray(payload)) {
+    return payload.map((raw) => (raw && raw.t !== undefined ? fromLegacyRow(raw) : makeItem(raw)));
+  }
+  return null;
+}
+
+/**
  * Merge an exported payload. Returns a summary.
  * `mode` is 'merge' (default, keeps existing) or 'replace'.
  */
 export function importPayload(payload, mode = 'merge') {
-  if (!payload || !Array.isArray(payload.items)) {
-    throw new Error('That file does not look like a Watch Next backup.');
-  }
-  const incoming = payload.items.map((raw) => makeItem(raw));
+  const incoming = readBackup(payload);
+  if (!incoming) throw new Error('That file does not look like a Watch Next backup.');
 
   if (mode === 'replace') {
     state.items = incoming;
