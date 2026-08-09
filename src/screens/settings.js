@@ -15,7 +15,7 @@ import * as meta from '../metadata.js';
 import { getProvider, listProviders } from '../providers/index.js';
 import { storageHealth, markBackedUp, requestPersistence } from '../durability.js';
 import { BUILD } from '../build.js';
-import { healState, safeAreaInsets, persistScreenFit, activeScreenFit } from '../viewport.js';
+import { healState, safeAreaInsets } from '../viewport.js';
 import { openMatchPicker } from './match.js';
 import { runtime } from '../format.js';
 
@@ -57,9 +57,6 @@ function render() {
 
   bodyEl.appendChild(groupLabel('Recent activity'));
   bodyEl.appendChild(activityGroup());
-
-  bodyEl.appendChild(groupLabel('Screen'));
-  bodyEl.appendChild(screenFitGroup());
 
   bodyEl.appendChild(groupLabel('Danger zone'));
   bodyEl.appendChild(dangerGroup());
@@ -429,65 +426,6 @@ async function runSweep(opts, statusEl) {
   if (result.review) bits.push(`${result.review} need checking`);
   if (result.unmatched) bits.push(`${result.unmatched} not found`);
   toast(result.stopped ? 'Stopped' : bits.join(' · '));
-}
-
-/* ── screen fit ── */
-
-/**
- * How the app relates to the phone's safe areas.
- *
- * There is no correct answer to pick on the user's behalf. "Edge to edge" asks
- * iOS for the whole screen, which is right on most phones and is how content
- * gets to sit under the status bar. On some iOS versions it instead yields a
- * viewport shorter than the screen with nothing painted in the gap, and
- * "Inside the safe area" — the older behaviour, where WebKit fills the outside
- * with the page background — looks better.
- *
- * Nothing measurable from inside the page distinguishes those two outcomes, so
- * the switch is here.
- */
-function screenFitGroup() {
-  const g = el('div', { class: 'group' });
-  const box = el('div', { class: 'group-pad' });
-  /* What is actually in force, read off the viewport meta — not a saved
-     preference. Those are not always the same thing, and when they came apart
-     this control cheerfully reported a fit the app was not running in. */
-  const current = activeScreenFit();
-
-  box.appendChild(
-    el('div', {
-      class: 'group-item-s',
-      style: 'margin-bottom:12px',
-      text: 'If the app leaves a band of dead space at an edge, try the other one. The app reloads to apply it — iOS only reads this when the page loads.',
-    })
-  );
-
-  const seg = el('div', { class: 'seg' });
-  for (const [id, label] of [['cover', 'Edge to edge'], ['safe', 'Inside the safe area']]) {
-    seg.appendChild(
-      el('button', {
-        type: 'button',
-        'aria-pressed': String(id === current),
-        text: label,
-        onclick: () => {
-          if (id === current) return;
-          if (!persistScreenFit(id)) {
-            /* Reloading now would come back on the old fit and read as the
-               switch being broken, rather than storage being unavailable. */
-            toast('Could not save that — this device is blocking storage');
-            return;
-          }
-          /* Rewriting the meta on a live page does not make iOS recompute the
-             viewport — it keeps reporting the old numbers, so the setting
-             looks applied and does nothing. Only a load re-reads it. */
-          location.reload();
-        },
-      })
-    );
-  }
-  box.appendChild(seg);
-  g.appendChild(box);
-  return g;
 }
 
 /* ── review queue ── */
@@ -930,8 +868,8 @@ function aboutBlock() {
     window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 
   /* Measured off a real element rather than read as text — see safeAreaInsets()
-     in viewport.js. Both insets non-zero is the signal that the web view really
-     does span the whole screen, which is what makes the boost safe to apply. */
+     in viewport.js. Both read 0 inside the safe area, which is where this app
+     stays; a non-zero pair would mean something changed and is worth seeing. */
   const { top: safeTop, bottom: safeBottom } = safeAreaInsets();
 
   const lost = screen.height - window.innerHeight;
@@ -948,10 +886,11 @@ function aboutBlock() {
     `safe ${safeTop}/${safeBottom}`,
     `dpr ${window.devicePixelRatio}`,
     standalone ? 'home screen' : 'in browser',
-    /* Did the re-measure run, and did it achieve anything? Without this the
-       only way to tell a heal that never fired from one that fired and failed
-       is to guess, which is how this bug stayed open for three rounds. */
-    `fit ${heal.fit}`,
+    /* Whether the tab bar is padding itself off the home indicator, and whether
+       the re-measure ran and achieved anything. Without these the only way to
+       tell a heal that never fired from one that fired and failed is to guess,
+       which is how this bug stayed open for three rounds. */
+    `bar floor ${heal.floor}`,
     heal.shortfall ? `iOS keeps ${heal.shortfall}pt` : null,
     heal.attempts ? `heal ${heal.recovered}/${heal.attempts}${heal.gaveUp ? ' (stopped)' : ''}` : null,
     /* Two different questions. Does the shell fill the viewport it was given

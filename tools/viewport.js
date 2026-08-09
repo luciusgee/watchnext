@@ -2,10 +2,10 @@
  * Shell geometry.
  *
  * The app must fill the screen exactly — no band of dead space under the tab
- * bar, no content hidden behind the notch, and nothing lost behind the
- * on-screen keyboard. iOS standalone with viewport-fit=cover is the case that
- * broke it: `height: 100%` does not reliably resolve to the full screen there,
- * so the tab bar floated above a black gap.
+ * bar, no content hidden behind the notch, nothing lost behind the on-screen
+ * keyboard, and no labels under the home indicator. A home-screen web app on
+ * iOS is the case that breaks all four: `height: 100%` does not reliably
+ * resolve to the full screen there, so the tab bar floated above a black gap.
  */
 const { chromium, devices } = require('/opt/node22/lib/node_modules/playwright');
 
@@ -383,19 +383,23 @@ async function measure(page) {
   }
 
   /*
-   * Which viewport-fit looks right is device- and iOS-version-specific and
-   * cannot be determined from inside the page, so it is the user's choice.
+   * The app stays inside the safe area, and that is not the modern default.
    *
-   * The mechanism is the fiddly part. iOS reads the viewport meta once, at load;
-   * rewriting it on a live page changes nothing — the reported viewport and the
-   * insets stay exactly as they were, so an earlier build looked like it applied
-   * the setting and did not. So the choice is written to its own key and the
-   * page reloads onto it, with an inline script in the head applying it before
-   * the first layout. What is testable is that chain: the key is written, the
-   * reload lands on the chosen fit, it survives a relaunch, and the shell fills
-   * whatever viewport it produces.
+   * viewport-fit=cover asks iOS for the whole screen and is the obvious choice;
+   * on iOS 26 it hands back a viewport 59pt shorter than the screen with nothing
+   * painted in the gap. Without it the viewport IS the safe area, the insets all
+   * report 0, and WebKit fills the outside with the page background — so the app
+   * reads as edge to edge without ever being given those pixels.
+   *
+   * It was a user-facing toggle for a build or two. The mechanism was the whole
+   * problem: iOS reads this meta once, at load, so a switch had to write a key
+   * and reload, that key drifted out of step with the copy in the saved state,
+   * and the app came up on the wrong fit with the switch showing the right one.
+   * Now it is a constant, which is why this asserts the shipped markup rather
+   * than any behaviour — the failure mode is somebody adding viewport-fit=cover
+   * back because it looks like an oversight.
    */
-  console.log('\n─── the screen fit is the user\'s to choose ───');
+  console.log('\n─── the app stays inside the safe area ───');
   {
     const c = await browser.newContext({ ...devices['iPhone 13 Pro'] });
     await c.route('**://image.tmdb.org/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
@@ -404,158 +408,53 @@ async function measure(page) {
     await p.goto(URL, { waitUntil: 'networkidle' });
     await p.waitForSelector('body.is-ready');
 
-    const metaContent = () =>
-      p.evaluate(() => document.querySelector('meta[name="viewport"]').getAttribute('content'));
-    const savedFit = () => p.evaluate(() => localStorage.getItem('wn.fit'));
+    const meta = await p.evaluate(() =>
+      document.querySelector('meta[name="viewport"]').getAttribute('content')
+    );
+    check('the shipped viewport meta does not ask for the whole screen',
+      !/viewport-fit/.test(meta), meta);
+    check('and is otherwise a normal responsive viewport',
+      /width=device-width/.test(meta) && /initial-scale=1/.test(meta), meta);
 
-    check('edge to edge is the default', /viewport-fit=cover/.test(await metaContent()));
+    /* Nothing may rewrite it at runtime either — that was the cosmetic version
+       of the setting, which appeared to work and did not. */
+    await p.click('[data-tab="tonight"]');
+    await p.waitForTimeout(200);
+    await p.click('#screen-tonight [data-nav="settings"]');
+    await p.waitForTimeout(600);
+    const after = await p.evaluate(() =>
+      document.querySelector('meta[name="viewport"]').getAttribute('content')
+    );
+    check('and nothing rewrites it once the app is running', after === meta, `${meta} -> ${after}`);
 
-    const openSettings = async () => {
-      await p.click('[data-tab="tonight"]');
-      await p.waitForTimeout(250);
-      await p.click('#screen-tonight [data-nav="settings"]');
-      await p.waitForTimeout(600);
-    };
-    /* Picking a fit reloads the app, because that is the only moment iOS reads
-       the meta. Wait for the new document rather than a fixed delay. */
-    const pick = async (name) => {
-      await openSettings();
-      await Promise.all([
-        p.waitForNavigation({ waitUntil: 'networkidle' }),
-        p.click(`#screen-settings button:has-text("${name}")`),
-      ]);
-      await p.waitForSelector('body.is-ready');
-    };
+    /* The retired keys are cleaned off any device that saw the toggle. */
+    check('the keys behind the retired setting are cleared',
+      (await p.evaluate(() => [localStorage.getItem('wn.fit'), localStorage.getItem('wn.fit.checked')]))
+        .every((v) => v === null));
 
-    await pick('Inside the safe area');
-    check('the choice is recorded where the head script can find it',
-      (await savedFit()) === 'safe', String(await savedFit()));
-    check('choosing the safe area drops viewport-fit', !/viewport-fit/.test(await metaContent()),
-      await metaContent());
-    check('and it is still a usable viewport meta', /width=device-width/.test(await metaContent()));
-    /* Settings reports what is in force, not what was asked for — the two came
-       apart in the build where the toggle was purely cosmetic. */
-    const inForce = await p.evaluate(async () => {
-      const { healState } = await import('./src/viewport.js');
-      return healState().fit;
-    });
-    check('the app reports the fit that is actually in force', inForce === 'safe', inForce);
-
-    /* The whole point is that it survives — the phone is relaunched to compare. */
-    await p.goto(URL, { waitUntil: 'networkidle' });
-    await p.waitForSelector('body.is-ready');
-    check('the choice survives a relaunch', !/viewport-fit/.test(await metaContent()), await metaContent());
-
-    /* Whichever fit is active, the shell must still fill it. */
     const fits = await p.evaluate(() => {
       const app = document.getElementById('app').getBoundingClientRect();
       const bar = document.querySelector('.tabbar').getBoundingClientRect();
       const view = document.documentElement.clientHeight;
       return { shell: Math.round(app.height), barBottom: Math.round(bar.bottom), view };
     });
-    check('the shell still fills the viewport in safe-area mode',
-      fits.shell === fits.view, `${fits.shell} vs ${fits.view}`);
-    check('and the tab bar is still inside it',
-      fits.barBottom <= fits.view, `${fits.barBottom} > ${fits.view}`);
+    check('the shell fills the viewport this produces', fits.shell === fits.view,
+      `${fits.shell} vs ${fits.view}`);
+    check('and the tab bar is inside it', fits.barBottom <= fits.view,
+      `${fits.barBottom} > ${fits.view}`);
 
-    await pick('Edge to edge');
-    check('switching back restores viewport-fit', /viewport-fit=cover/.test(await metaContent()));
-    check('and the recorded choice follows', (await savedFit()) === 'cover', String(await savedFit()));
-
-    /* One selected button, and it is the one describing the fit the app is
-       actually running in. The failure this guards against is not cosmetic: a
-       control that reports the wrong current value makes the other option look
-       like the broken one. */
-    const pressed = await p.evaluate(() =>
-      [...document.querySelectorAll('#screen-settings .seg button')]
-        .filter((b) => /Edge to edge|Inside the safe area/.test(b.textContent))
-        .map((b) => [b.textContent.trim(), b.getAttribute('aria-pressed')])
-    );
-    check('exactly one fit is shown as selected',
-      pressed.filter(([, on]) => on === 'true').length === 1, JSON.stringify(pressed));
-    check('and it is the one in force',
-      pressed.find(([, on]) => on === 'true')?.[0] === 'Edge to edge', JSON.stringify(pressed));
-
-    await c.close();
-  }
-
-  /*
-   * REGRESSION: a fit chosen before it had its own key.
-   *
-   * The setting used to be saved with the rest of the app's state, which the
-   * head script cannot read early enough to use — so the first launch after
-   * updating came up on the default fit while Settings still showed the old
-   * choice, and the only way out was toggling the switch twice. Reported from a
-   * phone, and invisible to every test here, because a test that has just
-   * clicked the switch has both copies in agreement.
-   */
-  console.log('\n─── a fit chosen before the update is carried over ───');
-  {
-    const c = await browser.newContext({ ...devices['iPhone 13 Pro'] });
-    await c.route('**://image.tmdb.org/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
-    await c.route('**://m.media-amazon.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
-    const p = await c.newPage();
-
-    /* Exactly the state on the device: the old home holds the choice, the new
-       key has never been written. */
-    await p.addInitScript(() => {
-      if (localStorage.getItem('wn.state.v3')) return; // only plant it on the first load
-      localStorage.setItem(
-        'wn.state.v3',
-        JSON.stringify({ schema: 3, items: [], activity: [], settings: { screenFit: 'safe', seeded: true } })
-      );
-    });
-
-    await p.goto(URL, { waitUntil: 'networkidle' });
-    await p.waitForSelector('body.is-ready');
-
-    const meta = () => p.evaluate(() => document.querySelector('meta[name="viewport"]').getAttribute('content'));
-    check('the old choice applies on the very first launch, with no toggling',
-      !/viewport-fit/.test(await meta()), await meta());
-    check('and it is moved to the key the head script reads',
-      (await p.evaluate(() => localStorage.getItem('wn.fit'))) === 'safe');
-    check('Settings agrees with what is in force',
-      (await p.evaluate(async () => (await import('./src/viewport.js')).healState().fit)) === 'safe');
-
-    /* The carry-over parses the whole library, so it must happen once and not
-       on every launch for the rest of the device's life. */
-    await p.goto(URL, { waitUntil: 'networkidle' });
-    await p.waitForSelector('body.is-ready');
-    check('the fit still holds on the next launch', !/viewport-fit/.test(await meta()), await meta());
-    check('and the carry-over does not run again',
-      (await p.evaluate(() => localStorage.getItem('wn.fit.checked'))) === '1');
-
-    await c.close();
-  }
-
-  /* The mirror image: nothing saved anywhere, which is every new install. The
-     carry-over must not invent a choice, or the default could never change. */
-  {
-    const c = await browser.newContext({ ...devices['iPhone 13 Pro'] });
-    await c.route('**://image.tmdb.org/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
-    await c.route('**://m.media-amazon.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
-    const p = await c.newPage();
-    await p.goto(URL, { waitUntil: 'networkidle' });
-    await p.waitForSelector('body.is-ready');
-    check('a fresh install is left on the default',
-      /viewport-fit=cover/.test(
-        await p.evaluate(() => document.querySelector('meta[name="viewport"]').getAttribute('content'))
-      ));
-    check('and no choice is recorded on its behalf',
-      (await p.evaluate(() => localStorage.getItem('wn.fit'))) === null);
     await c.close();
   }
 
   /*
    * The home indicator, in safe-area mode.
    *
-   * Inside the safe area iOS reports a bottom inset of 0 — the viewport is meant
-   * to already exclude the indicator — and then draws the pill over the bottom
-   * of the web view anyway, straight across the tab bar's labels. Edge-to-edge
-   * does not need this: there --sb is a real number and the bar's own padding
-   * already clears it. So the floor has to apply exactly where there is
-   * something to clear and nowhere else, or a phone with a physical home button
-   * gets a band of dead space under the bar for no reason.
+   * Inside the safe area — where this app lives — iOS reports a bottom inset of
+   * 0, on the basis that the viewport already excludes the indicator, and then
+   * draws the pill over the bottom of the web view anyway, straight across the
+   * tab bar's labels. So the floor has to apply exactly where there is something
+   * to clear and nowhere else, or a phone with a physical home button gets a
+   * band of dead space under the bar for no reason.
    */
   console.log('\n─── the tab bar clears the home indicator ───');
 
@@ -583,8 +482,10 @@ async function measure(page) {
     await c.close();
   }
 
-  /* Edge to edge already has a real inset, and must not stack the floor on top
-     of it — that would push the bar up by the height of the pill twice. */
+  /* A platform that reports a real bottom inset must use that instead of adding
+     the floor to it — stacking would push the bar up by the pill twice. iOS does
+     not report one here, but the CSS is written not to care, and the rule is
+     cheap to hold to. */
   {
     const { c, p } = await ios26({ bottom: 34 });
     const pad = await p.evaluate(() =>

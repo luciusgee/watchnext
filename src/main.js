@@ -8,7 +8,7 @@
 import * as store from './store.js';
 import { seedLibrary } from './seed.js';
 import { requestPersistence } from './durability.js';
-import { syncViewport, blockZoom, measureShortfall, activeScreenFit, applyHomeIndicatorFloor } from './viewport.js';
+import { syncViewport, blockZoom, measureShortfall, applyHomeIndicatorFloor } from './viewport.js';
 import { icon } from './icons.js';
 import { el, toast } from './ui.js';
 
@@ -128,9 +128,7 @@ async function boot() {
   exposeTestHooks();
   registerServiceWorker();
   protectStorage();
-  /* The head script already applied the fit; this just records which one, so
-     Settings reports what is actually in force rather than what was asked for. */
-  activeScreenFit();
+  clearRetiredKeys();
   applyHomeIndicatorFloor();
   /* Before syncViewport: it decides whether the blank-and-reflow fallback is
      worth running, and it is not when the shortfall is the iOS 26 one. */
@@ -138,6 +136,24 @@ async function boot() {
   syncViewport();
   blockZoom();
   document.body.classList.add('is-ready');
+}
+
+/**
+ * Tidy up after a removed feature.
+ *
+ * The screen fit was briefly a setting, backed by these two keys. It is now
+ * fixed at "inside the safe area", so they are inert — but leaving a stale
+ * 'wn.fit' lying around is a trap for whoever reuses that name. Removing a key
+ * that is not there costs nothing, so this can stay until the last device that
+ * saw that build has launched, and then be deleted.
+ */
+function clearRetiredKeys() {
+  try {
+    localStorage.removeItem('wn.fit');
+    localStorage.removeItem('wn.fit.checked');
+  } catch {
+    /* nothing to clean up if storage is unavailable */
+  }
 }
 
 /**

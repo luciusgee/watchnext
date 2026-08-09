@@ -99,11 +99,11 @@ function emptyState() {
       aiKey: '',
       aiEnabled: false,
       libraryView: 'list',
-      /* No screenFit here. It lived here once and could not: iOS reads the
-         viewport meta before any of this is loaded, so an inline script in the
-         head has to know the answer, and it is not parsing the whole library to
-         find out. It lives in its own 'wn.fit' key; the head script carries any
-         value still saved here over on the first launch after updating. */
+      /* No screenFit here, and no longer a setting at all — the app stays inside
+         the safe area, which is what looks right on the device. It briefly lived
+         here as a preference, which could not work: iOS reads the viewport meta
+         before any of this is loaded. An older saved state may still carry the
+         field; nothing reads it. */
       seeded: false,
     },
   };

@@ -3,43 +3,17 @@
 <head>
 <meta charset="utf-8">
 <!-- No maximum-scale / user-scalable=no: suppressing zoom is an accessibility
-     failure and an App Store review flag. viewport-fit=cover so the safe-area
-     insets actually resolve on notched devices. -->
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<script>
-  /* Screen fit has to be settled before the first layout. Rewriting this meta
-     after load does not make iOS recompute the viewport — it reports the same
-     numbers as before and the setting does nothing. Hence an inline script in
-     the head, ahead of the stylesheet, and its own tiny key so this does not
-     have to parse the whole saved state on the critical path. */
-  try {
-    var fit = localStorage.getItem('wn.fit');
+     failure and an App Store review flag.
 
-    /* The setting predates that key: it used to live in the app's saved state,
-       where nothing reads it this early. Carry it over once, or the first
-       launch after updating comes up on the wrong fit and the only way out is
-       toggling the switch twice. Parsing the whole library here is not cheap,
-       so a marker makes sure it happens at most once per device — after that
-       the fast path above is a single small read. Key spelled out rather than
-       imported because nothing is loaded yet; if it ever changes this becomes
-       dead code, which by then is the correct outcome. */
-    if (!fit && !localStorage.getItem('wn.fit.checked')) {
-      var raw = localStorage.getItem('wn.state.v3');
-      var was = raw ? (JSON.parse(raw).settings || {}).screenFit : null;
-      if (was === 'safe' || was === 'cover') {
-        localStorage.setItem('wn.fit', was);
-        fit = was;
-      }
-      localStorage.setItem('wn.fit.checked', '1');
-    }
-
-    if (fit === 'safe') {
-      document.currentScript.previousElementSibling.setAttribute(
-        'content', 'width=device-width, initial-scale=1'
-      );
-    }
-  } catch (e) { /* storage unavailable or unreadable: keep the default */ }
-</script>
+     No viewport-fit=cover either, which is the less obvious call. Asking for the
+     whole screen is the modern answer and on iOS 26 it is how you get a viewport
+     59pt shorter than the screen with nothing painted in the gap. Staying inside
+     the safe area is the older behaviour — the viewport IS the safe area, the
+     insets all report 0, and WebKit fills the outside with the page background,
+     so the app reads as edge to edge without ever being handed those pixels.
+     Tested on the device; this one looks right and cover does not. It was a
+     setting for a while, and did not need to be. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0a09">
 <meta name="description" content="Decide what to watch tonight from the films you already own.">

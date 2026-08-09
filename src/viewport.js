@@ -27,7 +27,7 @@ const state = {
   gaveUp: false,
   tallest: 0,
   shortfall: 0,
-  fit: 'cover',
+  floor: '0px',
 };
 
 /**
@@ -53,84 +53,19 @@ export function safeAreaInsets() {
 }
 
 /**
- * Choose how the page relates to the phone's safe areas.
- *
- * `viewport-fit=cover` asks for the whole screen — the page runs under the
- * status bar and home indicator, and env(safe-area-inset-*) reports real
- * numbers so padding can keep content clear of them. That is the modern
- * answer, and on iOS 26 it is also how you end up with a viewport 59pt shorter
- * than the screen and nothing painted in the gap.
- *
- * `viewport-fit=auto` is the older behaviour: the viewport IS the safe area,
- * the insets all report 0, and WebKit fills the area outside with the page's
- * own background — so the app reads as edge-to-edge without ever being handed
- * those pixels. Less capable, frequently better looking.
- *
- * Which one wins depends on the phone and the iOS version, and no amount of
- * reasoning from here settles it, so it is a setting.
- *
- * It takes effect at load, not on write. Rewriting the meta on a live page
- * does NOT make iOS recompute — it goes on reporting the same viewport and
- * the same insets, so the setting looks applied and changes nothing.
- *
- * So the choice lives in its own small key, an inline script in the head reads
- * it before the first layout, and the page reloads to apply a change. That key
- * is the only home for it. It used to also live in the app's saved state, and
- * the two immediately drifted: the state said "safe", nothing had ever written
- * the key, and the app relaunched edge to edge while Settings insisted it was
- * not. The head script carries the old value over once; nothing here writes it
- * back, and Settings reads what is in force rather than what was asked for.
- */
-const FIT_KEY = 'wn.fit';
-
-/**
- * Record a choice. Returns the value that is actually in storage, or null if
- * the write did not stick — the caller must not reload on the strength of a
- * write that failed, or the reload comes back on the old fit and looks like
- * the setting is broken rather than that storage is.
- */
-export function persistScreenFit(fit) {
-  const value = fit === 'safe' ? 'safe' : 'cover';
-  try {
-    localStorage.setItem(FIT_KEY, value);
-    return localStorage.getItem(FIT_KEY) === value ? value : null;
-  } catch {
-    /* Private mode, quota, or a blocked origin. */
-    return null;
-  }
-}
-
-/** The recorded choice, or null if one has never been made. */
-export function savedScreenFit() {
-  try {
-    const saved = localStorage.getItem(FIT_KEY);
-    return saved === 'safe' || saved === 'cover' ? saved : null;
-  } catch {
-    return null;
-  }
-}
-
-/** What the head script actually applied, read back off the meta. */
-export function activeScreenFit() {
-  const meta = document.querySelector('meta[name="viewport"]');
-  const applied = /viewport-fit=cover/.test(meta?.getAttribute('content') || '') ? 'cover' : 'safe';
-  state.fit = applied;
-  return applied;
-}
-
-/**
  * Keep the tab bar clear of the home indicator.
  *
- * Inside the safe area, iOS reports a bottom inset of 0 — the viewport is
- * supposed to already exclude it — but it still draws the home indicator over
- * the bottom of the web view, so the tab labels come out underneath the pill.
- * Edge-to-edge does not need this: there --sb is the real inset and the bar's
- * own padding already handles it.
+ * The app stays inside the safe area (see the viewport meta in index.html), so
+ * iOS reports a bottom inset of 0 — the viewport is supposed to already exclude
+ * the home indicator — and then draws the pill over the bottom of the web view
+ * anyway, straight across the tab labels.
  *
  * Applied only where there is something to clear. A screen taller than the
  * viewport in a home-screen web app means iOS is holding back space for its
  * own furniture; a phone with a physical home button reports the two as equal
- * and gets no padding it does not need.
+ * and gets no padding it does not need. The max() in the stylesheet means a
+ * platform that does report a real bottom inset uses that instead, rather than
+ * stacking the two.
  */
 export function applyHomeIndicatorFloor() {
   const standalone =
@@ -140,6 +75,7 @@ export function applyHomeIndicatorFloor() {
      reserving the full 34pt inset for a bar that does not need it. */
   const floor = standalone && hasFurniture ? '20px' : '0px';
   document.documentElement.style.setProperty('--sb-floor', floor);
+  state.floor = floor;
   return floor;
 }
 

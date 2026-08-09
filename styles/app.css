@@ -292,10 +292,11 @@ img {
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-top: 1px solid var(--hairline);
-  /* In edge-to-edge, --sb is the real bottom inset and does the job. Inside the
-     safe area iOS reports that inset as 0 while still drawing the home
-     indicator over the bottom of the web view, so the labels end up underneath
-     it. --sb-floor is set from JS only on a device that actually has one. */
+  /* Inside the safe area — where this app lives — iOS reports the bottom inset
+     as 0 while still drawing the home indicator over the bottom of the web
+     view, so the labels end up underneath the pill. --sb-floor is set from JS
+     only on a device that actually has one. max() rather than a sum so a
+     platform that does report a real inset uses that instead of stacking. */
   padding-bottom: max(var(--sb), var(--sb-floor, 0px));
   flex: none;
 }
