@@ -6,6 +6,20 @@
      failure and an App Store review flag. viewport-fit=cover so the safe-area
      insets actually resolve on notched devices. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>
+  /* Screen fit has to be settled before the first layout. Rewriting this meta
+     after load does not make iOS recompute the viewport — it reports the same
+     numbers as before and the setting does nothing. Hence an inline script in
+     the head, ahead of the stylesheet, and its own tiny key so this does not
+     have to parse the whole saved state on the critical path. */
+  try {
+    if (localStorage.getItem('wn.fit') === 'safe') {
+      document.currentScript.previousElementSibling.setAttribute(
+        'content', 'width=device-width, initial-scale=1'
+      );
+    }
+  } catch (e) { /* storage unavailable: keep the default */ }
+</script>
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0a09">
 <meta name="description" content="Decide what to watch tonight from the films you already own.">

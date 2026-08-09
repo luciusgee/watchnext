@@ -42,6 +42,9 @@ const SHELL = [
   './src/icons.js',
   './src/ui.js',
   './src/seed.js',
+  './src/build.js',
+  './src/durability.js',
+  './src/viewport.js',
   './src/providers/index.js',
   './src/providers/shared.js',
   './src/providers/omdb.js',
@@ -53,7 +56,14 @@ const SHELL = [
   './src/screens/ask.js',
   './src/screens/settings.js',
   './src/screens/add.js',
+  './src/screens/match.js',
 ];
+
+/* Every module under src/ belongs above. They are listed by hand rather than
+   discovered, because there is no build step to generate the list — and the
+   omission is easy to miss, since network-first quietly caches whatever it
+   fetches, so the app only breaks for someone who installs it and then goes
+   offline before visiting a screen that needs the missing file. */
 
 const IMAGE_HOSTS = ['image.tmdb.org', 'm.media-amazon.com'];
 

@@ -69,6 +69,30 @@ const URL_BASE = `http://127.0.0.1:${PORT}/watchnext/`;
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));
 
+  /* The precache list is written by hand — there is no build step to generate
+     it — and a module left off it fails in the one situation nobody tests by
+     hand: installed, then offline, before ever visiting the screen that needs
+     it. Network-first quietly caches whatever it fetches, so every runtime
+     check below would pass with the list incomplete. Hence a static one. */
+  console.log('\n─── the precache list covers every module ───');
+  {
+    const listed = new Set(
+      (fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').match(/'\.\/(src\/[^']+\.js)'/g) || [])
+        .map((m) => m.slice(3, -1))
+    );
+    const walk = (dir) =>
+      fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walk(`${dir}/${e.name}`) : e.name.endsWith('.js') ? [`${dir}/${e.name}`] : []
+      );
+    const onDisk = walk('src');
+    const missing = onDisk.filter((f) => !listed.has(f));
+    check('every module under src/ is in the service worker shell list',
+      missing.length === 0, missing.join(', '));
+    check('and the list has no entries that no longer exist',
+      [...listed].every((f) => onDisk.includes(f)),
+      [...listed].filter((f) => !onDisk.includes(f)).join(', '));
+  }
+
   console.log('\n─── registration ───');
   await page.goto(URL_BASE, { waitUntil: 'networkidle' });
   await page.waitForSelector('body.is-ready');

@@ -67,16 +67,57 @@ export function safeAreaInsets() {
  * those pixels. Less capable, frequently better looking.
  *
  * Which one wins depends on the phone and the iOS version, and no amount of
- * reasoning from here settles it, so it is a setting. Changing the meta at
- * runtime makes WebKit recompute, which is what makes this a switch rather
- * than a relaunch.
+ * reasoning from here settles it, so it is a setting.
+ *
+ * It takes effect at load, not on write. Rewriting the meta on a live page
+ * does NOT make iOS recompute — it goes on reporting the same viewport and
+ * the same insets, so the setting looks applied and changes nothing. The
+ * value is mirrored to its own small key that an inline script in the head
+ * reads before first layout; this function only records what is in force.
  */
-export function applyScreenFit(fit) {
+const FIT_KEY = 'wn.fit';
+
+export function persistScreenFit(fit) {
+  const value = fit === 'safe' ? 'safe' : 'cover';
+  try {
+    localStorage.setItem(FIT_KEY, value);
+  } catch {
+    /* storage unavailable: the setting simply will not survive a relaunch */
+  }
+  return value;
+}
+
+/** What the head script actually applied, read back off the meta. */
+export function activeScreenFit() {
   const meta = document.querySelector('meta[name="viewport"]');
-  if (!meta) return;
-  const base = 'width=device-width, initial-scale=1';
-  meta.setAttribute('content', fit === 'safe' ? base : `${base}, viewport-fit=cover`);
-  state.fit = fit === 'safe' ? 'safe' : 'cover';
+  const applied = /viewport-fit=cover/.test(meta?.getAttribute('content') || '') ? 'cover' : 'safe';
+  state.fit = applied;
+  return applied;
+}
+
+/**
+ * Keep the tab bar clear of the home indicator.
+ *
+ * Inside the safe area, iOS reports a bottom inset of 0 — the viewport is
+ * supposed to already exclude it — but it still draws the home indicator over
+ * the bottom of the web view, so the tab labels come out underneath the pill.
+ * Edge-to-edge does not need this: there --sb is the real inset and the bar's
+ * own padding already handles it.
+ *
+ * Applied only where there is something to clear. A screen taller than the
+ * viewport in a home-screen web app means iOS is holding back space for its
+ * own furniture; a phone with a physical home button reports the two as equal
+ * and gets no padding it does not need.
+ */
+export function applyHomeIndicatorFloor() {
+  const standalone =
+    window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const hasFurniture = screen.height > window.innerHeight;
+  /* Enough to clear the pill (~5pt tall, ~8pt up) with room to breathe, without
+     reserving the full 34pt inset for a bar that does not need it. */
+  const floor = standalone && hasFurniture ? '20px' : '0px';
+  document.documentElement.style.setProperty('--sb-floor', floor);
+  return floor;
 }
 
 /**

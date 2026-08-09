@@ -385,8 +385,15 @@ async function measure(page) {
   /*
    * Which viewport-fit looks right is device- and iOS-version-specific and
    * cannot be determined from inside the page, so it is the user's choice.
-   * What is testable is that the choice actually reaches the viewport meta,
-   * survives a relaunch, and that the shell fills whatever it produces.
+   *
+   * The mechanism is the fiddly part. iOS reads the viewport meta once, at load;
+   * rewriting it on a live page changes nothing — the reported viewport and the
+   * insets stay exactly as they were, so an earlier build looked like it applied
+   * the setting and did not. So the choice is written to its own key and the
+   * page reloads onto it, with an inline script in the head applying it before
+   * the first layout. What is testable is that chain: the key is written, the
+   * reload lands on the chosen fit, it survives a relaunch, and the shell fills
+   * whatever viewport it produces.
    */
   console.log('\n─── the screen fit is the user\'s to choose ───');
   {
@@ -399,6 +406,7 @@ async function measure(page) {
 
     const metaContent = () =>
       p.evaluate(() => document.querySelector('meta[name="viewport"]').getAttribute('content'));
+    const savedFit = () => p.evaluate(() => localStorage.getItem('wn.fit'));
 
     check('edge to edge is the default', /viewport-fit=cover/.test(await metaContent()));
 
@@ -408,13 +416,30 @@ async function measure(page) {
       await p.click('#screen-tonight [data-nav="settings"]');
       await p.waitForTimeout(600);
     };
-    await openSettings();
-    await p.click('#screen-settings button:has-text("Inside the safe area")');
-    await p.waitForTimeout(400);
+    /* Picking a fit reloads the app, because that is the only moment iOS reads
+       the meta. Wait for the new document rather than a fixed delay. */
+    const pick = async (name) => {
+      await openSettings();
+      await Promise.all([
+        p.waitForNavigation({ waitUntil: 'networkidle' }),
+        p.click(`#screen-settings button:has-text("${name}")`),
+      ]);
+      await p.waitForSelector('body.is-ready');
+    };
 
+    await pick('Inside the safe area');
+    check('the choice is recorded where the head script can find it',
+      (await savedFit()) === 'safe', String(await savedFit()));
     check('choosing the safe area drops viewport-fit', !/viewport-fit/.test(await metaContent()),
       await metaContent());
     check('and it is still a usable viewport meta', /width=device-width/.test(await metaContent()));
+    /* Settings reports what is in force, not what was asked for — the two came
+       apart in the build where the toggle was purely cosmetic. */
+    const inForce = await p.evaluate(async () => {
+      const { healState } = await import('./src/viewport.js');
+      return healState().fit;
+    });
+    check('the app reports the fit that is actually in force', inForce === 'safe', inForce);
 
     /* The whole point is that it survives — the phone is relaunched to compare. */
     await p.goto(URL, { waitUntil: 'networkidle' });
@@ -433,11 +458,58 @@ async function measure(page) {
     check('and the tab bar is still inside it',
       fits.barBottom <= fits.view, `${fits.barBottom} > ${fits.view}`);
 
-    await openSettings();
-    await p.click('#screen-settings button:has-text("Edge to edge")');
-    await p.waitForTimeout(400);
+    await pick('Edge to edge');
     check('switching back restores viewport-fit', /viewport-fit=cover/.test(await metaContent()));
+    check('and the recorded choice follows', (await savedFit()) === 'cover', String(await savedFit()));
 
+    await c.close();
+  }
+
+  /*
+   * The home indicator, in safe-area mode.
+   *
+   * Inside the safe area iOS reports a bottom inset of 0 — the viewport is meant
+   * to already exclude the indicator — and then draws the pill over the bottom
+   * of the web view anyway, straight across the tab bar's labels. Edge-to-edge
+   * does not need this: there --sb is a real number and the bar's own padding
+   * already clears it. So the floor has to apply exactly where there is
+   * something to clear and nowhere else, or a phone with a physical home button
+   * gets a band of dead space under the bar for no reason.
+   */
+  console.log('\n─── the tab bar clears the home indicator ───');
+
+  for (const [label, opts, expected] of [
+    ['a home-screen app on a phone with a home indicator', { bottom: 0 }, 20],
+    ['in the browser, where the bar is not the bottom of the screen', { bottom: 0, standalone: false }, 0],
+    ['a phone with no furniture to clear', { bottom: 0, screenH: 873 }, 0],
+  ]) {
+    const { c, p } = await ios26(opts);
+    const m = await p.evaluate(() => {
+      const bar = document.querySelector('.tabbar');
+      const text = bar.querySelector('.tab span');
+      return {
+        floor: getComputedStyle(document.documentElement).getPropertyValue('--sb-floor').trim(),
+        pad: Math.round(parseFloat(getComputedStyle(bar).paddingBottom) || 0),
+        clearance: Math.round(bar.getBoundingClientRect().bottom - text.getBoundingClientRect().bottom),
+      };
+    });
+    check(`${expected}px of clearance: ${label}`, m.pad === expected,
+      `--sb-floor ${m.floor || 'unset'}, padding ${m.pad}px`);
+    if (expected) {
+      check('and the labels sit above it rather than under the pill',
+        m.clearance >= expected, `${m.clearance}px`);
+    }
+    await c.close();
+  }
+
+  /* Edge to edge already has a real inset, and must not stack the floor on top
+     of it — that would push the bar up by the height of the pill twice. */
+  {
+    const { c, p } = await ios26({ bottom: 34 });
+    const pad = await p.evaluate(() =>
+      Math.round(parseFloat(getComputedStyle(document.querySelector('.tabbar')).paddingBottom) || 0)
+    );
+    check('edge to edge uses its real inset, not inset plus floor', pad === 34, `${pad}px`);
     await c.close();
   }
 

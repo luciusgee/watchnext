@@ -8,7 +8,7 @@
 import * as store from './store.js';
 import { seedLibrary } from './seed.js';
 import { requestPersistence } from './durability.js';
-import { syncViewport, blockZoom, measureShortfall, applyScreenFit } from './viewport.js';
+import { syncViewport, blockZoom, measureShortfall, activeScreenFit, applyHomeIndicatorFloor } from './viewport.js';
 import { icon } from './icons.js';
 import { el, toast } from './ui.js';
 
@@ -128,9 +128,10 @@ async function boot() {
   exposeTestHooks();
   registerServiceWorker();
   protectStorage();
-  /* Fit first — it changes the viewport, so everything below measures the
-     result rather than the previous configuration. */
-  applyScreenFit(store.settings().screenFit);
+  /* The head script already applied the fit; this just records which one, so
+     Settings reports what is actually in force rather than what was asked for. */
+  activeScreenFit();
+  applyHomeIndicatorFloor();
   /* Before syncViewport: it decides whether the blank-and-reflow fallback is
      worth running, and it is not when the shortfall is the iOS 26 one. */
   measureShortfall();

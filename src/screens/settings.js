@@ -15,7 +15,7 @@ import * as meta from '../metadata.js';
 import { getProvider, listProviders } from '../providers/index.js';
 import { storageHealth, markBackedUp, requestPersistence } from '../durability.js';
 import { BUILD } from '../build.js';
-import { healState, safeAreaInsets, applyScreenFit } from '../viewport.js';
+import { healState, safeAreaInsets, persistScreenFit } from '../viewport.js';
 import { openMatchPicker } from './match.js';
 import { runtime } from '../format.js';
 
@@ -455,7 +455,7 @@ function screenFitGroup() {
     el('div', {
       class: 'group-item-s',
       style: 'margin-bottom:12px',
-      text: 'If the app leaves a band of dead space at an edge, try the other one. It changes straight away.',
+      text: 'If the app leaves a band of dead space at an edge, try the other one. The app reloads to apply it — iOS only reads this when the page loads.',
     })
   );
 
@@ -467,10 +467,14 @@ function screenFitGroup() {
         'aria-pressed': String(id === current),
         text: label,
         onclick: () => {
+          if (id === current) return;
           store.updateSettings({ screenFit: id });
           store.saveNow();
-          applyScreenFit(id);
-          render();
+          persistScreenFit(id);
+          /* Rewriting the meta on a live page does not make iOS recompute the
+             viewport — it keeps reporting the old numbers, so the setting
+             looks applied and does nothing. Only a load re-reads it. */
+          location.reload();
         },
       })
     );
