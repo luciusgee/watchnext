@@ -15,7 +15,7 @@ import * as meta from '../metadata.js';
 import { getProvider, listProviders } from '../providers/index.js';
 import { storageHealth, markBackedUp, requestPersistence } from '../durability.js';
 import { BUILD } from '../build.js';
-import { healState, safeAreaInsets } from '../viewport.js';
+import { healState, safeAreaInsets, applyScreenFit } from '../viewport.js';
 import { openMatchPicker } from './match.js';
 import { runtime } from '../format.js';
 
@@ -57,6 +57,9 @@ function render() {
 
   bodyEl.appendChild(groupLabel('Recent activity'));
   bodyEl.appendChild(activityGroup());
+
+  bodyEl.appendChild(groupLabel('Screen'));
+  bodyEl.appendChild(screenFitGroup());
 
   bodyEl.appendChild(groupLabel('Danger zone'));
   bodyEl.appendChild(dangerGroup());
@@ -426,6 +429,55 @@ async function runSweep(opts, statusEl) {
   if (result.review) bits.push(`${result.review} need checking`);
   if (result.unmatched) bits.push(`${result.unmatched} not found`);
   toast(result.stopped ? 'Stopped' : bits.join(' · '));
+}
+
+/* ── screen fit ── */
+
+/**
+ * How the app relates to the phone's safe areas.
+ *
+ * There is no correct answer to pick on the user's behalf. "Edge to edge" asks
+ * iOS for the whole screen, which is right on most phones and is how content
+ * gets to sit under the status bar. On some iOS versions it instead yields a
+ * viewport shorter than the screen with nothing painted in the gap, and
+ * "Inside the safe area" — the older behaviour, where WebKit fills the outside
+ * with the page background — looks better.
+ *
+ * Nothing measurable from inside the page distinguishes those two outcomes, so
+ * the switch is here and it applies immediately.
+ */
+function screenFitGroup() {
+  const g = el('div', { class: 'group' });
+  const box = el('div', { class: 'group-pad' });
+  const current = store.settings().screenFit === 'safe' ? 'safe' : 'cover';
+
+  box.appendChild(
+    el('div', {
+      class: 'group-item-s',
+      style: 'margin-bottom:12px',
+      text: 'If the app leaves a band of dead space at an edge, try the other one. It changes straight away.',
+    })
+  );
+
+  const seg = el('div', { class: 'seg' });
+  for (const [id, label] of [['cover', 'Edge to edge'], ['safe', 'Inside the safe area']]) {
+    seg.appendChild(
+      el('button', {
+        type: 'button',
+        'aria-pressed': String(id === current),
+        text: label,
+        onclick: () => {
+          store.updateSettings({ screenFit: id });
+          store.saveNow();
+          applyScreenFit(id);
+          render();
+        },
+      })
+    );
+  }
+  box.appendChild(seg);
+  g.appendChild(box);
+  return g;
 }
 
 /* ── review queue ── */
@@ -889,6 +941,7 @@ function aboutBlock() {
     /* Did the re-measure run, and did it achieve anything? Without this the
        only way to tell a heal that never fired from one that fired and failed
        is to guess, which is how this bug stayed open for three rounds. */
+    `fit ${heal.fit}`,
     heal.shortfall ? `iOS keeps ${heal.shortfall}pt` : null,
     heal.attempts ? `heal ${heal.recovered}/${heal.attempts}${heal.gaveUp ? ' (stopped)' : ''}` : null,
     /* Two different questions. Does the shell fill the viewport it was given

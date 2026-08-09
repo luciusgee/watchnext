@@ -382,6 +382,65 @@ async function measure(page) {
     await c.close();
   }
 
+  /*
+   * Which viewport-fit looks right is device- and iOS-version-specific and
+   * cannot be determined from inside the page, so it is the user's choice.
+   * What is testable is that the choice actually reaches the viewport meta,
+   * survives a relaunch, and that the shell fills whatever it produces.
+   */
+  console.log('\n─── the screen fit is the user\'s to choose ───');
+  {
+    const c = await browser.newContext({ ...devices['iPhone 13 Pro'] });
+    await c.route('**://image.tmdb.org/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    await c.route('**://m.media-amazon.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    const p = await c.newPage();
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.waitForSelector('body.is-ready');
+
+    const metaContent = () =>
+      p.evaluate(() => document.querySelector('meta[name="viewport"]').getAttribute('content'));
+
+    check('edge to edge is the default', /viewport-fit=cover/.test(await metaContent()));
+
+    const openSettings = async () => {
+      await p.click('[data-tab="tonight"]');
+      await p.waitForTimeout(250);
+      await p.click('#screen-tonight [data-nav="settings"]');
+      await p.waitForTimeout(600);
+    };
+    await openSettings();
+    await p.click('#screen-settings button:has-text("Inside the safe area")');
+    await p.waitForTimeout(400);
+
+    check('choosing the safe area drops viewport-fit', !/viewport-fit/.test(await metaContent()),
+      await metaContent());
+    check('and it is still a usable viewport meta', /width=device-width/.test(await metaContent()));
+
+    /* The whole point is that it survives — the phone is relaunched to compare. */
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.waitForSelector('body.is-ready');
+    check('the choice survives a relaunch', !/viewport-fit/.test(await metaContent()), await metaContent());
+
+    /* Whichever fit is active, the shell must still fill it. */
+    const fits = await p.evaluate(() => {
+      const app = document.getElementById('app').getBoundingClientRect();
+      const bar = document.querySelector('.tabbar').getBoundingClientRect();
+      const view = document.documentElement.clientHeight;
+      return { shell: Math.round(app.height), barBottom: Math.round(bar.bottom), view };
+    });
+    check('the shell still fills the viewport in safe-area mode',
+      fits.shell === fits.view, `${fits.shell} vs ${fits.view}`);
+    check('and the tab bar is still inside it',
+      fits.barBottom <= fits.view, `${fits.barBottom} > ${fits.view}`);
+
+    await openSettings();
+    await p.click('#screen-settings button:has-text("Edge to edge")');
+    await p.waitForTimeout(400);
+    check('switching back restores viewport-fit', /viewport-fit=cover/.test(await metaContent()));
+
+    await c.close();
+  }
+
   console.log('\n─── the app cannot be zoomed ───');
   {
     const c = await browser.newContext({ ...devices['iPhone 13 Pro'] });

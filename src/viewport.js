@@ -27,6 +27,7 @@ const state = {
   gaveUp: false,
   tallest: 0,
   shortfall: 0,
+  fit: 'cover',
 };
 
 /**
@@ -49,6 +50,33 @@ export function safeAreaInsets() {
   };
   probe.remove();
   return insets;
+}
+
+/**
+ * Choose how the page relates to the phone's safe areas.
+ *
+ * `viewport-fit=cover` asks for the whole screen — the page runs under the
+ * status bar and home indicator, and env(safe-area-inset-*) reports real
+ * numbers so padding can keep content clear of them. That is the modern
+ * answer, and on iOS 26 it is also how you end up with a viewport 59pt shorter
+ * than the screen and nothing painted in the gap.
+ *
+ * `viewport-fit=auto` is the older behaviour: the viewport IS the safe area,
+ * the insets all report 0, and WebKit fills the area outside with the page's
+ * own background — so the app reads as edge-to-edge without ever being handed
+ * those pixels. Less capable, frequently better looking.
+ *
+ * Which one wins depends on the phone and the iOS version, and no amount of
+ * reasoning from here settles it, so it is a setting. Changing the meta at
+ * runtime makes WebKit recompute, which is what makes this a switch rather
+ * than a relaunch.
+ */
+export function applyScreenFit(fit) {
+  const meta = document.querySelector('meta[name="viewport"]');
+  if (!meta) return;
+  const base = 'width=device-width, initial-scale=1';
+  meta.setAttribute('content', fit === 'safe' ? base : `${base}, viewport-fit=cover`);
+  state.fit = fit === 'safe' ? 'safe' : 'cover';
 }
 
 /**

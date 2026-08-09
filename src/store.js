@@ -99,6 +99,11 @@ function emptyState() {
       aiKey: '',
       aiEnabled: false,
       libraryView: 'list',
+      /* 'cover' asks iOS for the whole screen including the safe areas;
+         'safe' stays inside them and lets WebKit paint the rest with the page
+         background. Which one actually looks right is device- and
+         iOS-version-specific, so it is the user's to choose. */
+      screenFit: 'cover',
       seeded: false,
     },
   };
