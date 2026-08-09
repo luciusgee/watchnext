@@ -87,8 +87,10 @@ export function render() {
   /* The pile. This rail used to be the watchlist, which was a list inside a
      list — the whole library is the watchlist. What is actually worth
      surfacing is the thing collectors complain about in these words: films
-     they bought and never put on. Longest-waiting first, because that is the
-     one you have been avoiding. */
+     they bought and never put on.
+     Oldest first, meaning longest in the app. Not longest owned — nothing here
+     knows when anything was bought, and on a library imported in one sitting
+     this ordering is close to arbitrary until the app has been lived in. */
   const pile = items
     .filter((i) => i.owned && !i.watched)
     .sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));

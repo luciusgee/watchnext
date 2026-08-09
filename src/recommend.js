@@ -106,20 +106,18 @@ export function scoreItem(item, profile, ctx) {
     }
   }
 
-  /* How long it has sat there unwatched.
-     This replaces a +12 bonus for being on a watchlist, back when there was a
-     watchlist. The whole library is the list now, so the useful signal is not
-     "you flagged this" but "you bought this and never put it on" — which is the
-     thing collectors actually complain about, in those words. Capped so an old
-     purchase nudges rather than dominates. */
-  if (item.owned && !item.watched && item.addedAt) {
-    const yearsWaiting = (Date.now() - item.addedAt) / (365 * 24 * 3600 * 1000);
-    if (yearsWaiting >= 0.5) {
-      score += Math.min(yearsWaiting, 4) * 2.5;
-      if (yearsWaiting >= 1) {
-        why.push(`on the shelf ${Math.round(yearsWaiting)} year${yearsWaiting < 1.5 ? '' : 's'}, never played`);
-      }
-    }
+  /* Bought and never played.
+     Replaces a +12 bonus for being on a watchlist, back when there was one.
+     Deliberately flat rather than scaled by age: `addedAt` is when a title
+     entered the app, not when it was bought, and on a library imported in one
+     go every title carries the same date. An earlier version of this scaled by
+     that gap and told the user "on the shelf 3 years, never played" — a claim
+     the app has no way to know, and which scored exactly zero of 295 eligible
+     titles on the real library because they were all added the same week.
+     A purchase date would make the age version honest; there isn't one yet. */
+  if (item.owned && !item.watched) {
+    score += 6;
+    why.push('you own it and have not watched it');
   }
 
   /* Re-watches need to earn their place: only genuinely loved films, and
