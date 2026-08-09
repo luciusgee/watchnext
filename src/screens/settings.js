@@ -15,7 +15,7 @@ import * as meta from '../metadata.js';
 import { getProvider, listProviders } from '../providers/index.js';
 import { storageHealth, markBackedUp, requestPersistence } from '../durability.js';
 import { BUILD } from '../build.js';
-import { healState } from '../viewport.js';
+import { healState, safeAreaInsets } from '../viewport.js';
 import { openMatchPicker } from './match.js';
 import { runtime } from '../format.js';
 
@@ -867,20 +867,10 @@ function aboutBlock() {
   const standalone =
     window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 
-  /* env() inside a custom property is not resolved by getPropertyValue on every
-     engine, so the insets are measured off a real element instead of read as
-     text. A zero top inset while the bottom is non-zero is itself the tell:
-     it means the status bar sits outside the web view. */
-  const probe = el('div', {
-    style:
-      'position:absolute;visibility:hidden;pointer-events:none;top:0;left:0;' +
-      'padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)',
-  });
-  document.body.appendChild(probe);
-  const probeStyle = getComputedStyle(probe);
-  const safeTop = Math.round(parseFloat(probeStyle.paddingTop) || 0);
-  const safeBottom = Math.round(parseFloat(probeStyle.paddingBottom) || 0);
-  probe.remove();
+  /* Measured off a real element rather than read as text — see safeAreaInsets()
+     in viewport.js. Both insets non-zero is the signal that the web view really
+     does span the whole screen, which is what makes the boost safe to apply. */
+  const { top: safeTop, bottom: safeBottom } = safeAreaInsets();
 
   const lost = screen.height - window.innerHeight;
   const heal = healState();
@@ -899,9 +889,14 @@ function aboutBlock() {
     /* Did the re-measure run, and did it achieve anything? Without this the
        only way to tell a heal that never fired from one that fired and failed
        is to guess, which is how this bug stayed open for three rounds. */
-    `heal ${heal.recovered}/${heal.attempts}${heal.gaveUp ? ' (stopped)' : ''}`,
-    /* The headline number: anything other than 0 is screen the app never got. */
-    lost > 1 ? `⚠ ${lost}pt withheld by iOS` : 'fills screen',
+    heal.boost ? `boost +${heal.boost}` : null,
+    heal.attempts ? `heal ${heal.recovered}/${heal.attempts}${heal.gaveUp ? ' (stopped)' : ''}` : null,
+    /* `lost` compares the screen against the viewport iOS *reports*. With the
+       boost applied the shell is taller than that reported viewport on purpose,
+       so the shell's own height is what says whether the screen is filled. */
+    rect && Math.round(rect.height) >= screen.height
+      ? 'fills screen'
+      : `⚠ ${lost}pt short`,
   ].filter(Boolean);
 
   /* Selectable, unlike the rest of the chrome — these numbers exist to be sent

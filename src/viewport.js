@@ -26,7 +26,64 @@ const state = {
   recovered: 0,
   gaveUp: false,
   tallest: 0,
+  boost: 0,
 };
+
+/**
+ * env() inside a custom property is not resolved by getPropertyValue on every
+ * engine, so the insets are measured off a real element rather than read as
+ * text. Applied through the --st/--sb tokens rather than raw env(): the tokens
+ * are defined as env() so the value is identical on a device, and going through
+ * them means a test can substitute known insets, which raw env() does not allow.
+ */
+export function safeAreaInsets() {
+  const probe = document.createElement('div');
+  probe.style.cssText =
+    'position:absolute;visibility:hidden;pointer-events:none;top:0;left:0;' +
+    'padding-top:var(--st,0px);padding-bottom:var(--sb,0px)';
+  document.body.appendChild(probe);
+  const s = getComputedStyle(probe);
+  const insets = {
+    top: Math.round(parseFloat(s.paddingTop) || 0),
+    bottom: Math.round(parseFloat(s.paddingBottom) || 0),
+  };
+  probe.remove();
+  return insets;
+}
+
+/**
+ * Reclaim the screen iOS 26 forgets to report.
+ *
+ * In a home-screen web app on iOS 26 the layout viewport comes back as the
+ * screen height minus the status bar inset — 873 on a 932pt phone — while the
+ * web view's frame is actually the whole screen. The tell is that BOTH safe
+ * area insets are non-zero: an inset is only reported when the view overlaps
+ * that furniture, so a non-zero bottom inset means the view really does reach
+ * the bottom of the screen. Anything sized to the reported viewport therefore
+ * stops 59pt short of a real edge.
+ *
+ * The correction is deliberately narrow. It applies only in a home-screen web
+ * app, only when the shortfall is exactly the top inset, and only when a
+ * bottom inset confirms the frame reaches the bottom. A device that measures
+ * itself correctly has no shortfall and gets nothing.
+ */
+export function applyViewportBoost() {
+  const standalone =
+    window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  if (!standalone) return 0;
+
+  const shortfall = screen.height - window.innerHeight;
+  const { top, bottom } = safeAreaInsets();
+
+  /* All three must hold. A shortfall that is not the top inset is some other
+     problem, and guessing at it would be how the last three attempts went. */
+  if (shortfall <= 0 || top <= 0 || bottom <= 0) return 0;
+  if (Math.abs(shortfall - top) > 1) return 0;
+
+  state.boost = shortfall;
+  document.documentElement.style.setProperty('--vh-short', `${shortfall}px`);
+  return shortfall;
+}
 
 export function healState() {
   return { ...state };
@@ -109,7 +166,17 @@ export function syncViewport() {
   document.addEventListener('focusout', () => setTimeout(apply, 50));
   apply();
 
-  initViewportHeal(isEditing, apply);
+  /* Re-measure on rotation and on returning to the app: the shortfall is a
+     property of the current orientation, not of the session. */
+  const reboost = () => applyViewportBoost();
+  window.addEventListener('orientationchange', () => setTimeout(reboost, 300));
+  window.addEventListener('resize', reboost);
+
+  /* The blank-and-reflow trick below is a different fix for a different fault
+     — a viewport that was full height and then shrank. When the shortfall is
+     the iOS 26 mis-measurement, the boost has already corrected it and
+     flipping the shell would only blink the UI for nothing. */
+  if (!state.boost) initViewportHeal(isEditing, apply);
 }
 
 /**

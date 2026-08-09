@@ -8,7 +8,7 @@
 import * as store from './store.js';
 import { seedLibrary } from './seed.js';
 import { requestPersistence } from './durability.js';
-import { syncViewport, blockZoom } from './viewport.js';
+import { syncViewport, blockZoom, applyViewportBoost } from './viewport.js';
 import { icon } from './icons.js';
 import { el, toast } from './ui.js';
 
@@ -128,6 +128,9 @@ async function boot() {
   exposeTestHooks();
   registerServiceWorker();
   protectStorage();
+  /* Before syncViewport: it decides whether the blank-and-reflow fallback is
+     needed, and it is not if the boost already corrected the shortfall. */
+  applyViewportBoost();
   syncViewport();
   blockZoom();
   document.body.classList.add('is-ready');

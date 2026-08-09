@@ -185,17 +185,29 @@ img {
    ============================================================ */
 
 #app {
-  /* Pinned to the viewport rather than sized by percentage. This is what
-     actually guarantees the shell fills the screen on iOS standalone: `fixed`
-     resolves against the viewport itself, so it cannot come up short however
-     `100%` happens to be computed. */
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
   display: flex;
   flex-direction: column;
-  /* Shrunk by the keyboard when one is open — see syncViewport() in main.js.
-     Without this the composer sits behind the keyboard on the Ask tab. */
-  bottom: var(--kb, 0px);
+  /* Deliberately NOT `inset: 0`.
+
+     On iOS 26 in a home-screen web app, the layout viewport is reported as the
+     screen height minus the status bar inset — 873 on a 932pt phone — while the
+     web view's actual frame is the whole screen. Both safe-area insets come
+     back non-zero (59 top, 34 bottom), and an inset is only reported when the
+     view genuinely overlaps that furniture, so the frame really does span top
+     to bottom. The viewport number is simply wrong.
+
+     `inset: 0` fills the reported viewport, which leaves the last 59pt of a
+     real screen unpainted. Adding the shortfall back reclaims it. --vh-short is
+     set from JS only when the gap is exactly the top inset, so on every device
+     and browser that measures correctly it stays 0 and this is plain `height:
+     100%`.
+
+     --kb is the keyboard, subtracted so the composer clears it. */
+  height: calc(100% + var(--vh-short, 0px) - var(--kb, 0px));
 }
 
 .screen {

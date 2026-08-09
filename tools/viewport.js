@@ -284,6 +284,104 @@ async function measure(page) {
     await c.close();
   }
 
+  /*
+   * iOS 26 under-reports the layout viewport in a home-screen web app: it comes
+   * back as the screen height minus the status bar inset, while the web view's
+   * frame is actually the whole screen. Both safe-area insets are non-zero,
+   * which is the proof — an inset is only reported when the view overlaps that
+   * furniture, so a bottom inset means the frame reaches the bottom edge.
+   *
+   * These reproduce the exact signature reported from the device:
+   *   screen 430x932 · viewport 430x873 · safe 59/34 · home screen
+   */
+  console.log('\n─── reclaiming the screen iOS 26 fails to report ───');
+
+  const ios26 = async ({ screenH = 932, viewportH = 873, top = 59, bottom = 34, standalone = true } = {}) => {
+    const c = await browser.newContext({ ...devices['iPhone 13 Pro'] });
+    await c.route('**://image.tmdb.org/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    await c.route('**://m.media-amazon.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    const p = await c.newPage();
+    await p.addInitScript(
+      ([sh, vh, t, b, sa]) => {
+        if (sa) Object.defineProperty(navigator, 'standalone', { get: () => true, configurable: true });
+        Object.defineProperty(window.screen, 'height', { get: () => sh, configurable: true });
+        Object.defineProperty(window, 'innerHeight', { get: () => vh, configurable: true });
+        /* env() cannot be overridden, so the insets are substituted through the
+           --st/--sb tokens the app already resolves them with. Registered before
+           any page script, so it lands before boot() measures. */
+        document.addEventListener('DOMContentLoaded', () => {
+          const s = document.createElement('style');
+          s.textContent = `:root{--st:${t}px !important;--sb:${b}px !important}`;
+          document.head.appendChild(s);
+        });
+      },
+      [screenH, viewportH, top, bottom, standalone]
+    );
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.waitForSelector('body.is-ready');
+    await p.waitForTimeout(300);
+    return { c, p };
+  };
+
+  {
+    const { c, p } = await ios26();
+    /* Only the *reported* height can be faked — Chromium's real layout viewport
+       stays 664 — so the assertion is on the delta the boost adds, not on an
+       absolute 932. On the device that delta is what turns 873 into 932. */
+    const m = await p.evaluate(() => ({
+      boost: getComputedStyle(document.documentElement).getPropertyValue('--vh-short').trim(),
+      shellHeight: Math.round(document.getElementById('app').getBoundingClientRect().height),
+      realViewport: document.documentElement.clientHeight,
+      /* The flip must not also run — the boost already fixed it. */
+      flips: window.__flips || 0,
+    }));
+    check('the shortfall is detected and added back', m.boost === '59px', `--vh-short=${m.boost}`);
+    check('the shell grows past the reported viewport by exactly the shortfall',
+      m.shellHeight - m.realViewport === 59, `${m.shellHeight} - ${m.realViewport}`);
+    check('the blank-and-reflow fallback is not also run', m.flips === 0, `${m.flips} flips`);
+
+    /* The keyboard offset has to keep working against the boosted height. */
+    const kb = await p.evaluate(async () => {
+      document.querySelector('[data-tab="ask"]').click();
+      await new Promise((r) => setTimeout(r, 300));
+      const KEYBOARD = 300;
+      const vv = window.visualViewport;
+      document.getElementById('ask-input').focus();
+      Object.defineProperty(vv, 'height', { get: () => window.innerHeight - KEYBOARD, configurable: true });
+      Object.defineProperty(vv, 'offsetTop', { get: () => 0, configurable: true });
+      vv.dispatchEvent(new Event('resize'));
+      await new Promise((r) => setTimeout(r, 250));
+      return {
+        kb: getComputedStyle(document.documentElement).getPropertyValue('--kb').trim(),
+        shell: Math.round(document.getElementById('app').getBoundingClientRect().height),
+        /* Same simulation limit as above: assert against the real layout
+           viewport plus the boost, minus the keyboard. */
+        expected: document.documentElement.clientHeight + 59 - KEYBOARD,
+      };
+    });
+    check('the keyboard still shrinks the boosted shell', kb.kb === '300px', `--kb=${kb.kb}`);
+    check('and the boost and the keyboard compose rather than fight',
+      kb.shell === kb.expected, `${kb.shell} vs ${kb.expected}`);
+
+    await c.close();
+  }
+
+  console.log('\n─── and never applies it where it does not belong ───');
+
+  for (const [label, opts] of [
+    ['a viewport that measures correctly', { viewportH: 932 }],
+    ['in-browser rather than home screen', { standalone: false }],
+    ['no bottom inset — the frame does not reach the bottom', { bottom: 0 }],
+    ['a shortfall that is not the top inset', { viewportH: 800 }],
+  ]) {
+    const { c, p } = await ios26(opts);
+    const boost = await p.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--vh-short').trim()
+    );
+    check(`no boost: ${label}`, boost === '' || boost === '0px', `--vh-short=${boost || '(unset)'}`);
+    await c.close();
+  }
+
   console.log('\n─── the app cannot be zoomed ───');
   {
     const c = await browser.newContext({ ...devices['iPhone 13 Pro'] });
