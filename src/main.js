@@ -8,7 +8,7 @@
 import * as store from './store.js';
 import { seedLibrary } from './seed.js';
 import { requestPersistence } from './durability.js';
-import { syncViewport, blockZoom, applyViewportBoost } from './viewport.js';
+import { syncViewport, blockZoom, measureShortfall } from './viewport.js';
 import { icon } from './icons.js';
 import { el, toast } from './ui.js';
 
@@ -129,8 +129,8 @@ async function boot() {
   registerServiceWorker();
   protectStorage();
   /* Before syncViewport: it decides whether the blank-and-reflow fallback is
-     needed, and it is not if the boost already corrected the shortfall. */
-  applyViewportBoost();
+     worth running, and it is not when the shortfall is the iOS 26 one. */
+  measureShortfall();
   syncViewport();
   blockZoom();
   document.body.classList.add('is-ready');

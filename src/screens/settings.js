@@ -889,14 +889,12 @@ function aboutBlock() {
     /* Did the re-measure run, and did it achieve anything? Without this the
        only way to tell a heal that never fired from one that fired and failed
        is to guess, which is how this bug stayed open for three rounds. */
-    heal.boost ? `boost +${heal.boost}` : null,
+    heal.shortfall ? `iOS keeps ${heal.shortfall}pt` : null,
     heal.attempts ? `heal ${heal.recovered}/${heal.attempts}${heal.gaveUp ? ' (stopped)' : ''}` : null,
-    /* `lost` compares the screen against the viewport iOS *reports*. With the
-       boost applied the shell is taller than that reported viewport on purpose,
-       so the shell's own height is what says whether the screen is filled. */
-    rect && Math.round(rect.height) >= screen.height
-      ? 'fills screen'
-      : `⚠ ${lost}pt short`,
+    /* Two different questions. Does the shell fill the viewport it was given
+       (our job), and does that viewport match the screen (not our job)? */
+    rect && Math.round(rect.height) >= window.innerHeight ? 'fills viewport' : '⚠ shell short',
+    lost > 1 ? `⚠ ${lost}pt off screen` : 'fills screen',
   ].filter(Boolean);
 
   /* Selectable, unlike the rest of the chrome — these numbers exist to be sent

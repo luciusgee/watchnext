@@ -285,16 +285,21 @@ async function measure(page) {
   }
 
   /*
-   * iOS 26 under-reports the layout viewport in a home-screen web app: it comes
-   * back as the screen height minus the status bar inset, while the web view's
-   * frame is actually the whole screen. Both safe-area insets are non-zero,
-   * which is the proof — an inset is only reported when the view overlaps that
-   * furniture, so a bottom inset means the frame reaches the bottom edge.
+   * iOS 26 hands a home-screen web app a viewport of screen-height minus the
+   * status bar inset — 873 on a 932pt phone — and that 59pt is genuinely
+   * outside the web view.
    *
-   * These reproduce the exact signature reported from the device:
-   *   screen 430x932 · viewport 430x873 · safe 59/34 · home screen
+   * A build tried to reclaim it by growing the shell, on the theory that both
+   * safe-area insets being non-zero proved the frame reached the bottom of the
+   * screen. It does not prove that: iOS reports insets from the screen's
+   * geometry, not the view's. The extra was clipped and took the tab bar's
+   * labels off screen with it — icons still visible, text gone.
+   *
+   * So the assertion is the invariant that broke, not the theory that broke it:
+   * whatever the viewport turns out to be, the shell and the tab bar stay
+   * inside it.
    */
-  console.log('\n─── reclaiming the screen iOS 26 fails to report ───');
+  console.log('\n─── a short viewport is reported, never overrun ───');
 
   const ios26 = async ({ screenH = 932, viewportH = 873, top = 59, bottom = 34, standalone = true } = {}) => {
     const c = await browser.newContext({ ...devices['iPhone 13 Pro'] });
@@ -306,13 +311,12 @@ async function measure(page) {
         if (sa) Object.defineProperty(navigator, 'standalone', { get: () => true, configurable: true });
         Object.defineProperty(window.screen, 'height', { get: () => sh, configurable: true });
         Object.defineProperty(window, 'innerHeight', { get: () => vh, configurable: true });
-        /* env() cannot be overridden, so the insets are substituted through the
-           --st/--sb tokens the app already resolves them with. Registered before
-           any page script, so it lands before boot() measures. */
+        /* env() cannot be overridden, so insets are substituted through the
+           --st/--sb tokens the app already resolves them with. */
         document.addEventListener('DOMContentLoaded', () => {
-          const s = document.createElement('style');
-          s.textContent = `:root{--st:${t}px !important;--sb:${b}px !important}`;
-          document.head.appendChild(s);
+          const st = document.createElement('style');
+          st.textContent = `:root{--st:${t}px !important;--sb:${b}px !important}`;
+          document.head.appendChild(st);
         });
       },
       [screenH, viewportH, top, bottom, standalone]
@@ -325,60 +329,56 @@ async function measure(page) {
 
   {
     const { c, p } = await ios26();
-    /* Only the *reported* height can be faked — Chromium's real layout viewport
-       stays 664 — so the assertion is on the delta the boost adds, not on an
-       absolute 932. On the device that delta is what turns 873 into 932. */
-    const m = await p.evaluate(() => ({
-      boost: getComputedStyle(document.documentElement).getPropertyValue('--vh-short').trim(),
-      shellHeight: Math.round(document.getElementById('app').getBoundingClientRect().height),
-      realViewport: document.documentElement.clientHeight,
-      /* The flip must not also run — the boost already fixed it. */
-      flips: window.__flips || 0,
-    }));
-    check('the shortfall is detected and added back', m.boost === '59px', `--vh-short=${m.boost}`);
-    check('the shell grows past the reported viewport by exactly the shortfall',
-      m.shellHeight - m.realViewport === 59, `${m.shellHeight} - ${m.realViewport}`);
-    check('the blank-and-reflow fallback is not also run', m.flips === 0, `${m.flips} flips`);
-
-    /* The keyboard offset has to keep working against the boosted height. */
-    const kb = await p.evaluate(async () => {
-      document.querySelector('[data-tab="ask"]').click();
-      await new Promise((r) => setTimeout(r, 300));
-      const KEYBOARD = 300;
-      const vv = window.visualViewport;
-      document.getElementById('ask-input').focus();
-      Object.defineProperty(vv, 'height', { get: () => window.innerHeight - KEYBOARD, configurable: true });
-      Object.defineProperty(vv, 'offsetTop', { get: () => 0, configurable: true });
-      vv.dispatchEvent(new Event('resize'));
-      await new Promise((r) => setTimeout(r, 250));
+    const m = await p.evaluate(() => {
+      const app = document.getElementById('app');
+      const bar = document.querySelector('.tabbar');
+      /* The real layout viewport — only the *reported* number can be faked. */
+      const view = document.documentElement.clientHeight;
       return {
-        kb: getComputedStyle(document.documentElement).getPropertyValue('--kb').trim(),
-        shell: Math.round(document.getElementById('app').getBoundingClientRect().height),
-        /* Same simulation limit as above: assert against the real layout
-           viewport plus the boost, minus the keyboard. */
-        expected: document.documentElement.clientHeight + 59 - KEYBOARD,
+        shell: Math.round(app.getBoundingClientRect().height),
+        barBottom: Math.round(bar.getBoundingClientRect().bottom),
+        view,
+        labels: [...bar.querySelectorAll('.tab')].map((t) => ({
+          text: t.innerText.trim(),
+          bottom: Math.round(t.getBoundingClientRect().bottom),
+        })),
+        flips: window.__flips || 0,
       };
     });
-    check('the keyboard still shrinks the boosted shell', kb.kb === '300px', `--kb=${kb.kb}`);
-    check('and the boost and the keyboard compose rather than fight',
-      kb.shell === kb.expected, `${kb.shell} vs ${kb.expected}`);
+
+    check('the shell never exceeds the viewport it was given', m.shell <= m.view, `${m.shell} > ${m.view}`);
+    check('the tab bar stays inside the viewport', m.barBottom <= m.view, `bar bottom ${m.barBottom} > ${m.view}`);
+    check('every tab still has its label', m.labels.every((l) => l.text.length > 0),
+      JSON.stringify(m.labels.map((l) => l.text)));
+    /* The symptom that made the regression obvious on the device: icons on
+       screen, labels below the fold. */
+    check('no label is pushed past the bottom of the viewport',
+      m.labels.every((l) => l.bottom <= m.view), JSON.stringify(m.labels));
+    check('the blank-and-reflow fallback does not run for this fault',
+      m.flips === 0, `${m.flips} flips`);
+
+    const reported = await p.evaluate(async () => {
+      const { healState } = await import('./src/viewport.js');
+      return healState().shortfall;
+    });
+    check('the shortfall is measured so Settings can report it', reported === 59, String(reported));
 
     await c.close();
   }
 
-  console.log('\n─── and never applies it where it does not belong ───');
+  console.log('\n─── and is not claimed where it does not apply ───');
 
   for (const [label, opts] of [
     ['a viewport that measures correctly', { viewportH: 932 }],
     ['in-browser rather than home screen', { standalone: false }],
-    ['no bottom inset — the frame does not reach the bottom', { bottom: 0 }],
     ['a shortfall that is not the top inset', { viewportH: 800 }],
   ]) {
     const { c, p } = await ios26(opts);
-    const boost = await p.evaluate(() =>
-      getComputedStyle(document.documentElement).getPropertyValue('--vh-short').trim()
-    );
-    check(`no boost: ${label}`, boost === '' || boost === '0px', `--vh-short=${boost || '(unset)'}`);
+    const reported = await p.evaluate(async () => {
+      const { healState } = await import('./src/viewport.js');
+      return healState().shortfall;
+    });
+    check(`not reported: ${label}`, !reported, `shortfall=${reported}`);
     await c.close();
   }
 

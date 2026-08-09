@@ -26,7 +26,7 @@ const state = {
   recovered: 0,
   gaveUp: false,
   tallest: 0,
-  boost: 0,
+  shortfall: 0,
 };
 
 /**
@@ -52,36 +52,36 @@ export function safeAreaInsets() {
 }
 
 /**
- * Reclaim the screen iOS 26 forgets to report.
+ * Record how much of the screen iOS is not giving us. Measurement only.
  *
- * In a home-screen web app on iOS 26 the layout viewport comes back as the
- * screen height minus the status bar inset — 873 on a 932pt phone — while the
- * web view's frame is actually the whole screen. The tell is that BOTH safe
- * area insets are non-zero: an inset is only reported when the view overlaps
- * that furniture, so a non-zero bottom inset means the view really does reach
- * the bottom of the screen. Anything sized to the reported viewport therefore
- * stops 59pt short of a real edge.
+ * In a home-screen web app on iOS 26 the layout viewport is the screen height
+ * minus the status bar inset — 873 on a 932pt phone. That 59pt is genuinely
+ * outside the web view: a build that grew the shell by the shortfall had the
+ * extra clipped, taking the tab bar's labels off screen with it.
  *
- * The correction is deliberately narrow. It applies only in a home-screen web
- * app, only when the shortfall is exactly the top inset, and only when a
- * bottom inset confirms the frame reaches the bottom. A device that measures
- * itself correctly has no shortfall and gets nothing.
+ * Note the trap, because it is convincing: BOTH safe area insets come back
+ * non-zero, and a non-zero bottom inset looks like proof that the view reaches
+ * the bottom of the screen. It is not — iOS reports insets from the screen's
+ * geometry, not the view's. Nothing here should act on that reading.
+ *
+ * Kept because the number is worth showing in Settings: it is the difference
+ * between "the app is laid out wrong" and "iOS handed us a shorter screen",
+ * and telling those apart from a screenshot cost several wrong guesses.
  */
-export function applyViewportBoost() {
+export function measureShortfall() {
   const standalone =
     window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  state.standalone = standalone;
   if (!standalone) return 0;
 
   const shortfall = screen.height - window.innerHeight;
-  const { top, bottom } = safeAreaInsets();
+  const { top } = safeAreaInsets();
 
-  /* All three must hold. A shortfall that is not the top inset is some other
-     problem, and guessing at it would be how the last three attempts went. */
-  if (shortfall <= 0 || top <= 0 || bottom <= 0) return 0;
-  if (Math.abs(shortfall - top) > 1) return 0;
+  /* Only the status-bar-sized shortfall is the known iOS 26 behaviour. Anything
+     else is a different problem and should not be labelled as this one. */
+  if (shortfall <= 0 || top <= 0 || Math.abs(shortfall - top) > 1) return 0;
 
-  state.boost = shortfall;
-  document.documentElement.style.setProperty('--vh-short', `${shortfall}px`);
+  state.shortfall = shortfall;
   return shortfall;
 }
 
@@ -166,17 +166,16 @@ export function syncViewport() {
   document.addEventListener('focusout', () => setTimeout(apply, 50));
   apply();
 
-  /* Re-measure on rotation and on returning to the app: the shortfall is a
-     property of the current orientation, not of the session. */
-  const reboost = () => applyViewportBoost();
-  window.addEventListener('orientationchange', () => setTimeout(reboost, 300));
-  window.addEventListener('resize', reboost);
+  /* The shortfall is a property of the current orientation, not the session. */
+  const remeasure = () => measureShortfall();
+  window.addEventListener('orientationchange', () => setTimeout(remeasure, 300));
+  window.addEventListener('resize', remeasure);
 
-  /* The blank-and-reflow trick below is a different fix for a different fault
-     — a viewport that was full height and then shrank. When the shortfall is
-     the iOS 26 mis-measurement, the boost has already corrected it and
-     flipping the shell would only blink the UI for nothing. */
-  if (!state.boost) initViewportHeal(isEditing, apply);
+  /* The blank-and-reflow trick below undoes a viewport that was full height and
+     then shrank. The iOS 26 shortfall is not that — it is short from the first
+     frame, it was measured at 0/3 on the affected device, and running it anyway
+     just blinks the whole UI three times at launch for nothing. */
+  if (!state.shortfall) initViewportHeal(isEditing, apply);
 }
 
 /**

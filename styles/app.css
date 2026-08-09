@@ -200,14 +200,16 @@ img {
      view genuinely overlaps that furniture, so the frame really does span top
      to bottom. The viewport number is simply wrong.
 
-     `inset: 0` fills the reported viewport, which leaves the last 59pt of a
-     real screen unpainted. Adding the shortfall back reclaims it. --vh-short is
-     set from JS only when the gap is exactly the top inset, so on every device
-     and browser that measures correctly it stays 0 and this is plain `height:
-     100%`.
+     A previous build added that shortfall back, on the theory that the frame
+     was really the whole screen and only the reported number was wrong. It is
+     not: the extra 59pt is clipped, and it took the tab bar's labels with it —
+     the bar hung below the view with only its icons still visible. The web
+     view genuinely is 873 tall, and a non-zero bottom inset does NOT prove
+     otherwise (iOS reports insets from the screen, not the view). Do not
+     re-derive that idea; the shell must never exceed the reported viewport.
 
      --kb is the keyboard, subtracted so the composer clears it. */
-  height: calc(100% + var(--vh-short, 0px) - var(--kb, 0px));
+  height: calc(100% - var(--kb, 0px));
 }
 
 .screen {
