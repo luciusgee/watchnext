@@ -284,6 +284,90 @@ async function measure(page) {
     await c.close();
   }
 
+  console.log('\n─── the app cannot be zoomed ───');
+  {
+    const c = await browser.newContext({ ...devices['iPhone 13 Pro'] });
+    await c.route('**://image.tmdb.org/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    await c.route('**://m.media-amazon.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    const p = await c.newPage();
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.waitForSelector('body.is-ready');
+
+    /* The one that actually bites: iOS zooms the whole page when a field under
+       16px takes focus. Every field has to clear it, on every screen, so this
+       walks the real rendered DOM rather than trusting the stylesheet. */
+    for (const tab of ['tonight', 'discover', 'library', 'ask']) {
+      await p.click(`[data-tab="${tab}"]`);
+      await p.waitForTimeout(250);
+    }
+    await p.click('[data-tab="tonight"]');
+    await p.waitForTimeout(200);
+    await p.click('#screen-tonight [data-nav="settings"]');
+    await p.waitForTimeout(600);
+
+    const fields = await p.evaluate(() =>
+      [...document.querySelectorAll('input, textarea, select')]
+        /* Only controls that can actually summon a keyboard can trigger the
+           auto-zoom. A file picker or a checkbox cannot, and neither can
+           anything that is not rendered. */
+        .filter(
+          (n) =>
+            !['checkbox', 'radio', 'button', 'submit', 'hidden', 'file', 'range', 'color'].includes(
+              n.type
+            ) && n.offsetParent !== null
+        )
+        .map((n) => ({
+          id: n.id || n.className || n.tagName,
+          size: parseFloat(getComputedStyle(n).fontSize),
+        }))
+    );
+    const tooSmall = fields.filter((f) => f.size < 16);
+    check('at least one real text field was inspected', fields.length > 0, `${fields.length} fields`);
+    check(
+      'no focusable field is under the 16px iOS auto-zoom threshold',
+      tooSmall.length === 0,
+      tooSmall.map((f) => `${f.id}=${f.size}px`).join(', ')
+    );
+
+    const gestures = await p.evaluate(() => {
+      const out = {};
+      for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+        const ev = new Event(type, { bubbles: true, cancelable: true });
+        document.dispatchEvent(ev);
+        out[type] = ev.defaultPrevented;
+      }
+      return out;
+    });
+    check('pinch zoom start is cancelled', gestures.gesturestart === true);
+    check('pinch zoom movement is cancelled', gestures.gesturechange === true);
+    check('pinch zoom end is cancelled', gestures.gestureend === true);
+
+    const touch = await p.evaluate(() => ({
+      body: getComputedStyle(document.body).touchAction,
+      /* The Discover deck must keep its own value or the swipe breaks. */
+      deck: (() => {
+        const card = document.querySelector('.deck-card');
+        return card ? getComputedStyle(card).touchAction : null;
+      })(),
+      scrollable: (() => {
+        const s = document.querySelector('.screen.is-active .scroll');
+        return s ? getComputedStyle(s).overflowY : null;
+      })(),
+    }));
+    check('double-tap zoom is disabled on the body', touch.body === 'manipulation', touch.body);
+    check('scrolling is left alone', touch.scrollable === 'auto', String(touch.scrollable));
+
+    await p.click('[data-tab="discover"]');
+    await p.waitForTimeout(400);
+    const deck = await p.evaluate(() => {
+      const card = document.querySelector('.deck-card');
+      return card ? getComputedStyle(card).touchAction : 'no card';
+    });
+    check('the Discover swipe deck keeps its own touch handling', deck === 'none', deck);
+
+    await c.close();
+  }
+
   console.log(`\n══════════  ${pass} passed, ${fail} failed  ══════════`);
   if (failures.length) { console.log('\nFailures:'); failures.forEach((f) => console.log('  · ' + f)); }
   await browser.close();

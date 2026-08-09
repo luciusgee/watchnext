@@ -33,6 +33,35 @@ export function healState() {
 }
 
 /**
+ * Stop the app being zoomed.
+ *
+ * Three separate gestures, and only two of them are worth blocking here:
+ *
+ *   · double-tap zoom — handled in CSS with `touch-action: manipulation`.
+ *   · pinch zoom — blocked below. `user-scalable=no` in the viewport meta is
+ *     the obvious route and iOS Safari has ignored it since iOS 10, precisely
+ *     so that pages cannot do this. WebKit's non-standard `gesture*` events are
+ *     what actually work, and unlike a touchmove handler they cost nothing on
+ *     the scrolling path.
+ *   · the system-wide accessibility zoom — untouched, and deliberately so. It
+ *     is not ours to disable and nothing here reaches it.
+ *
+ * This does remove a capability someone may rely on (WCAG 2.2 SC 1.4.4, Resize
+ * Text). It is confined to this one function so it can be removed by deleting
+ * the call, and the layout is fully responsive and reflows to 200% text without
+ * it — the field sizes above are what stop the app zooming when you tap a
+ * search box, and those are an improvement for everyone.
+ */
+export function blockZoom() {
+  /* Passive listeners cannot cancel anything, and these default to passive on
+     some engines, so the flag is not optional. */
+  const stop = (e) => e.preventDefault();
+  for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+    document.addEventListener(type, stop, { passive: false });
+  }
+}
+
+/**
  * Keep the shell matched to the visible viewport.
  *
  * The shell is position:fixed so it always fills the screen, but a fixed

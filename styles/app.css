@@ -39,6 +39,11 @@
   --t-sub: 13px;
   --t-meta: 12px;
   --t-micro: 11px;
+  /* Anything a keyboard can be summoned into. iOS zooms the entire page when a
+     field smaller than 16px receives focus, and does not fully zoom back out —
+     which is both the "it zooms when I tap search" complaint and a suspected
+     trigger for the standalone viewport shrink. 16px is a floor, not a choice. */
+  --t-field: 16px;
 
   /* spacing */
   --s1: 4px;
@@ -113,6 +118,14 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overscroll-behavior: none;
+  /* No double-tap-to-zoom. `manipulation` is the narrow choice on purpose: it
+     drops only the double-tap gesture and leaves panning and scrolling exactly
+     as they were. `.deck-card` sets `none` on itself and still wins there. */
+  touch-action: manipulation;
+  /* Stops iOS re-flowing text to its own size in landscape, which otherwise
+     makes the same screen render at two different type sizes. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 button,
@@ -123,6 +136,15 @@ select {
   color: inherit;
   background: none;
   border: none;
+}
+
+/* The 16px floor lives here, not on each component, so a field added later
+   cannot quietly reintroduce the zoom by forgetting a class. Excludes the
+   controls that never summon a keyboard. */
+input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='range']):not([type='color']),
+textarea,
+select {
+  font-size: var(--t-field);
 }
 
 button {
@@ -705,7 +727,7 @@ img {
   border: 1px solid var(--hairline);
   border-radius: var(--r-md);
   color: var(--bone);
-  font-size: var(--t-body);
+  font-size: var(--t-field);
   transition: border-color var(--fast) var(--ease);
 }
 .input::placeholder,
@@ -754,7 +776,7 @@ img {
   border: 1px solid var(--hairline);
   border-radius: var(--r-md);
   color: var(--bone);
-  font-size: var(--t-body);
+  font-size: var(--t-field);
 }
 .searchbar input:focus {
   outline: none;
@@ -1309,7 +1331,7 @@ img {
   border: 1px solid var(--hairline);
   border-radius: var(--r-md);
   color: var(--bone);
-  font-size: var(--t-body);
+  font-size: var(--t-field);
   resize: none;
   line-height: 1.4;
 }

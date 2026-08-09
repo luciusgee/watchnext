@@ -8,7 +8,7 @@
 import * as store from './store.js';
 import { seedLibrary } from './seed.js';
 import { requestPersistence } from './durability.js';
-import { syncViewport } from './viewport.js';
+import { syncViewport, blockZoom } from './viewport.js';
 import { icon } from './icons.js';
 import { el, toast } from './ui.js';
 
@@ -129,6 +129,7 @@ async function boot() {
   registerServiceWorker();
   protectStorage();
   syncViewport();
+  blockZoom();
   document.body.classList.add('is-ready');
 }
 
