@@ -71,6 +71,20 @@ export function initAsk({ navigate: nav }) {
 
 export function showAsk() {
   renderConstraints();
+
+  /* Connecting a key happens on another screen, so the prompt asking for one is
+     still sitting in the thread when you come back — and because the thread is
+     no longer empty, the greeting never re-runs. Replies then stack underneath
+     an invitation the user has already accepted. Replace it.
+
+     Only in that direction: clearing a key must not wipe a conversation the
+     user can still read, so a thread with real messages is left alone and
+     send() redirects to Settings instead. */
+  if (store.settings().aiKey && listEl.querySelector(`[${NO_KEY}]`)) {
+    greet();
+    return;
+  }
+
   if (!listEl.childElementCount) greet();
 }
 
@@ -123,19 +137,23 @@ function renderConstraints() {
   }
 }
 
+/* Marks the "no key yet" prompt so it can be told apart from real
+   conversation — the two live in the same thread element. */
+const NO_KEY = 'data-no-key';
+
 function greet() {
   clear(listEl);
   const key = store.settings().aiKey;
   if (!key) {
-    listEl.appendChild(
-      emptyState({
-        iconName: 'ask',
-        title: 'Assisted picks',
-        message:
-          'Connect an Anthropic API key and this will read your library and argue for one specific thing to watch tonight.',
-        action: { label: 'Connect a key', onClick: () => navigate('settings', { focus: 'ai' }) },
-      })
-    );
+    const prompt = emptyState({
+      iconName: 'ask',
+      title: 'Assisted picks',
+      message:
+        'Connect an Anthropic API key and this will read your library and argue for one specific thing to watch tonight.',
+      action: { label: 'Connect a key', onClick: () => navigate('settings', { focus: 'ai' }) },
+    });
+    prompt.setAttribute(NO_KEY, '');
+    listEl.appendChild(prompt);
     return;
   }
   addMessage(

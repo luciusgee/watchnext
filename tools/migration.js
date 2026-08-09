@@ -17,18 +17,30 @@ const LEGACY_ACTIVITY = [{ type:'watched', title:'Hokum', at: 1730000000000 }];
 (async () => {
   const browser = await chromium.launch({ executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args:['--no-sandbox'] });
   const ctx = await browser.newContext({ ...devices['iPhone 13 Pro'] });
+  /* Every other suite stubs these; this one did not, so a reload after seeding
+     a legacy library went out for real poster art. Those requests never settle
+     in this environment, so `networkidle` timed out and the suite failed in a
+     way that looked like a migration bug. */
+  const BLANK = Buffer.from('R0lGODlhAQABAAAAACw=', 'base64');
+  await ctx.route('**://image.tmdb.org/**', r => r.fulfill({ status:200, contentType:'image/gif', body:BLANK }));
+  await ctx.route('**://m.media-amazon.com/**', r => r.fulfill({ status:200, contentType:'image/gif', body:BLANK }));
   const page = await ctx.newPage();
   const errs=[]; page.on('pageerror', e=>errs.push(e.message));
 
   // Land on the page, plant the OLD storage, then load the NEW app over it.
+  // Wait for the first boot to *finish* before planting: on domcontentloaded
+  // alone it is still running, and it seeds and saves its own library over the
+  // keys we just wrote — intermittently, depending on how the two interleave.
   await page.goto('http://127.0.0.1:8899/index.html', { waitUntil:'domcontentloaded' });
+  await page.waitForSelector('body.is-ready');
   await page.evaluate(([lib, act]) => {
     localStorage.clear();
     localStorage.setItem('wn_lib2', JSON.stringify(lib));
     localStorage.setItem('wn_activity', JSON.stringify(act));
     localStorage.setItem('wn_apikey', 'sk-ant-legacy-key');
   }, [LEGACY, LEGACY_ACTIVITY]);
-  await page.reload({ waitUntil:'networkidle' });
+  await page.reload({ waitUntil:'domcontentloaded' });
+  await page.waitForSelector('body.is-ready');
   await page.waitForTimeout(1200);
 
   const s = await page.evaluate(() => JSON.parse(localStorage.getItem('wn.state.v3')));
@@ -57,7 +69,8 @@ const LEGACY_ACTIVITY = [{ type:'watched', title:'Hokum', at: 1730000000000 }];
   // Second load must not re-run the migration or duplicate anything.
   await page.evaluate(() => window.__test.update(window.__test.items()[0].uid, { title: 'Renamed By User' }));
   await page.waitForTimeout(300);
-  await page.reload({ waitUntil:'networkidle' });
+  await page.reload({ waitUntil:'domcontentloaded' });
+  await page.waitForSelector('body.is-ready');
   await page.waitForTimeout(1000);
   const s2 = await page.evaluate(() => JSON.parse(localStorage.getItem('wn.state.v3')));
   check('migration does not re-run on the next load', s2.items.length === LEGACY.length, `${s2.items.length}`);

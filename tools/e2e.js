@@ -281,6 +281,68 @@ function check(name, cond, detail = '') {
   check('settings renders', await page.evaluate(() => document.querySelector('#screen-settings [data-region="body"]').children.length > 3));
   check('tab bar stays visible on settings', await page.evaluate(() => !!document.querySelector('.tabbar')?.offsetParent));
 
+  // ─────────────────────────────────────────────────────────
+  console.log('\n─── the Ask key prompt goes away once a key is connected ───');
+  // The prompt is rendered into the same thread element as the conversation,
+  // and the greeting only ran when that element was empty. A key is connected
+  // on a different screen, so coming back left the invitation stranded at the
+  // top with replies stacking underneath it.
+  await page.evaluate(async () => {
+    const store = await import('./src/store.js');
+    store.updateSettings({ aiKey: '' });
+    store.saveNow();
+  });
+  await page.click('[data-tab="ask"]');
+  await page.waitForTimeout(500);
+
+  const noKey = await page.evaluate(() => ({
+    prompt: !!document.querySelector('#screen-ask [data-no-key]'),
+    text: document.querySelector('#screen-ask [data-region="thread"]').innerText,
+  }));
+  check('with no key, the prompt is shown', noKey.prompt);
+  check('and it asks for one', /Connect a key/i.test(noKey.text), noKey.text.slice(0, 60));
+
+  /* Connect a key the way a user does — on another screen, then come back. */
+  await page.click('#screen-ask [data-nav="settings"]');
+  await page.waitForTimeout(500);
+  await page.evaluate(async () => {
+    const store = await import('./src/store.js');
+    store.updateSettings({ aiKey: 'sk-ant-test' });
+    store.saveNow();
+  });
+  await page.click('[data-tab="ask"]');
+  await page.waitForTimeout(500);
+
+  const withKey = await page.evaluate(() => ({
+    prompt: !!document.querySelector('#screen-ask [data-no-key]'),
+    text: document.querySelector('#screen-ask [data-region="thread"]').innerText,
+  }));
+  check('the prompt is gone once a key is connected', withKey.prompt === false);
+  check('and it greets instead', /Tell me what you fancy/i.test(withKey.text), withKey.text.slice(0, 60));
+
+  /* The reverse must not be destructive: clearing a key should never wipe a
+     conversation the user can still read. */
+  await page.evaluate(() => {
+    const thread = document.querySelector('#screen-ask [data-region="thread"]');
+    const msg = document.createElement('div');
+    msg.className = 'msg msg-user';
+    msg.textContent = 'A REAL MESSAGE';
+    thread.appendChild(msg);
+  });
+  await page.evaluate(async () => {
+    const store = await import('./src/store.js');
+    store.updateSettings({ aiKey: '' });
+    store.saveNow();
+  });
+  await page.click('[data-tab="library"]');
+  await page.waitForTimeout(300);
+  await page.click('[data-tab="ask"]');
+  await page.waitForTimeout(500);
+  const kept = await page.evaluate(
+    () => document.querySelector('#screen-ask [data-region="thread"]').innerText
+  );
+  check('clearing a key does not wipe an existing conversation', /A REAL MESSAGE/.test(kept), kept.slice(0, 80));
+
   console.log('\n─── uncaught JS errors ───');
   check('no uncaught errors during the whole run', jsErrors.length === 0, jsErrors.slice(0, 3).join(' | '));
 
