@@ -166,7 +166,11 @@ export function lastBackupAt() {
  * nagging someone with an untouched seeded library is just noise.
  */
 export function shouldNudgeBackup(stats) {
-  if (!stats || stats.watched + stats.saved < 20) return false;
+  /* Coalesced rather than added raw: a missing field made this NaN, NaN < 20 is
+     false, and the guard inverted into nudging exactly when there was nothing
+     worth backing up. */
+  if (!stats) return false;
+  if ((stats.watched || 0) + (stats.pile || 0) < 20) return false;
   const last = lastBackupAt();
   if (!last) return true;
   return Date.now() - last > NUDGE_AFTER_DAYS * 24 * 60 * 60 * 1000;

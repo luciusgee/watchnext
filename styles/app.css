@@ -1199,13 +1199,6 @@ body.is-typing .tabbar {
   color: var(--ember);
   transform: rotate(9deg);
 }
-.stamp-save {
-  left: 50%;
-  top: auto;
-  bottom: 24px;
-  margin-left: -44px;
-  color: var(--amber);
-}
 
 .deck-controls {
   display: flex;
@@ -1228,12 +1221,6 @@ body.is-typing .tabbar {
 }
 .deck-btn:active {
   transform: scale(0.92);
-}
-.deck-btn-save {
-  width: 48px;
-  height: 48px;
-  color: var(--amber);
-  border-color: var(--amber-line);
 }
 .deck-btn-yes {
   color: var(--sage);

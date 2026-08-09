@@ -132,11 +132,17 @@ const LEGACY = JSON.parse(fs.readFileSync(FIXTURE, 'utf8')).library;
   const nudge = await page.evaluate(async () => {
     const { shouldNudgeBackup } = await import('./src/durability.js');
     return {
-      quietWhenNothingToLose: shouldNudgeBackup({ watched: 0, saved: 0 }),
-      nudgesWhenStale: shouldNudgeBackup({ watched: 200, saved: 100 }),
+      quietWhenNothingToLose: shouldNudgeBackup({ watched: 0, pile: 0 }),
+      nudgesWhenStale: shouldNudgeBackup({ watched: 200, pile: 100 }),
+      /* A stats shape missing the field entirely must read as "nothing to
+         lose", not as NaN — which is how this silently inverted once. */
+      quietOnUnknownShape: shouldNudgeBackup({}),
+      quietOnNull: shouldNudgeBackup(null),
     };
   });
   check('no nudge when there is nothing to lose', nudge.quietWhenNothingToLose === false);
+  check('nor on a stats shape it does not recognise', nudge.quietOnUnknownShape === false);
+  check('nor on no stats at all', nudge.quietOnNull === false);
   check('nudges when a real library has a stale backup', nudge.nudgesWhenStale === true);
 
   console.log('\n─── no errors ───');

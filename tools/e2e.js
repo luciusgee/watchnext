@@ -86,13 +86,28 @@ function check(name, cond, detail = '') {
   const queueBefore = await page.evaluate(() => document.querySelectorAll('.deck-card').length);
   check('discover renders a card', queueBefore > 0, `${queueBefore} cards`);
 
+  /* Two outcomes, not three. The deck asks one question — have you seen this —
+     and the watchlist swipe that used to be the third is gone with the
+     watchlist itself. */
+  const deckButtons = await page.evaluate(() =>
+    [...document.querySelectorAll('.deck-controls [data-action]')].map((b) => b.dataset.action)
+  );
+  check('the deck offers exactly two answers', deckButtons.length === 2, deckButtons.join(', '));
+  check('and they are not-yet and seen-it',
+    deckButtons.join(',') === 'skip,watched', deckButtons.join(','));
+
   await page.click('[data-action="skip"]'); await page.waitForTimeout(600);
   await page.click('[data-action="skip"]'); await page.waitForTimeout(600);
-  await page.click('[data-action="save"]'); await page.waitForTimeout(600);
+  await page.click('[data-action="watched"]'); await page.waitForTimeout(600);
   s = await state();
   const seenCount = s.items.filter((i) => i.seen).length;
   check('swiping marks items seen', seenCount === 3, `${seenCount} seen`);
-  check('swiping right onto watchlist sets saved', s.items.filter((i) => i.saved).length >= 1);
+  check('swiping right marks it watched', s.items.filter((i) => i.watched && i.seen).length >= 1);
+  /* A left swipe means "not yet", which must write nothing beyond the triage
+     flag — it is not a judgement about the film. */
+  check('a left swipe does not mark anything watched',
+    s.items.filter((i) => i.seen && !i.watched).length === 2,
+    `${s.items.filter((i) => i.seen && !i.watched).length}`);
 
   await page.evaluate(() => window.__test.resetDiscover());
   await page.waitForTimeout(400);

@@ -16,16 +16,14 @@ function snapshot(item, fields) {
 export function setWatched(uid, watched, { silent = false } = {}) {
   const item = store.byUid(uid);
   if (!item) return null;
-  const prev = snapshot(item, ['watched', 'watchedAt', 'saved', 'seen', 'seenAt']);
+  const prev = snapshot(item, ['watched', 'watchedAt', 'seen', 'seenAt']);
 
   const patch = {
     watched,
     watchedAt: watched ? Date.now() : null,
   };
-  /* Marking something watched retires it from the watchlist — leaving it in
-     both places was a persistent annoyance in the old version. */
+  /* Watching something also retires it from the Discover deck. */
   if (watched) {
-    patch.saved = false;
     patch.seen = true;
     patch.seenAt = item.seenAt || Date.now();
   }
@@ -36,27 +34,6 @@ export function setWatched(uid, watched, { silent = false } = {}) {
 
   if (!silent) {
     toast(watched ? `Marked ${item.title} as watched` : `Moved ${item.title} back to unwatched`, {
-      action: 'Undo',
-      onAction: () => {
-        store.update(uid, prev);
-        store.emit('item');
-      },
-    });
-  }
-  return next;
-}
-
-export function setSaved(uid, saved, { silent = false } = {}) {
-  const item = store.byUid(uid);
-  if (!item) return null;
-  const prev = snapshot(item, ['saved', 'saved_at']);
-
-  const next = store.update(uid, { saved, saved_at: saved ? Date.now() : null });
-  store.logActivity(saved ? 'saved' : 'unsaved', item, prev);
-  store.emit('item');
-
-  if (!silent) {
-    toast(saved ? `Added ${item.title} to your watchlist` : `Removed ${item.title} from your watchlist`, {
       action: 'Undo',
       onAction: () => {
         store.update(uid, prev);
@@ -148,19 +125,6 @@ export function addMany(lines, type) {
 
 /* ── bulk resets ── */
 
-export function clearWatchlist() {
-  let n = 0;
-  store.bulk((i) => {
-    if (i.saved) {
-      n += 1;
-      return { saved: false, saved_at: null };
-    }
-    return null;
-  });
-  store.emit('item');
-  toast(n ? `Cleared ${n} from your watchlist` : 'Your watchlist was already empty');
-}
-
 export function clearWatched() {
   let n = 0;
   store.bulk((i) => {
@@ -191,10 +155,13 @@ export function resetEverything() {
   store.bulk(() => ({
     watched: false,
     watchedAt: null,
-    saved: false,
-    saved_at: null,
     seen: false,
     seenAt: null,
+    /* Retired with the watchlist. Nothing reads these any more, but "clear
+       everything" should mean it, and they are still on every title saved
+       before the collapse. */
+    saved: false,
+    saved_at: null,
   }));
   store.clearActivity();
   store.emit('item');

@@ -60,6 +60,13 @@ export function makeItem(partial = {}) {
 
     watched: partial.watched ?? false,
     watchedAt: partial.watchedAt ?? null,
+    /* Retired. The watchlist was a list inside a list — the library IS the
+       watchlist — so nothing reads these any more.
+       They are still declared, and that is the whole point: dropping them from
+       here would delete the field from every existing title the moment a backup
+       was read, and from the live library on the next save. Collapsing a feature
+       is a code change; it is not a licence to throw away someone's data. Keeping
+       them costs two nulls a title and means the decision is reversible. */
     saved: partial.saved ?? false,
     saved_at: partial.saved_at ?? null,
     seen: partial.seen ?? false,
@@ -572,7 +579,9 @@ export function stats() {
     total: all.length,
     watched: watched.length,
     unwatched: all.length - watched.length,
-    saved: all.filter((i) => i.saved && !i.watched).length,
+    /* The pile: bought and never played. Replaces a watchlist count, back when
+       the watchlist was a separate list. */
+    pile: all.filter((i) => i.owned && !i.watched).length,
     owned: owned.length,
     movies: all.filter((i) => i.type === 'movie').length,
     shows: all.filter((i) => i.type === 'tv').length,

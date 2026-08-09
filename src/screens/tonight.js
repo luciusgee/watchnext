@@ -84,8 +84,19 @@ export function render() {
   }
 
   /* rails */
-  const upNext = items.filter((i) => i.saved && !i.watched);
-  if (upNext.length) body.appendChild(rail('Up next', upNext.slice(0, 20), () => navigate('library', { filter: 'saved' })));
+  /* The pile. This rail used to be the watchlist, which was a list inside a
+     list — the whole library is the watchlist. What is actually worth
+     surfacing is the thing collectors complain about in these words: films
+     they bought and never put on. Longest-waiting first, because that is the
+     one you have been avoiding. */
+  const pile = items
+    .filter((i) => i.owned && !i.watched)
+    .sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
+  if (pile.length) {
+    body.appendChild(
+      rail('The pile', pile.slice(0, 20), () => navigate('library', { filter: 'pile' }))
+    );
+  }
 
   const alts = alternates(items, { ...opts, exclude: pick ? [pick.item.uid] : [], limit: 20 });
   if (alts.length) body.appendChild(rail('Also worth tonight', alts.map((a) => a.item)));
@@ -214,7 +225,7 @@ export function cardFor(item) {
     'aria-label': `${item.title}${item.year ? `, ${item.year}` : ''}`,
     onclick: () => openDetail(item.uid),
   });
-  const badge = item.watched ? posterBadge('watched') : item.saved ? posterBadge('saved') : null;
+  const badge = item.watched ? posterBadge('watched') : null;
   card.appendChild(poster(item, { width: 108, badge }));
   card.appendChild(el('div', { class: 'card-t', text: item.title }));
 

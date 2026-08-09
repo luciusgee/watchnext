@@ -340,13 +340,13 @@ async function runSweep(opts, statusEl) {
     .filter((i) => meta.needsEnrichment(i, opts))
     /* Order by how likely you are to see it. A free key allows 1000 lookups a
        day, so a large library may not finish in one go — this makes sure the
-       run that does happen fixes the titles on your watchlist and shelves
+       run that does happen fixes the titles you own and have not watched
        first, rather than whatever happens to be alphabetically early. */
     .sort((a, b) => score(b) - score(a));
 
   function score(i) {
     let n = 0;
-    if (i.saved) n += 8;
+    if (i.owned && !i.watched) n += 8;
     if (i.owned) n += 5;
     if (!i.watched) n += 3;
     if (!i.poster) n += 4;          // visibly broken
@@ -736,6 +736,8 @@ function activityGroup() {
   const labels = {
     watched: 'Marked watched',
     unwatched: 'Marked unwatched',
+    /* Retired verbs. Still mapped so activity logged before the watchlist was
+       collapsed into the library renders as words rather than a raw key. */
     saved: 'Added to watchlist',
     unsaved: 'Removed from watchlist',
     owned: 'Added to collection',
@@ -789,13 +791,12 @@ function dangerGroup() {
     settingsRow(
       'warning',
       'Reset…',
-      'Clear your watchlist, watch history or Discover progress',
+      'Clear your watch history or Discover progress',
       () =>
         openSheet({
           title: 'What would you like to reset?',
           message: 'Your library itself is never removed — only the activity you have recorded against it.',
           actions: [
-            { label: 'Clear watchlist', kind: 'secondary', onClick: confirmReset('watchlist') },
             { label: 'Clear watch history', kind: 'secondary', onClick: confirmReset('watched') },
             { label: 'Reset Discover', kind: 'secondary', onClick: confirmReset('discover') },
             { label: 'Reset everything', kind: 'danger', onClick: confirmReset('all') },
@@ -809,10 +810,9 @@ function dangerGroup() {
 
 function confirmReset(kind) {
   const spec = {
-    watchlist: ['Clear your watchlist?', 'Every title on your watchlist will be removed from it.', actions.clearWatchlist],
     watched: ['Clear watch history?', 'Every title will be marked unwatched. This cannot be undone.', actions.clearWatched],
     discover: ['Reset Discover?', 'Every title will appear in Discover again.', actions.resetDiscover],
-    all: ['Reset everything?', 'Watchlist, watch history and Discover progress will all be cleared. This cannot be undone.', actions.resetEverything],
+    all: ['Reset everything?', 'Watch history and Discover progress will both be cleared. This cannot be undone.', actions.resetEverything],
   }[kind];
 
   return () =>

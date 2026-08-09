@@ -37,7 +37,6 @@ export function initDiscover() {
   deckEl = root.querySelector('[data-region="deck"]');
 
   root.querySelector('[data-action="skip"]').addEventListener('click', () => commit('skip'));
-  root.querySelector('[data-action="save"]').addEventListener('click', () => commit('save'));
   root.querySelector('[data-action="watched"]').addEventListener('click', () => commit('watched'));
 
   store.subscribe((r) => {
@@ -141,7 +140,6 @@ function cardFor(item, interactive) {
   if (interactive) {
     card.appendChild(el('div', { class: 'deck-stamp stamp-yes', 'data-stamp': 'watched', text: 'Seen it' }));
     card.appendChild(el('div', { class: 'deck-stamp stamp-no', 'data-stamp': 'skip', text: 'Skip' }));
-    card.appendChild(el('div', { class: 'deck-stamp stamp-save', 'data-stamp': 'save', text: 'Watchlist' }));
   }
 
   const info = el('div', { class: 'deck-info' });
@@ -203,7 +201,6 @@ function attachGesture(card, item) {
   const stamps = {
     watched: card.querySelector('[data-stamp="watched"]'),
     skip: card.querySelector('[data-stamp="skip"]'),
-    save: card.querySelector('[data-stamp="save"]'),
   };
 
   const onDown = (e) => {
@@ -226,7 +223,6 @@ function attachGesture(card, item) {
 
     stamps.watched.style.opacity = dx > 30 ? String(Math.min(1, (dx - 30) / 70)) : '0';
     stamps.skip.style.opacity = dx < -30 ? String(Math.min(1, (-dx - 30) / 70)) : '0';
-    stamps.save.style.opacity = dy < -40 && Math.abs(dx) < 60 ? String(Math.min(1, (-dy - 40) / 70)) : '0';
   };
 
   const onUp = (e) => {
@@ -243,7 +239,6 @@ function attachGesture(card, item) {
     const vx = dx / dt;
     const vy = dy / dt;
 
-    if (dy < -SWIPE_THRESHOLD && Math.abs(dx) < 80) return commit('save', card);
     if (dx > SWIPE_THRESHOLD || vx > VELOCITY_THRESHOLD) return commit('watched', card);
     if (dx < -SWIPE_THRESHOLD || vx < -VELOCITY_THRESHOLD) return commit('skip', card);
 
@@ -286,18 +281,17 @@ function commit(action, cardEl) {
     card.style.opacity = '0';
   }
 
-  const prev = { seen: item.seen, seenAt: item.seenAt, saved: item.saved, watched: item.watched };
+  const prev = { seen: item.seen, seenAt: item.seenAt, watched: item.watched };
 
   setTimeout(() => {
     store.update(uid, { seen: true, seenAt: Date.now() });
-    if (action === 'save') actions.setSaved(uid, true, { silent: true });
     if (action === 'watched') actions.setWatched(uid, true, { silent: true });
 
     queue.shift();
     busy = false;
     render();
 
-    const label = { skip: 'Skipped', save: 'Added to watchlist', watched: 'Marked watched' }[action];
+    const label = { skip: 'Not yet', watched: 'Seen it' }[action];
     toast(`${label} · ${item.title}`, {
       action: 'Undo',
       duration: 2600,

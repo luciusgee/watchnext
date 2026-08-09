@@ -86,12 +86,7 @@ function fallbackTile(item) {
 }
 
 export function posterBadge(kind) {
-  const map = { watched: 'check', saved: 'bookmarkFill' };
-  const node = el('div', {
-    class: 'poster-badge' + (kind === 'saved' ? ' is-saved' : ''),
-    html: icon(map[kind] || 'check', 13),
-  });
-  return node;
+  return el('div', { class: 'poster-badge', html: icon(kind === 'watched' ? 'check' : 'check', 13) });
 }
 
 /* ── toast ──

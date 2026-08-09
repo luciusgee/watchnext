@@ -131,10 +131,10 @@ function render(item) {
     })
   );
   acts.appendChild(
-    button(item.saved ? 'On watchlist' : 'Watchlist', {
-      kind: item.saved ? 'on-amber' : 'secondary',
-      iconName: item.saved ? 'bookmarkFill' : 'bookmark',
-      onClick: () => actions.setSaved(item.uid, !item.saved),
+    button(item.owned ? 'I own this' : 'Mark as owned', {
+      kind: item.owned ? 'on-amber' : 'secondary',
+      iconName: 'drive',
+      onClick: () => actions.setOwned(item.uid, !item.owned),
     })
   );
   body.appendChild(acts);

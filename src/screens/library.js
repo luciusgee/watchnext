@@ -26,7 +26,7 @@ const state = {
   type: 'all', // all | movie | tv
   genre: null,
   quality: null, // 4K | 1080p | owned
-  status: null, // watched | unwatched | saved
+  status: null, // watched | unwatched | pile
   sort: 'title', // title | year | rating | added | runtime
   view: 'list', // list | grid
   rendered: 0,
@@ -71,8 +71,8 @@ export function initLibrary({ navigate: nav }) {
 }
 
 export function showLibrary(params = {}) {
-  if (params.filter === 'saved') {
-    state.status = 'saved';
+  if (params.filter === 'pile') {
+    state.status = 'pile';
     state.query = '';
     root.querySelector('#library-search').value = '';
   }
@@ -100,7 +100,7 @@ function compute() {
   else if (state.quality) list = list.filter((i) => i.quality === state.quality);
   if (state.status === 'watched') list = list.filter((i) => i.watched);
   else if (state.status === 'unwatched') list = list.filter((i) => !i.watched);
-  else if (state.status === 'saved') list = list.filter((i) => i.saved && !i.watched);
+  else if (state.status === 'pile') list = list.filter((i) => i.owned && !i.watched);
 
   const cmp = {
     title: (a, b) => a.sortTitle.localeCompare(b.sortTitle),
@@ -201,11 +201,6 @@ function rowFor(item) {
   if (item.watched) {
     end.appendChild(
       el('span', { html: icon('check', 16), style: 'color:var(--sage)', 'aria-label': 'Watched' }).firstChild
-    );
-  } else if (item.saved) {
-    end.appendChild(
-      el('span', { html: icon('bookmarkFill', 15), style: 'color:var(--amber)', 'aria-label': 'On watchlist' })
-        .firstChild
     );
   }
   row.appendChild(end);
@@ -339,7 +334,7 @@ function openFilters() {
       [
         ['unwatched', 'Not watched'],
         ['watched', 'Watched'],
-        ['saved', 'On watchlist'],
+        ['pile', 'Own it, never watched'],
       ],
       state.status,
       (v) => (state.status = v)
