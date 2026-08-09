@@ -43,6 +43,12 @@ export function makeItem(partial = {}) {
     year: partial.year ?? null,
     type: partial.type === 'tv' ? 'tv' : 'movie',
     genre: partial.genre || null,
+    /* Every genre the provider listed, where `genre` is the single one chosen
+       for display. Declared here because makeItem is what a backup is read
+       through — leaving it out meant an export/import round trip quietly
+       stripped this from every title, and the Library's genre facet narrowed
+       to whatever `genre` happened to be. */
+    genres: Array.isArray(partial.genres) ? partial.genres : [],
     rating: partial.rating ?? null,
     runtime: partial.runtime ?? null,
     overview: partial.overview || '',
@@ -542,6 +548,9 @@ export function importPayload(payload, mode = 'merge') {
         rating: existing.rating ?? inc.rating,
         runtime: existing.runtime ?? inc.runtime,
         imdbId: existing.imdbId || inc.imdbId,
+        /* Richer wins, same as every other field here: a backup carrying the
+           full genre list should fill in a record that only ever got one. */
+        genres: existing.genres?.length ? existing.genres : inc.genres || [],
       });
       merged += 1;
     } else {

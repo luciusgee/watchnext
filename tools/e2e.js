@@ -215,6 +215,40 @@ function check(name, cond, detail = '') {
   check('merge recognises every existing title', round.merged === round.before, `${round.merged}`);
   check('backup never contains API keys', round.hasKeys === false);
 
+  /* A backup that loses a field is the worst bug this app can have, and it is
+     invisible — the count matches, the titles are all there, and something you
+     cannot see is gone. `genres` was being dropped exactly this way: written by
+     metadata.toPatch, persisted by update(), and not declared in makeItem, which
+     is what a backup is read through. So this asserts the general rule rather
+     than that one field: whatever is on an item before the round trip is on it
+     afterwards. */
+  const fidelity = await page.evaluate(() => {
+    const store = window.__test;
+    const uid = store.items()[0].uid;
+    store.update(uid, {
+      genres: ['Horror', 'Thriller', 'Mystery'],
+      quality: '4K',
+      owned: true,
+      locked: ['genre'],
+      meta: { v: 3, status: 'confirmed', at: 1700000000000, confidence: 0.97, source: 'user' },
+    });
+    const before = JSON.parse(JSON.stringify(store.byUid(uid)));
+
+    const payload = JSON.parse(JSON.stringify(store.exportPayload()));
+    store.importPayload(payload, 'replace');
+    const after = store.byUid(uid);
+
+    const lost = Object.keys(before).filter(
+      (k) => JSON.stringify(before[k]) !== JSON.stringify(after?.[k])
+    );
+    return { lost, count: store.count(), genres: after?.genres };
+  });
+  check('a backup round trip loses no field on a title',
+    fidelity.lost.length === 0, `dropped or changed: ${fidelity.lost.join(', ')}`);
+  check('including every genre, not just the display one',
+    JSON.stringify(fidelity.genres) === JSON.stringify(['Horror', 'Thriller', 'Mystery']),
+    JSON.stringify(fidelity.genres));
+
   /* The backup has always carried your name and your list/grid choice, and
      nothing ever read them back — a full restore quietly handed you the
      defaults. And a restore must not be a route for a hand-edited file to plant
