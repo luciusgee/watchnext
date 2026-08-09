@@ -502,9 +502,26 @@ export function importPayload(payload, mode = 'merge') {
   if (mode === 'replace') {
     state.items = incoming;
     state.activity = Array.isArray(payload.activity) ? payload.activity : [];
+    /* Put back the settings the backup actually carries. exportPayload has
+       always written these and nothing ever read them, so a full restore
+       silently dropped your name and your list/grid choice.
+       Whitelisted field by field rather than merged wholesale: a backup is a
+       plain JSON file the user can edit, and settings is where the API keys
+       live — restoring one must not be a way to plant a key. */
+    const incomingSettings = payload.settings;
+    if (incomingSettings && typeof incomingSettings === 'object') {
+      if (typeof incomingSettings.name === 'string') {
+        state.settings.name = incomingSettings.name;
+      }
+      if (incomingSettings.libraryView === 'list' || incomingSettings.libraryView === 'grid') {
+        state.settings.libraryView = incomingSettings.libraryView;
+      }
+    }
     saveNow();
     return { added: incoming.length, merged: 0, skipped: 0 };
   }
+  /* Merging someone else's library into yours is not a reason to take their
+     name or their view preference, so settings are deliberately ignored below. */
 
   let added = 0;
   let merged = 0;

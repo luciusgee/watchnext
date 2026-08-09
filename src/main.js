@@ -323,6 +323,7 @@ function exposeTestHooks() {
       resetDiscover: actions.resetDiscover,
       exportPayload: store.exportPayload,
       importPayload: store.importPayload,
+      settings: store.settings,
       clearFilters: library.testClearFilters,
       visibleUids: library.testVisibleUids,
       currentDetailUid: detail.testCurrentUid,

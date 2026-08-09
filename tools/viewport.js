@@ -624,6 +624,24 @@ async function measure(page) {
     await c.close();
   }
 
+  /* Anything anchored above the tab bar has to be offset by how tall the bar
+     really is, floor included. The toast was offset by --sb alone, which is 0
+     on this app, so it sat exactly the height of the floor inside the bar. */
+  {
+    const { c, p } = await ios26({ bottom: 0 });
+    const m = await p.evaluate(async () => {
+      const { toast } = await import('./src/ui.js');
+      toast('Checking clearance');
+      await new Promise((r) => setTimeout(r, 350));
+      const t = document.querySelector('.toast').getBoundingClientRect();
+      const bar = document.querySelector('.tabbar').getBoundingClientRect();
+      return { overlap: Math.round(t.bottom - bar.top) };
+    });
+    check('a toast clears the tab bar rather than tucking behind it',
+      m.overlap <= 0, `overlaps by ${m.overlap}px`);
+    await c.close();
+  }
+
   /* A platform that reports a real bottom inset must use that instead of adding
      the floor to it — stacking would push the bar up by the pill twice. iOS does
      not report one here, but the CSS is written not to care, and the rule is

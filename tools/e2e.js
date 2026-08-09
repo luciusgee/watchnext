@@ -215,6 +215,27 @@ function check(name, cond, detail = '') {
   check('merge recognises every existing title', round.merged === round.before, `${round.merged}`);
   check('backup never contains API keys', round.hasKeys === false);
 
+  /* The backup has always carried your name and your list/grid choice, and
+     nothing ever read them back — a full restore quietly handed you the
+     defaults. And a restore must not be a route for a hand-edited file to plant
+     an API key, so the fields that come back are whitelisted. */
+  const settingsRound = await page.evaluate(() => {
+    const store = window.__test;
+    const payload = store.exportPayload();
+    payload.settings.name = 'Restored Name';
+    payload.settings.libraryView = 'grid';
+    payload.settings.dataKeys = { omdb: 'planted-by-a-hand-edited-file' };
+    payload.settings.aiKey = 'also-planted';
+    store.importPayload(payload, 'replace');
+    const after = store.settings();
+    return { name: after.name, view: after.libraryView, omdb: after.dataKeys?.omdb, ai: after.aiKey };
+  });
+  check('a full restore puts back the name it saved', settingsRound.name === 'Restored Name',
+    String(settingsRound.name));
+  check('and the list or grid choice', settingsRound.view === 'grid', String(settingsRound.view));
+  check('but a backup cannot plant an API key', !settingsRound.omdb && !settingsRound.ai,
+    `omdb=${settingsRound.omdb} ai=${settingsRound.ai}`);
+
   // ─────────────────────────────────────────────────────────
   console.log('\n─── persistence across reload ───');
   const target = await page.evaluate(() => {

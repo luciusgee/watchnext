@@ -877,7 +877,11 @@ body.is-typing .tabbar {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--sb) + var(--tabbar-h) + var(--s4));
+  /* Clear of the tab bar, which means matching how tall the bar actually is —
+     the same max() it pads itself with. Using --sb alone left the toast 4px
+     inside the bar on any phone with a home indicator, because the floor is
+     what makes up the difference there. */
+  bottom: calc(max(var(--sb), var(--sb-floor, 0px)) + var(--tabbar-h) + var(--s4));
   transform: translate(-50%, 12px);
   display: flex;
   align-items: center;
