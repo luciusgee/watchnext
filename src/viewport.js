@@ -110,9 +110,14 @@ export function healState() {
  * search box, and those are an improvement for everyone.
  */
 export function blockZoom() {
-  /* Passive listeners cannot cancel anything, and these default to passive on
-     some engines, so the flag is not optional. */
-  const stop = (e) => e.preventDefault();
+  /* Two separate requirements. The listener must be non-passive or it is not
+     allowed to cancel anything — and these types default to passive on some
+     engines, so the flag is not optional. And the event must itself be
+     cancelable: calling preventDefault on one that is not does nothing except
+     log a console warning. */
+  const stop = (e) => {
+    if (e.cancelable) e.preventDefault();
+  };
   for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
     document.addEventListener(type, stop, { passive: false });
   }
