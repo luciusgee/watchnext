@@ -16,6 +16,7 @@ import { getProvider, listProviders } from '../providers/index.js';
 import { storageHealth, markBackedUp, requestPersistence } from '../durability.js';
 import { BUILD } from '../build.js';
 import { healState } from '../viewport.js';
+import { openMatchPicker } from './match.js';
 import { runtime } from '../format.js';
 
 let root = null;
@@ -550,6 +551,23 @@ function reviewCard(item, closeAll) {
     row.appendChild(b);
     card.appendChild(row);
   }
+
+  /* The candidate list is whatever the stored title happened to return, which
+     is not always where the right film is — "Alien" surfaces Alien: Romulus
+     long before the 1979 one. This opens the same picker with an editable
+     search box. */
+  card.appendChild(
+    el('button', {
+      type: 'button',
+      class: 'btn btn-quiet btn-sm',
+      text: 'Search for a different film',
+      style: 'width:100%;margin-bottom:8px',
+      onclick: () => {
+        closeAll();
+        openMatchPicker(store.byUid(item.uid) || item, { onDone: openReviewQueue });
+      },
+    })
+  );
 
   const skip = el('button', {
     type: 'button',

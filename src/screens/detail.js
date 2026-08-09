@@ -13,6 +13,7 @@ import { el, clear, poster, button, iconButton, confirmDestructive, openSheet, t
 import { icon } from '../icons.js';
 import { runtime, metaLine, imdbUrl, trailerUrl, justWatchUrl, relativeTime, rating } from '../format.js';
 import { similarTo } from '../recommend.js';
+import { openMatchPicker } from './match.js';
 
 let root = null;
 let currentUid = null;
@@ -152,6 +153,31 @@ function render(item) {
   if (item.meta?.status === 'review' || item.meta?.status === 'unmatched') {
     body.appendChild(matchWarning(item));
   }
+
+  /* Always available, not only for titles the matcher flagged. A confidently
+     wrong match is the one you most need to correct, and it is precisely the
+     one that never appears in the review queue. */
+  body.appendChild(
+    el(
+      'div',
+      { style: 'margin-top:14px' },
+      el('button', {
+        class: 'btn btn-quiet btn-sm',
+        type: 'button',
+        style: 'width:100%',
+        text: 'Wrong film? Pick another',
+        onclick: () =>
+          openMatchPicker(item, {
+            /* Re-read from the store rather than re-using the captured item —
+               the picker has just replaced most of its fields. */
+            onDone: () => {
+              const fresh = store.byUid(item.uid);
+              if (fresh) render(fresh);
+            },
+          }),
+      })
+    )
+  );
 
   /* similar */
   const similar = similarTo(item, store.items());

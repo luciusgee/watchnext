@@ -25,6 +25,12 @@ import { META_VERSION, normaliseTitle, isLocked } from './store.js';
 import { pickGenre, parseRuntime, parseRating, parseYear } from './providers/shared.js';
 
 export { RequestBudget, parseRuntime, parseRating, parseYear, pickGenre } from './providers/shared.js';
+/* Re-exported deliberately. Screens write meta records of their own when the
+   user confirms a match by hand, and reaching for `meta.META_VERSION` when it
+   was not exported silently stored `v: undefined` — which reads as "older than
+   the current matcher", so a title the user had just confirmed went straight
+   back into the re-check queue. */
+export { META_VERSION } from './store.js';
 
 /* Confidence thresholds. Tuned against the real library — see tools/match.test.mjs */
 const AUTO_ACCEPT = 0.82; // write without asking
