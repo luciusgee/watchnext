@@ -13,12 +13,32 @@
      the head, ahead of the stylesheet, and its own tiny key so this does not
      have to parse the whole saved state on the critical path. */
   try {
-    if (localStorage.getItem('wn.fit') === 'safe') {
+    var fit = localStorage.getItem('wn.fit');
+
+    /* The setting predates that key: it used to live in the app's saved state,
+       where nothing reads it this early. Carry it over once, or the first
+       launch after updating comes up on the wrong fit and the only way out is
+       toggling the switch twice. Parsing the whole library here is not cheap,
+       so a marker makes sure it happens at most once per device — after that
+       the fast path above is a single small read. Key spelled out rather than
+       imported because nothing is loaded yet; if it ever changes this becomes
+       dead code, which by then is the correct outcome. */
+    if (!fit && !localStorage.getItem('wn.fit.checked')) {
+      var raw = localStorage.getItem('wn.state.v3');
+      var was = raw ? (JSON.parse(raw).settings || {}).screenFit : null;
+      if (was === 'safe' || was === 'cover') {
+        localStorage.setItem('wn.fit', was);
+        fit = was;
+      }
+      localStorage.setItem('wn.fit.checked', '1');
+    }
+
+    if (fit === 'safe') {
       document.currentScript.previousElementSibling.setAttribute(
         'content', 'width=device-width, initial-scale=1'
       );
     }
-  } catch (e) { /* storage unavailable: keep the default */ }
+  } catch (e) { /* storage unavailable or unreadable: keep the default */ }
 </script>
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0a09">

@@ -71,20 +71,43 @@ export function safeAreaInsets() {
  *
  * It takes effect at load, not on write. Rewriting the meta on a live page
  * does NOT make iOS recompute — it goes on reporting the same viewport and
- * the same insets, so the setting looks applied and changes nothing. The
- * value is mirrored to its own small key that an inline script in the head
- * reads before first layout; this function only records what is in force.
+ * the same insets, so the setting looks applied and changes nothing.
+ *
+ * So the choice lives in its own small key, an inline script in the head reads
+ * it before the first layout, and the page reloads to apply a change. That key
+ * is the only home for it. It used to also live in the app's saved state, and
+ * the two immediately drifted: the state said "safe", nothing had ever written
+ * the key, and the app relaunched edge to edge while Settings insisted it was
+ * not. The head script carries the old value over once; nothing here writes it
+ * back, and Settings reads what is in force rather than what was asked for.
  */
 const FIT_KEY = 'wn.fit';
 
+/**
+ * Record a choice. Returns the value that is actually in storage, or null if
+ * the write did not stick — the caller must not reload on the strength of a
+ * write that failed, or the reload comes back on the old fit and looks like
+ * the setting is broken rather than that storage is.
+ */
 export function persistScreenFit(fit) {
   const value = fit === 'safe' ? 'safe' : 'cover';
   try {
     localStorage.setItem(FIT_KEY, value);
+    return localStorage.getItem(FIT_KEY) === value ? value : null;
   } catch {
-    /* storage unavailable: the setting simply will not survive a relaunch */
+    /* Private mode, quota, or a blocked origin. */
+    return null;
   }
-  return value;
+}
+
+/** The recorded choice, or null if one has never been made. */
+export function savedScreenFit() {
+  try {
+    const saved = localStorage.getItem(FIT_KEY);
+    return saved === 'safe' || saved === 'cover' ? saved : null;
+  } catch {
+    return null;
+  }
 }
 
 /** What the head script actually applied, read back off the meta. */

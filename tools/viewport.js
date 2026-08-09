@@ -462,6 +462,87 @@ async function measure(page) {
     check('switching back restores viewport-fit', /viewport-fit=cover/.test(await metaContent()));
     check('and the recorded choice follows', (await savedFit()) === 'cover', String(await savedFit()));
 
+    /* One selected button, and it is the one describing the fit the app is
+       actually running in. The failure this guards against is not cosmetic: a
+       control that reports the wrong current value makes the other option look
+       like the broken one. */
+    const pressed = await p.evaluate(() =>
+      [...document.querySelectorAll('#screen-settings .seg button')]
+        .filter((b) => /Edge to edge|Inside the safe area/.test(b.textContent))
+        .map((b) => [b.textContent.trim(), b.getAttribute('aria-pressed')])
+    );
+    check('exactly one fit is shown as selected',
+      pressed.filter(([, on]) => on === 'true').length === 1, JSON.stringify(pressed));
+    check('and it is the one in force',
+      pressed.find(([, on]) => on === 'true')?.[0] === 'Edge to edge', JSON.stringify(pressed));
+
+    await c.close();
+  }
+
+  /*
+   * REGRESSION: a fit chosen before it had its own key.
+   *
+   * The setting used to be saved with the rest of the app's state, which the
+   * head script cannot read early enough to use — so the first launch after
+   * updating came up on the default fit while Settings still showed the old
+   * choice, and the only way out was toggling the switch twice. Reported from a
+   * phone, and invisible to every test here, because a test that has just
+   * clicked the switch has both copies in agreement.
+   */
+  console.log('\n─── a fit chosen before the update is carried over ───');
+  {
+    const c = await browser.newContext({ ...devices['iPhone 13 Pro'] });
+    await c.route('**://image.tmdb.org/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    await c.route('**://m.media-amazon.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    const p = await c.newPage();
+
+    /* Exactly the state on the device: the old home holds the choice, the new
+       key has never been written. */
+    await p.addInitScript(() => {
+      if (localStorage.getItem('wn.state.v3')) return; // only plant it on the first load
+      localStorage.setItem(
+        'wn.state.v3',
+        JSON.stringify({ schema: 3, items: [], activity: [], settings: { screenFit: 'safe', seeded: true } })
+      );
+    });
+
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.waitForSelector('body.is-ready');
+
+    const meta = () => p.evaluate(() => document.querySelector('meta[name="viewport"]').getAttribute('content'));
+    check('the old choice applies on the very first launch, with no toggling',
+      !/viewport-fit/.test(await meta()), await meta());
+    check('and it is moved to the key the head script reads',
+      (await p.evaluate(() => localStorage.getItem('wn.fit'))) === 'safe');
+    check('Settings agrees with what is in force',
+      (await p.evaluate(async () => (await import('./src/viewport.js')).healState().fit)) === 'safe');
+
+    /* The carry-over parses the whole library, so it must happen once and not
+       on every launch for the rest of the device's life. */
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.waitForSelector('body.is-ready');
+    check('the fit still holds on the next launch', !/viewport-fit/.test(await meta()), await meta());
+    check('and the carry-over does not run again',
+      (await p.evaluate(() => localStorage.getItem('wn.fit.checked'))) === '1');
+
+    await c.close();
+  }
+
+  /* The mirror image: nothing saved anywhere, which is every new install. The
+     carry-over must not invent a choice, or the default could never change. */
+  {
+    const c = await browser.newContext({ ...devices['iPhone 13 Pro'] });
+    await c.route('**://image.tmdb.org/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    await c.route('**://m.media-amazon.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    const p = await c.newPage();
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.waitForSelector('body.is-ready');
+    check('a fresh install is left on the default',
+      /viewport-fit=cover/.test(
+        await p.evaluate(() => document.querySelector('meta[name="viewport"]').getAttribute('content'))
+      ));
+    check('and no choice is recorded on its behalf',
+      (await p.evaluate(() => localStorage.getItem('wn.fit'))) === null);
     await c.close();
   }
 

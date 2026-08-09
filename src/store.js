@@ -99,11 +99,11 @@ function emptyState() {
       aiKey: '',
       aiEnabled: false,
       libraryView: 'list',
-      /* 'cover' asks iOS for the whole screen including the safe areas;
-         'safe' stays inside them and lets WebKit paint the rest with the page
-         background. Which one actually looks right is device- and
-         iOS-version-specific, so it is the user's to choose. */
-      screenFit: 'cover',
+      /* No screenFit here. It lived here once and could not: iOS reads the
+         viewport meta before any of this is loaded, so an inline script in the
+         head has to know the answer, and it is not parsing the whole library to
+         find out. It lives in its own 'wn.fit' key; the head script carries any
+         value still saved here over on the first launch after updating. */
       seeded: false,
     },
   };

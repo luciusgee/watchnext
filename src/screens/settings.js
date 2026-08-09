@@ -15,7 +15,7 @@ import * as meta from '../metadata.js';
 import { getProvider, listProviders } from '../providers/index.js';
 import { storageHealth, markBackedUp, requestPersistence } from '../durability.js';
 import { BUILD } from '../build.js';
-import { healState, safeAreaInsets, persistScreenFit } from '../viewport.js';
+import { healState, safeAreaInsets, persistScreenFit, activeScreenFit } from '../viewport.js';
 import { openMatchPicker } from './match.js';
 import { runtime } from '../format.js';
 
@@ -444,12 +444,15 @@ async function runSweep(opts, statusEl) {
  * with the page background — looks better.
  *
  * Nothing measurable from inside the page distinguishes those two outcomes, so
- * the switch is here and it applies immediately.
+ * the switch is here.
  */
 function screenFitGroup() {
   const g = el('div', { class: 'group' });
   const box = el('div', { class: 'group-pad' });
-  const current = store.settings().screenFit === 'safe' ? 'safe' : 'cover';
+  /* What is actually in force, read off the viewport meta — not a saved
+     preference. Those are not always the same thing, and when they came apart
+     this control cheerfully reported a fit the app was not running in. */
+  const current = activeScreenFit();
 
   box.appendChild(
     el('div', {
@@ -468,9 +471,12 @@ function screenFitGroup() {
         text: label,
         onclick: () => {
           if (id === current) return;
-          store.updateSettings({ screenFit: id });
-          store.saveNow();
-          persistScreenFit(id);
+          if (!persistScreenFit(id)) {
+            /* Reloading now would come back on the old fit and read as the
+               switch being broken, rather than storage being unavailable. */
+            toast('Could not save that — this device is blocking storage');
+            return;
+          }
           /* Rewriting the meta on a live page does not make iOS recompute the
              viewport — it keeps reporting the old numbers, so the setting
              looks applied and does nothing. Only a load re-reads it. */
