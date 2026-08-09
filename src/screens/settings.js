@@ -15,6 +15,7 @@ import * as meta from '../metadata.js';
 import { getProvider, listProviders } from '../providers/index.js';
 import { storageHealth, markBackedUp, requestPersistence } from '../durability.js';
 import { BUILD } from '../build.js';
+import { healState } from '../viewport.js';
 import { runtime } from '../format.js';
 
 let root = null;
@@ -864,6 +865,7 @@ function aboutBlock() {
   probe.remove();
 
   const lost = screen.height - window.innerHeight;
+  const heal = healState();
 
   const bits = [
     `screen ${screen.width}x${screen.height}`,
@@ -876,6 +878,10 @@ function aboutBlock() {
     `safe ${safeTop}/${safeBottom}`,
     `dpr ${window.devicePixelRatio}`,
     standalone ? 'home screen' : 'in browser',
+    /* Did the re-measure run, and did it achieve anything? Without this the
+       only way to tell a heal that never fired from one that fired and failed
+       is to guess, which is how this bug stayed open for three rounds. */
+    `heal ${heal.recovered}/${heal.attempts}${heal.gaveUp ? ' (stopped)' : ''}`,
     /* The headline number: anything other than 0 is screen the app never got. */
     lost > 1 ? `⚠ ${lost}pt withheld by iOS` : 'fills screen',
   ].filter(Boolean);

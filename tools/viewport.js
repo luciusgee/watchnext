@@ -275,7 +275,12 @@ async function measure(page) {
       }
       return window.__flips;
     });
-    check('stops after two ineffective attempts', flips <= 2, `${flips} flips`);
+    /* Three, not two: WebKit does not always report the restored height on the
+       next frame, so a heal that worked can look like a failure. The budget has
+       to tolerate that without switching itself off for the session — but it
+       still has to be bounded, or a device this cannot fix gets its whole UI
+       blinked on every keyboard dismissal. */
+    check('stops after three ineffective attempts', flips <= 3, `${flips} flips`);
     await c.close();
   }
 

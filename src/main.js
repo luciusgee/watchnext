@@ -8,6 +8,7 @@
 import * as store from './store.js';
 import { seedLibrary } from './seed.js';
 import { requestPersistence } from './durability.js';
+import { syncViewport } from './viewport.js';
 import { icon } from './icons.js';
 import { el, toast } from './ui.js';
 
@@ -132,153 +133,6 @@ async function boot() {
 }
 
 /**
- * Offline support.
- *
- * Registered after the app has rendered so it never delays first paint, and
- * skipped entirely under automation — a worker caching the shell between test
- * runs would make failures depend on which test ran first.
- */
-/**
- * Keep the shell matched to the *visible* viewport.
- *
- * The shell is position:fixed so it always fills the screen, but a fixed
- * element does not shrink when the on-screen keyboard appears — iOS shrinks
- * the visual viewport and leaves the layout viewport alone, so the composer on
- * the Ask tab and the search field in Library end up hidden behind the
- * keyboard. VisualViewport is the only reliable way to know how much room the
- * keyboard has taken.
- */
-function syncViewport() {
-  const vv = window.visualViewport;
-  if (!vv) return;
-
-  /* The difference between the layout and visual viewports is NOT necessarily
-     the keyboard. In Safari it is also the browser's own URL bar, which is
-     always there — so measuring the gap unconditionally shrinks the app by the
-     height of the address bar and leaves a dead band under the tab bar. Only a
-     focused text field can summon a keyboard, so that is the gate. */
-  const isEditing = () => {
-    const el = document.activeElement;
-    if (!el) return false;
-    return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
-  };
-
-  /* Below this, a shrink is browser chrome rather than a keyboard. No on-screen
-     keyboard is under ~150px on any phone. */
-  const KEYBOARD_MIN = 150;
-
-  let frame = 0;
-  const apply = () => {
-    cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(() => {
-      let covered = 0;
-      if (isEditing()) {
-        const gap = window.innerHeight - vv.height - vv.offsetTop;
-        if (gap >= KEYBOARD_MIN) covered = gap;
-      }
-      document.documentElement.style.setProperty('--kb', `${Math.round(covered)}px`);
-    });
-  };
-
-  vv.addEventListener('resize', apply);
-  vv.addEventListener('scroll', apply);
-  /* Focus changes are what actually open and close the keyboard; the viewport
-     events alone can fire before activeElement has settled. */
-  document.addEventListener('focusin', apply);
-  document.addEventListener('focusout', () => setTimeout(apply, 50));
-  apply();
-
-  initViewportHeal(isEditing, apply);
-}
-
-/**
- * Undo iOS's permanent viewport shrink.
- *
- * In a home-screen web app, the first time the on-screen keyboard opens iOS
- * shrinks the layout viewport by the height of the status bar and then never
- * gives it back — innerHeight, visualViewport.height and 100dvh all drop
- * together (932 → 873 on this phone) and stay there until the app is force
- * quit. Everything downstream is then correct about a wrong number: the shell
- * fills the viewport perfectly, the viewport is simply 59pt shorter than the
- * screen, and the difference shows up as a dead band under the tab bar.
- *
- * Toggling display on a full-height element forces WebKit to re-measure, which
- * restores the real height. It is a blunt instrument — it costs a reflow and
- * blanks the shell for one frame — so it only runs when there is a measured
- * shortfall and no field is focused, and it gives up rather than flickering
- * forever if it turns out not to help on some future iOS.
- */
-function initViewportHeal(isEditing, afterHeal) {
-  const standalone =
-    window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-  if (!standalone) return; // mobile Safari does not have this bug
-
-  const app = document.getElementById('app');
-  if (!app) return;
-
-  let tallest = window.innerHeight;
-
-  /* A launch can inherit the shrink from a previous session, so the screen is
-     used as a second opinion — but only when the gap is status-bar sized. A
-     wildly different number means something we do not understand, and healing
-     towards it would be guessing. */
-  const plausible = screen.height - window.innerHeight;
-  if (plausible > 0 && plausible <= 120) tallest = Math.max(tallest, screen.height);
-
-  let givenUp = false;
-  let failures = 0;
-
-  window.addEventListener('resize', () => {
-    tallest = Math.max(tallest, window.innerHeight);
-  });
-
-  function heal() {
-    if (givenUp) return;
-    if (isEditing()) return; // the keyboard is genuinely up; the shrink is real
-    const before = window.innerHeight;
-    if (tallest - before <= 4) return;
-
-    /* Blanking the shell resets every scroll container inside it. */
-    const scrollers = [...document.querySelectorAll('.scroll')];
-    const tops = scrollers.map((s) => s.scrollTop);
-
-    app.style.display = 'none';
-    void app.offsetHeight; // force a synchronous reflow while it is gone
-    app.style.display = '';
-
-    scrollers.forEach((s, i) => {
-      s.scrollTop = tops[i];
-    });
-
-    requestAnimationFrame(() => {
-      if (window.innerHeight > before) {
-        failures = 0;
-        afterHeal();
-      } else if (++failures >= 2) {
-        /* Two flips with nothing to show for it: stop, rather than blinking the
-           whole app at someone on every keyboard dismissal for no benefit. */
-        givenUp = true;
-        console.info('[viewport] shrink could not be healed — leaving it alone');
-      }
-    });
-  }
-
-  /* Dismissing the keyboard is what leaves the viewport stuck, so that is the
-     moment to check. The delay lets iOS finish its own animation first. */
-  document.addEventListener('focusout', () => setTimeout(heal, 160));
-  /* And returning to the app, which is when a shrink inherited from earlier in
-     the session becomes visible again. */
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) setTimeout(heal, 120);
-  });
-  window.addEventListener('pageshow', () => setTimeout(heal, 120));
-
-  /* Finally, once at startup — this is the case the user actually reported: the
-     app opened already short, with no keyboard involved. */
-  setTimeout(heal, 400);
-}
-
-/**
  * Ask the browser not to evict us, and recover if it already has.
  *
  * WebKit deletes script-writable storage after seven days of browser use
@@ -298,6 +152,13 @@ function protectStorage() {
 
 const SW_DISABLED_KEY = 'wn.sw.disabled';
 
+/**
+ * Offline support.
+ *
+ * Registered after the app has rendered so it never delays first paint, and
+ * skipped entirely under automation — a worker caching the shell between test
+ * runs would make failures depend on which test ran first.
+ */
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
   if (location.protocol === 'file:') return;
