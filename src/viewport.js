@@ -183,6 +183,13 @@ export function syncViewport() {
         if (gap >= KEYBOARD_MIN) covered = gap;
       }
       document.documentElement.style.setProperty('--kb', `${Math.round(covered)}px`);
+      /* Everything the phone does with a tab bar when the keyboard opens is to
+         get it out of the way. Riding up to sit on top of the keyboard is not a
+         thing iOS does anywhere, and it spends 56pt of the little height that
+         is left on a row you cannot usefully tap mid-sentence — the tap would
+         dismiss the keyboard and navigate away from what you were typing. The
+         stylesheet hides it on this class; see .tabbar. */
+      document.body.classList.toggle('is-typing', covered > 0);
     });
   };
 

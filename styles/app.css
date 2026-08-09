@@ -301,6 +301,12 @@ img {
   flex: none;
 }
 
+/* The keyboard is where the bottom of the screen went. Set from viewport.js
+   only for a real keyboard, never for browser chrome. */
+body.is-typing .tabbar {
+  display: none;
+}
+
 .tab {
   flex: 1;
   min-height: var(--tabbar-h);

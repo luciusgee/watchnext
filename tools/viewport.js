@@ -109,13 +109,49 @@ async function measure(page) {
     await new Promise((r) => setTimeout(r, 250));
     const kb = getComputedStyle(document.documentElement).getPropertyValue('--kb').trim();
     const composer = document.querySelector('.composer').getBoundingClientRect();
-    return { supported: true, kb, composerBottom: Math.round(composer.bottom), visible: window.innerHeight - KEYBOARD };
+    const bar = document.querySelector('.tabbar');
+    return {
+      supported: true,
+      kb,
+      composerBottom: Math.round(composer.bottom),
+      visible: window.innerHeight - KEYBOARD,
+      barShown: bar.getClientRects().length > 0,
+    };
   });
 
   if (shrunk.supported) {
     check('the shell reacts to the keyboard', shrunk.kb === '300px', `--kb=${shrunk.kb}`);
     check('the composer stays above the keyboard', shrunk.composerBottom <= shrunk.visible + 1,
       `composer bottom=${shrunk.composerBottom}, visible area ends at ${shrunk.visible}`);
+    /* Reported from the phone: the tab bar rode up and sat on top of the
+       keyboard. Nothing on iOS does that — the bar goes away while you type,
+       both because it is not tappable in any useful sense mid-sentence and
+       because those 56pt are most of what is left of the screen. */
+    check('the tab bar is out of the way while typing', !shrunk.barShown);
+
+    /* The composer takes the space the bar gave up, rather than the app leaving
+       a band of nothing between the text field and the keyboard. */
+    const flush = await page.evaluate(() => {
+      const app = document.getElementById('app').getBoundingClientRect();
+      const composer = document.querySelector('.composer').getBoundingClientRect();
+      return Math.round(app.bottom - composer.bottom);
+    });
+    check('and the composer sits against the keyboard', flush <= 1, `${flush}px of dead space`);
+
+    const after = await page.evaluate(async () => {
+      document.activeElement?.blur();
+      await new Promise((r) => setTimeout(r, 400));
+      const bar = document.querySelector('.tabbar');
+      return {
+        shown: bar.getClientRects().length > 0,
+        kb: getComputedStyle(document.documentElement).getPropertyValue('--kb').trim(),
+        barBottom: Math.round(bar.getBoundingClientRect().bottom),
+        viewportH: window.innerHeight,
+      };
+    });
+    check('and it comes back when the keyboard goes', after.shown, `--kb=${after.kb}`);
+    check('back at the bottom, where it was', after.barBottom === after.viewportH,
+      `${after.barBottom}/${after.viewportH}`);
   } else {
     console.log('  (VisualViewport unavailable — skipped)');
   }
@@ -140,9 +176,14 @@ async function measure(page) {
       shellBottom: Math.round(app.bottom),
       gapBelowBar: Math.round(window.innerHeight - bar.bottom),
       viewportH: window.innerHeight,
+      barShown: document.querySelector('.tabbar').getClientRects().length > 0,
     };
   });
   check('a URL bar sized shrink is ignored with nothing focused', chrome.kb === '0px', `--kb=${chrome.kb}`);
+  /* Hiding the bar is keyed off the same signal, so it must not fire here —
+     losing the navigation for the whole session in Safari would be worse than
+     the gap this test was originally written for. */
+  check('and the tab bar is not hidden by browser chrome', chrome.barShown);
   check('the shell still reaches the bottom with browser chrome showing',
     chrome.shellBottom === chrome.viewportH, `${chrome.shellBottom}/${chrome.viewportH}`);
   check('no dead space under the tab bar with browser chrome showing',
@@ -154,10 +195,14 @@ async function measure(page) {
     document.getElementById('ask-input').focus();
     window.visualViewport.dispatchEvent(new Event('resize'));
     await new Promise((r) => setTimeout(r, 300));
-    return getComputedStyle(document.documentElement).getPropertyValue('--kb').trim();
+    return {
+      kb: getComputedStyle(document.documentElement).getPropertyValue('--kb').trim(),
+      barShown: document.querySelector('.tabbar').getClientRects().length > 0,
+    };
   });
   check('a 90px shrink is not treated as a keyboard even when focused',
-    smallWhileFocused === '0px', `--kb=${smallWhileFocused}`);
+    smallWhileFocused.kb === '0px', `--kb=${smallWhileFocused.kb}`);
+  check('and the bar stays put — focus alone is not a keyboard', smallWhileFocused.barShown);
 
   await ctx.close();
 
