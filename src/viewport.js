@@ -103,11 +103,18 @@ export function measureShortfall() {
   if (!standalone) return 0;
 
   const shortfall = screen.height - window.innerHeight;
-  const { top } = safeAreaInsets();
 
-  /* Only the status-bar-sized shortfall is the known iOS 26 behaviour. Anything
-     else is a different problem and should not be labelled as this one. */
-  if (shortfall <= 0 || top <= 0 || Math.abs(shortfall - top) > 1) return 0;
+  /* Only a status-bar-sized shortfall is the known iOS behaviour. Anything
+     wildly larger is a different problem and should not be labelled as this one.
+     This used to check the gap against env(safe-area-inset-top) instead, which
+     was tighter and is no longer available: the inset only reported a real
+     number under viewport-fit=cover, and the app stopped asking for that. The
+     comparison then failed every time, the shortfall read as zero, and the
+     blank-and-reflow heal — which this measurement exists to suppress, having
+     been shown not to work here — quietly switched itself back on and blinked
+     the whole UI three times at every launch. Caught from a `heal 0/3 (stopped)`
+     in a diagnostics line, which is the entire reason that line exists. */
+  if (shortfall <= 0 || shortfall > 120) return 0;
 
   state.shortfall = shortfall;
   return shortfall;
@@ -173,6 +180,11 @@ export function syncViewport() {
      keyboard is under ~150px on any phone. */
   const KEYBOARD_MIN = 150;
 
+  /* Whether focusing a field summons a keyboard that eats the screen. True on a
+     phone, false with a mouse and a real keyboard — where hiding the navigation
+     the moment someone clicks a search box would be gratuitous. */
+  const TOUCH = window.matchMedia('(pointer: coarse)').matches;
+
   let frame = 0;
   const apply = () => {
     cancelAnimationFrame(frame);
@@ -188,8 +200,17 @@ export function syncViewport() {
          thing iOS does anywhere, and it spends 56pt of the little height that
          is left on a row you cannot usefully tap mid-sentence — the tap would
          dismiss the keyboard and navigate away from what you were typing. The
-         stylesheet hides it on this class; see .tabbar. */
-      document.body.classList.toggle('is-typing', covered > 0);
+         stylesheet hides it on this class; see .tabbar.
+
+         Focus, not the measurement, is the trigger. iOS takes a few hundred ms
+         to slide the keyboard up and reports the viewport shrinking the whole
+         way, so hiding on `covered` leaves the bar visibly riding the keyboard
+         for the length of that animation before it vanishes — which is the
+         complaint this was meant to fix, still there and now with a
+         disappearing act at the end. On a touch device a focused text field
+         means a keyboard is on its way, full stop. Where there is a real
+         pointer there is a real keyboard and nothing needs to move. */
+      document.body.classList.toggle('is-typing', covered > 0 || (TOUCH && isEditing()));
     });
   };
 

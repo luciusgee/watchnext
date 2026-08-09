@@ -152,6 +152,26 @@ async function measure(page) {
     check('and it comes back when the keyboard goes', after.shown, `--kb=${after.kb}`);
     check('back at the bottom, where it was', after.barBottom === after.viewportH,
       `${after.barBottom}/${after.viewportH}`);
+
+    /* And it goes on focus, not on the measurement. iOS reports the viewport
+       shrinking all the way through its keyboard animation, so a bar that waits
+       for 150px of it visibly rides the keyboard up first — which is the
+       original complaint, still there, with a vanishing act on the end. This is
+       the first frame after focus and before any viewport change at all. */
+    const onFocusAlone = await page.evaluate(async () => {
+      const vv = window.visualViewport;
+      document.activeElement?.blur();
+      Object.defineProperty(vv, 'height', { get: () => window.innerHeight, configurable: true });
+      vv.dispatchEvent(new Event('resize'));
+      await new Promise((r) => setTimeout(r, 200));
+      const before = document.querySelector('.tabbar').getClientRects().length > 0;
+      document.getElementById('ask-input').focus();
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      return { before, after: document.querySelector('.tabbar').getClientRects().length > 0 };
+    });
+    check('the bar is there before the field is touched', onFocusAlone.before);
+    check('and gone by the frame after focus, before the keyboard has moved',
+      !onFocusAlone.after);
   } else {
     console.log('  (VisualViewport unavailable — skipped)');
   }
@@ -195,22 +215,48 @@ async function measure(page) {
     document.getElementById('ask-input').focus();
     window.visualViewport.dispatchEvent(new Event('resize'));
     await new Promise((r) => setTimeout(r, 300));
-    return {
-      kb: getComputedStyle(document.documentElement).getPropertyValue('--kb').trim(),
-      barShown: document.querySelector('.tabbar').getClientRects().length > 0,
-    };
+    return getComputedStyle(document.documentElement).getPropertyValue('--kb').trim();
   });
   check('a 90px shrink is not treated as a keyboard even when focused',
-    smallWhileFocused.kb === '0px', `--kb=${smallWhileFocused.kb}`);
-  check('and the bar stays put — focus alone is not a keyboard', smallWhileFocused.barShown);
+    smallWhileFocused === '0px', `--kb=${smallWhileFocused}`);
 
   await ctx.close();
+
+  /* Focus hides the bar because on a phone a focused field means a keyboard is
+     coming. With a mouse and a real keyboard nothing is coming, and whipping the
+     navigation away the moment someone clicks a search box would be gratuitous. */
+  {
+    const c = await browser.newContext({ viewport: { width: 1280, height: 900 }, hasTouch: false });
+    await c.route('**://image.tmdb.org/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    await c.route('**://m.media-amazon.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
+    const p = await c.newPage();
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.waitForSelector('body.is-ready');
+    await p.click('[data-tab="ask"]');
+    await p.waitForTimeout(400);
+    const shown = await p.evaluate(async () => {
+      document.getElementById('ask-input').focus();
+      await new Promise((r) => setTimeout(r, 250));
+      return document.querySelector('.tabbar').getClientRects().length > 0;
+    });
+    check('with a real pointer, focus alone leaves the bar alone', shown);
+    await c.close();
+  }
 
   /*
    * iOS shrinks a home-screen web app's viewport by the status bar height the
    * first time a keyboard opens and never restores it — innerHeight drops from
    * 932 to 873 and stays there, leaving a dead band under the tab bar. The only
    * known cure is to blank a full-height element so WebKit re-measures.
+   *
+   * Note what this is NOT: a viewport that is already short at boot. That looks
+   * identical in every measurement and is a different fault — iOS 26 simply
+   * hands a home-screen app less than the screen — and blanking the shell does
+   * not recover a pixel of it (measured 0/3 on the device). The app tells them
+   * apart by when the shortfall appears, so the simulation has to as well: this
+   * one boots at full height and shrinks later, which is the only case the heal
+   * is for. An earlier version of this file booted short, so it was testing the
+   * mechanism against the fault it cannot fix.
    *
    * Simulated faithfully: innerHeight reports the shrunk value until the shell
    * is actually flipped to display:none, then reports the true one. Nothing
@@ -229,8 +275,10 @@ async function measure(page) {
         window.__flips = 0;
         window.__healed = false;
         Object.defineProperty(window.screen, 'height', { get: () => real, configurable: true });
+        /* Full height until something shrinks it, exactly as the device does. */
+        window.__shrunk = false;
         Object.defineProperty(window, 'innerHeight', {
-          get: () => (window.__healed ? real : shrunk),
+          get: () => (window.__shrunk && !window.__healed ? shrunk : real),
           configurable: true,
         });
         document.addEventListener('DOMContentLoaded', () => {
@@ -260,19 +308,31 @@ async function measure(page) {
   console.log('\n─── recovering from the iOS keyboard viewport shrink ───');
   {
     const { c, p } = await standaloneCtx(true);
-    await p.waitForTimeout(1200); // the startup heal runs at 400ms
+    await p.waitForTimeout(1200);
 
-    /* Only the *reported* height can be faked here — Chromium's real layout
+    /* Nothing has gone wrong yet, so nothing should have happened. The heal
+       blanks the entire UI for a frame; doing that speculatively at every
+       launch is exactly the cost this is not allowed to impose. */
+    const quiet = await p.evaluate(() => window.__flips);
+    check('nothing is blanked while the viewport is the right size', quiet === 0, `${quiet} flips`);
+
+    /* Now the fault: the keyboard opens, closes, and iOS keeps the space.
+       Only the *reported* height can be faked here — Chromium's real layout
        viewport stays 390x664 — so the shell's own rect is not meaningful in
        this section. That the shell fills whatever viewport it is handed is
        already asserted against real geometry further up. What matters here is
        the number the app reasons from: does the withheld space reach zero. */
-    const after = await p.evaluate(() => ({
-      flips: window.__flips,
-      innerHeight: window.innerHeight,
-      withheld: window.screen.height - window.innerHeight,
-    }));
-    check('a viewport that boots short is healed', after.flips >= 1, `${after.flips} flips`);
+    const after = await p.evaluate(async () => {
+      window.__shrunk = true;
+      document.dispatchEvent(new Event('focusout'));
+      await new Promise((r) => setTimeout(r, 700));
+      return {
+        flips: window.__flips,
+        innerHeight: window.innerHeight,
+        withheld: window.screen.height - window.innerHeight,
+      };
+    });
+    check('a viewport the keyboard shrank is healed', after.flips >= 1, `${after.flips} flips`);
     check('the viewport is restored to the full screen', after.innerHeight === REAL, `${after.innerHeight}`);
     check('no screen height is left withheld', after.withheld === 0, `${after.withheld}pt`);
 
@@ -314,6 +374,7 @@ async function measure(page) {
     const { c, p } = await standaloneCtx(false);
     await p.waitForTimeout(1000);
     const flips = await p.evaluate(async () => {
+      window.__shrunk = true; // and this one never comes back
       for (let i = 0; i < 4; i++) {
         document.dispatchEvent(new Event('focusout'));
         await new Promise((r) => setTimeout(r, 400));
@@ -356,12 +417,27 @@ async function measure(page) {
         if (sa) Object.defineProperty(navigator, 'standalone', { get: () => true, configurable: true });
         Object.defineProperty(window.screen, 'height', { get: () => sh, configurable: true });
         Object.defineProperty(window, 'innerHeight', { get: () => vh, configurable: true });
+        /* Count blank-and-reflow attempts the same way standaloneCtx does. This
+           was missing, so `flips` read 0 whether or not the heal ran and the
+           assertion below could not fail — which is how a change that switched
+           the heal back on shipped, and had to be caught off a diagnostics line
+           from the phone instead. */
+        window.__flips = 0;
         /* env() cannot be overridden, so insets are substituted through the
            --st/--sb tokens the app already resolves them with. */
         document.addEventListener('DOMContentLoaded', () => {
           const st = document.createElement('style');
           st.textContent = `:root{--st:${t}px !important;--sb:${b}px !important}`;
           document.head.appendChild(st);
+          const app = document.getElementById('app');
+          new MutationObserver((records) => {
+            for (const r of records) {
+              if ((r.oldValue || '').includes('display: none')) {
+                window.__flips++;
+                break;
+              }
+            }
+          }).observe(app, { attributes: true, attributeFilter: ['style'], attributeOldValue: true });
         });
       },
       [screenH, viewportH, top, bottom, standalone]
@@ -411,12 +487,33 @@ async function measure(page) {
     await c.close();
   }
 
+  /* The shipped configuration, which the case above does not cover: the app does
+     not ask for viewport-fit=cover, so BOTH insets report 0. An earlier guard
+     compared the shortfall against the top inset to confirm it was status-bar
+     sized, which made it undetectable once the insets went to 0 — and an
+     undetected shortfall is what re-enables the heal, so the app blinked itself
+     three times at every launch to fix something it cannot fix. */
+  {
+    const { c, p } = await ios26({ top: 0, bottom: 0 });
+    /* Past the last of the heal's retries at 400/1200/2500ms. */
+    await p.waitForTimeout(3000);
+    const m = await p.evaluate(async () => ({
+      shortfall: (await import('./src/viewport.js')).healState().shortfall,
+      flips: window.__flips || 0,
+    }));
+    check('the shortfall is still measured with no insets to compare it against',
+      m.shortfall === 59, String(m.shortfall));
+    check('so the heal that was measured not to work never starts',
+      m.flips === 0, `${m.flips} flips`);
+    await c.close();
+  }
+
   console.log('\n─── and is not claimed where it does not apply ───');
 
   for (const [label, opts] of [
     ['a viewport that measures correctly', { viewportH: 932 }],
     ['in-browser rather than home screen', { standalone: false }],
-    ['a shortfall that is not the top inset', { viewportH: 800 }],
+    ['a shortfall far too large to be the status bar', { viewportH: 800 }],
   ]) {
     const { c, p } = await ios26(opts);
     const reported = await p.evaluate(async () => {
