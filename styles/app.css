@@ -1200,6 +1200,63 @@ body.is-typing .tabbar {
   transform: rotate(9deg);
 }
 
+/* Library multi-select. The bar sits above the tab bar rather than replacing
+   it — losing the navigation mid-task is disorienting, and the bar is a mode
+   you can leave. */
+.select-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(max(var(--sb), var(--sb-floor, 0px)) + var(--tabbar-h));
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: var(--s2) var(--s3);
+  background: var(--overlay);
+  border-top: 1px solid var(--hairline-strong);
+  z-index: 800;
+}
+.select-count {
+  font-size: var(--t-meta);
+  color: var(--silver);
+  padding: 0 var(--s2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.select-act {
+  flex: 1;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: var(--r-sm);
+  color: var(--bone);
+  font-size: var(--t-micro);
+}
+.select-act:active {
+  background: var(--raised);
+}
+.row.is-picked {
+  background: var(--amber-dim);
+}
+.row-pick {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--amber-line);
+  color: var(--amber);
+}
+.row.is-picked .row-pick {
+  background: var(--amber);
+  color: var(--ink);
+  border-color: var(--amber);
+}
+
 /* Tonight's shortlist — reuses the whole .deck-* family; only the constraint
    line is new. */
 .pick-meta {

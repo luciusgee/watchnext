@@ -474,6 +474,81 @@ function check(name, cond, detail = '') {
   check('and the hero moves on to something else',
     afterWatch.title !== heroBefore.title, `${heroBefore.title} -> ${afterWatch.title}`);
 
+  // ─────────────────────────────────────────────────────────
+  /* Bulk edit. The operation that matters at five hundred titles: setting a
+     format across a shelf, or marking a run as owned, is otherwise five hundred
+     trips through the detail screen — which is why it does not get done, and why
+     the format data on a big library is patchy. */
+  console.log('\n─── selecting more than one thing at a time ───');
+  await page.click('[data-tab="library"]');
+  await page.waitForTimeout(600);
+  await page.evaluate(() => window.__test.clearFilters());
+  /* List view explicitly: an earlier test restores a backup that carries
+     libraryView 'grid', and selection is list-only by design. */
+  await page.evaluate(() => {
+    if (!document.querySelector('#screen-library .row')) {
+      document.querySelector('#screen-library [data-action="view"]').click();
+    }
+  });
+  await page.waitForTimeout(500);
+
+  const enterSelection = async (n) => {
+    await page.evaluate((count) => {
+      const rows = [...document.querySelectorAll('#screen-library .row')].slice(0, count);
+      for (const r of rows) {
+        r.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientY: 100 }));
+      }
+    }, n);
+    await page.waitForTimeout(700);
+  };
+
+  await enterSelection(3);
+  const selection = await page.evaluate(() => ({
+    bar: !!document.querySelector('[data-region="select-bar"]'),
+    count: document.querySelector('.select-count')?.textContent,
+    marked: document.querySelectorAll('#screen-library .row.is-picked').length,
+  }));
+  check('holding a row starts a selection', selection.bar, JSON.stringify(selection));
+  check('and says how many are in it', /3 selected/.test(selection.count || ''), selection.count);
+  check('with the chosen rows marked', selection.marked === 3, String(selection.marked));
+
+  const chosenUids = await page.evaluate(() => window.__test.visibleUids().slice(0, 3));
+  const ownedBefore = await page.evaluate((uids) =>
+    uids.map((u) => window.__test.byUid(u)).map((i) => ({ owned: i.owned, quality: i.quality })), chosenUids);
+
+  await page.evaluate(() =>
+    [...document.querySelectorAll('.select-act')].find((b) => /Owned/.test(b.textContent)).click()
+  );
+  await page.waitForTimeout(500);
+  await page.evaluate(() =>
+    [...document.querySelectorAll('.sheet-actions button')].find((b) => /Owned — 4K/.test(b.textContent)).click()
+  );
+  await page.waitForTimeout(700);
+
+  const afterBulk = await page.evaluate((uids) =>
+    uids.map((u) => window.__test.byUid(u)).map((i) => ({ owned: i.owned, quality: i.quality })), chosenUids);
+  check('setting a format applies to every selected title',
+    afterBulk.every((i) => i.owned === true && i.quality === '4K'), JSON.stringify(afterBulk));
+  check('and the selection ends afterwards',
+    await page.evaluate(() => !document.querySelector('[data-region="select-bar"]')));
+
+  /* One undo for the batch, not one per title — thirty toasts is not an undo. */
+  const undone = await page.evaluate(async () => {
+    const btn = [...document.querySelectorAll('.toast button')].find((b) => /Undo/.test(b.textContent));
+    if (!btn) return null;
+    btn.click();
+    await new Promise((r) => setTimeout(r, 500));
+    return true;
+  });
+  check('a batch is one undo, not one per title', undone === true);
+  if (undone) {
+    const restored = await page.evaluate((uids) =>
+      uids.map((u) => window.__test.byUid(u)).map((i) => ({ owned: i.owned, quality: i.quality })), chosenUids);
+    check('and it puts every one of them back',
+      JSON.stringify(restored) === JSON.stringify(ownedBefore),
+      `${JSON.stringify(restored)} vs ${JSON.stringify(ownedBefore)}`);
+  }
+
   /* Tonight's shortlist.
    *
    * The load-bearing property is the one in the brief — "it doesn't affect your
