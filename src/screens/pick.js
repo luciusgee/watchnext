@@ -94,7 +94,10 @@ export function showPick(params = {}) {
 
 function matching(items, c) {
   const muted = store.tastePrefs();
-  let list = items.filter((i) => !i.watched);
+  const person = store.viewer();
+  /* Unwatched by the person being answered for, not by the household — a film
+     his partner has seen and he has not is a candidate for his evening. */
+  let list = items.filter((i) => !store.seenBy(i, person));
   /* Applied here as well as in the scorer so the "N films to deal from" count
      in the sheet is the truth. Counting films the deck will then refuse to deal
      is worse than no count. */
@@ -138,7 +141,9 @@ function deal() {
   const mood = MOODS.find((m) => m.id === constraints.mood);
   const pool = matching(all, constraints);
 
+  const person = store.viewer();
   const ranked = rank(pool, {
+    viewerSeen: person ? new Set(all.filter((i) => store.seenBy(i, person)).map((i) => i.uid)) : null,
     /* Built from the whole library, not the filtered pool — see rank(). */
     profile: tasteProfile(all),
     muted: store.tastePrefs(),

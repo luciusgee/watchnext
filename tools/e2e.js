@@ -690,6 +690,102 @@ function check(name, cond, detail = '') {
   await page.waitForSelector('body.is-ready');
   await page.waitForTimeout(700);
 
+  // ─────────────────────────────────────────────────────────
+  /* One shelf, two watch histories.
+   *
+   * The load-bearing property is that a solo library is untouched: with fewer
+   * than two people nothing appears, nothing changes shape, and every existing
+   * behaviour is the behaviour it always was. */
+  console.log('\n─── one shelf, separate histories ───');
+
+  await page.click('[data-tab="tonight"]');
+  await page.waitForTimeout(600);
+  const soloScreen = await page.evaluate(() =>
+    document.querySelector('#screen-tonight [data-region="body"]').innerText);
+  /* Case-insensitive deliberately: innerText returns rendered text and
+     .eyebrow is uppercased in CSS, so /Watching/ matches nothing either way —
+     which would make this assertion and its opposite both pass. */
+  check('with nobody named, the app says nothing about people', !/watching/i.test(soloScreen));
+
+  const beforePeople = await page.evaluate(() =>
+    JSON.stringify(JSON.parse(localStorage.getItem('wn.state.v3')).items.map((i) => i.watched)));
+
+  /* Adding the first person hands them the existing history, because it is
+     theirs — the app has only ever had one user until this moment. */
+  await page.evaluate(() => {
+    window.__test.addPerson('Luke');
+  });
+  await page.waitForTimeout(500);
+  const afterFirst = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('wn.state.v3'));
+    const id = s.settings.people[0].id;
+    const watched = s.items.filter((i) => i.watched);
+    return {
+      people: s.settings.people.length,
+      inherited: watched.every((i) => i.watchedBy && id in i.watchedBy),
+      watchedFlags: JSON.stringify(s.items.map((i) => i.watched)),
+    };
+  });
+  check('the first person inherits the existing watch history', afterFirst.inherited);
+  check('and the shared watched flags are untouched by that',
+    afterFirst.watchedFlags === beforePeople);
+
+  const stillSolo = await page.evaluate(() => {
+    document.querySelector('[data-tab="library"]').click();
+    document.querySelector('[data-tab="tonight"]').click();
+    return document.querySelector('#screen-tonight [data-region="body"]').innerText;
+  });
+  check('one person still shows no switcher — it is not a household yet',
+    !/watching/i.test(stillSolo));
+
+  await page.evaluate(() => window.__test.addPerson('Sam'));
+  await page.waitForTimeout(600);
+  await page.click('[data-tab="library"]');
+  await page.waitForTimeout(300);
+  await page.click('[data-tab="tonight"]');
+  await page.waitForTimeout(700);
+  check('a second person brings out the switcher',
+    await page.evaluate(() => /watching/i.test(
+      document.querySelector('#screen-tonight [data-region="body"]').innerText)));
+
+  /* The point of the whole feature: a film one of them has seen is still a
+     first watch for the other. */
+  const perPerson = await page.evaluate(async () => {
+    const st = await import('./src/store.js');
+    const [luke, sam] = st.people();
+    const film = st.items().find((i) => i.watched);
+    return {
+      lukeSeen: st.seenBy(film, luke.id),
+      samSeen: st.seenBy(film, sam.id),
+      shared: film.watched,
+    };
+  });
+  check('a film watched before the household existed belongs to the first person',
+    perPerson.lukeSeen === true);
+  check('and is unwatched for the second', perPerson.samSeen === false);
+  check('while the shared flag still says somebody here has seen it', perPerson.shared === true);
+
+  /* Removing someone takes their marks with them rather than leaving orphans
+     that quietly count towards "everyone here has seen this". */
+  const afterRemoval = await page.evaluate(async () => {
+    const st = await import('./src/store.js');
+    const sam = st.people().find((p) => p.name === 'Sam');
+    st.removePerson(sam.id);
+    return {
+      people: st.people().length,
+      orphans: st.items().filter((i) => i.watchedBy && sam.id in i.watchedBy).length,
+      titles: st.items().length,
+    };
+  });
+  check('removing a person removes their marks', afterRemoval.orphans === 0);
+  check('and does not touch the library', afterRemoval.titles > 0);
+
+  await page.evaluate(async () => {
+    const st = await import('./src/store.js');
+    st.people().slice().forEach((p) => st.removePerson(p.id));
+  });
+  await page.waitForTimeout(400);
+
   /* Tonight's shortlist.
    *
    * The load-bearing property is the one in the brief — "it doesn't affect your

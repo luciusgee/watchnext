@@ -58,8 +58,14 @@ export function makeItem(partial = {}) {
     quality: partial.quality || null,
     owned: partial.owned ?? false,
 
+    /* `watched` means somebody in the household has seen it, and keeps meaning
+       exactly that. Every screen, filter, statistic and the scorer read it, so
+       it does not change shape — the per-person detail is added alongside. */
     watched: partial.watched ?? false,
     watchedAt: partial.watchedAt ?? null,
+    /* { personId: timestamp|null }. Empty for a household of one, which is why
+       a solo library is byte-identical to what it was before this existed. */
+    watchedBy: partial.watchedBy && typeof partial.watchedBy === 'object' ? partial.watchedBy : {},
     /* Retired. The watchlist was a list inside a list — the library IS the
        watchlist — so nothing reads these any more.
        They are still declared, and that is the whole point: dropping them from
@@ -113,6 +119,10 @@ function emptyState() {
       libraryView: 'list',
       /* Things you never want suggested. See tastePrefs(). */
       taste: { genres: [], franchises: [], never: [] },
+      /* Who watches here. Empty means one person, and one person is the case
+         where none of this appears anywhere in the interface. */
+      people: [],
+      viewer: null,
       /* No screenFit here, and no longer a setting at all — the app stays inside
          the safe area, which is what looks right on the device. It briefly lived
          here as a preference, which could not work: iOS reads the viewport meta
@@ -691,6 +701,93 @@ export function setTaste(kind, value, on) {
   else list.delete(value);
   updateSettings({ taste: { ...prefs, [kind]: [...list] } });
   return [...list];
+}
+
+/* ── who watches here ──
+   A household shares a shelf but not a watch history: the useful question on a
+   sofa is "something I have seen and she has not", and one boolean cannot
+   answer it. So `watched` keeps meaning "somebody here has seen this" and a
+   per-person record is kept beside it.
+
+   Nothing below appears in the interface until a second person exists. A
+   library of one stores an empty object per item and behaves exactly as it did
+   before any of this was written. */
+
+export function people() {
+  const list = state.settings.people;
+  return Array.isArray(list) ? list : [];
+}
+
+/** The person the app is currently answering for, or null when there is one. */
+export function viewer() {
+  const list = people();
+  if (list.length < 2) return null;
+  const id = state.settings.viewer;
+  return list.some((p) => p.id === id) ? id : list[0].id;
+}
+
+export function setViewer(id) {
+  updateSettings({ viewer: id });
+}
+
+export function addPerson(name) {
+  const clean = String(name || '').trim().slice(0, 24);
+  if (!clean) return null;
+  const list = people();
+  const person = { id: 'p' + Date.now().toString(36) + list.length, name: clean };
+
+  /* The first person added inherits the existing history, because it is theirs:
+     everything marked watched before there was more than one person was watched
+     by whoever has been using the app. Handing it to nobody would silently
+     empty a watch history, and handing it to everybody would invent one. */
+  if (!list.length) {
+    for (const item of state.items) {
+      if (item.watched) item.watchedBy = { ...(item.watchedBy || {}), [person.id]: item.watchedAt ?? null };
+    }
+  }
+
+  updateSettings({ people: [...list, person] });
+  saveNow();
+  return person;
+}
+
+export function removePerson(id) {
+  const list = people().filter((p) => p.id !== id);
+  /* Their marks go with them — leaving orphaned ids behind would quietly count
+     a departed person's viewing towards "everyone here has seen this". */
+  for (const item of state.items) {
+    if (item.watchedBy && id in item.watchedBy) {
+      const next = { ...item.watchedBy };
+      delete next[id];
+      item.watchedBy = next;
+    }
+  }
+  updateSettings({ people: list, viewer: list.length ? list[0].id : null });
+  saveNow();
+}
+
+/** Has this person seen it? With nobody named, falls back to the shared flag. */
+export function seenBy(item, personId = viewer()) {
+  if (!personId) return !!item.watched;
+  return !!(item.watchedBy && personId in item.watchedBy);
+}
+
+/** Record one person's viewing, keeping the shared flag in step. */
+export function setSeenBy(uid, personId, on) {
+  const item = byUid(uid);
+  if (!item) return null;
+  const next = { ...(item.watchedBy || {}) };
+  if (on) next[personId] = Date.now();
+  else delete next[personId];
+
+  /* The shared flag is the OR of everyone's, so the rest of the app — filters,
+     statistics, the scorer's re-watch rule — keeps working untouched. */
+  const anyone = Object.keys(next).length > 0;
+  return update(uid, {
+    watchedBy: next,
+    watched: anyone,
+    watchedAt: anyone ? item.watchedAt ?? Date.now() : null,
+  });
 }
 
 /** Genres present in the library, most common first. */

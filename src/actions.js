@@ -16,7 +16,29 @@ function snapshot(item, fields) {
 export function setWatched(uid, watched, { silent = false } = {}) {
   const item = store.byUid(uid);
   if (!item) return null;
-  const prev = snapshot(item, ['watched', 'watchedAt', 'seen', 'seenAt']);
+  const prev = snapshot(item, ['watched', 'watchedAt', 'seen', 'seenAt', 'watchedBy']);
+
+  /* In a household this records who, not just that. store.setSeenBy keeps the
+     shared `watched` flag as the OR of everyone's, so every filter, statistic
+     and the scorer carry on reading the field they always read. */
+  const person = store.viewer();
+  if (person) {
+    store.setSeenBy(uid, person, watched);
+    if (watched) store.update(uid, { seen: true, seenAt: item.seenAt || Date.now() });
+    store.logActivity(watched ? 'watched' : 'unwatched', item, prev);
+    store.emit('item');
+    if (!silent) {
+      const who = store.people().find((p) => p.id === person)?.name || 'you';
+      toast(watched ? `${item.title} — watched by ${who}` : `Unmarked for ${who}`, {
+        action: 'Undo',
+        onAction: () => {
+          store.update(uid, prev);
+          store.emit('item');
+        },
+      });
+    }
+    return store.byUid(uid);
+  }
 
   const patch = {
     watched,

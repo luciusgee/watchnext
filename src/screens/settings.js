@@ -61,6 +61,9 @@ function render() {
   bodyEl.appendChild(backupGroup());
   refreshStorageHealth();
 
+  bodyEl.appendChild(groupLabel('Who watches here'));
+  bodyEl.appendChild(peopleGroup());
+
   bodyEl.appendChild(groupLabel('What to suggest'));
   bodyEl.appendChild(tasteGroup());
 
@@ -437,6 +440,86 @@ async function runSweep(opts, statusEl) {
   if (result.review) bits.push(`${result.review} need checking`);
   if (result.unmatched) bits.push(`${result.unmatched} not found`);
   toast(result.stopped ? 'Stopped' : bits.join(' · '));
+}
+
+/* ── household ──
+   One shelf, separate watch histories. The question on a sofa is "something I
+   have seen and she has not", and a single watched flag cannot answer it.
+
+   Nothing here changes anything until there are two people: with one name, or
+   none, the app behaves exactly as it did and the switcher never appears. */
+
+function peopleGroup() {
+  const g = el('div', { class: 'group' });
+  const box = el('div', { class: 'group-pad' });
+  const list = store.people();
+
+  box.appendChild(
+    el('div', {
+      class: 'group-item-s',
+      style: 'margin-bottom:12px',
+      text: list.length
+        ? 'Everyone here shares the shelf but keeps their own watch history. Tonight answers for whoever is watching.'
+        : 'Watching with someone else? Add both of you and the app will keep separate watch histories on the same shelf. Everything already marked watched becomes the first person’s.',
+    })
+  );
+
+  if (list.length) {
+    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px' });
+    for (const p of list) {
+      const seen = store.items().filter((i) => store.seenBy(i, p.id)).length;
+      row.appendChild(
+        el('button', {
+          class: 'pill',
+          type: 'button',
+          text: `${p.name} · ${seen} ✕`,
+          'aria-label': `Remove ${p.name}`,
+          onclick: () =>
+            confirmDestructive({
+              title: `Remove ${p.name}?`,
+              message: `Their watch marks go with them. The ${seen} films stay in your library.`,
+              confirmLabel: 'Remove',
+              onConfirm: () => {
+                store.removePerson(p.id);
+                store.emit('item');
+                render();
+              },
+            }),
+        })
+      );
+    }
+    box.appendChild(row);
+  }
+
+  const form = el('form', { style: 'display:flex;gap:8px' });
+  const input = el('input', {
+    class: 'input',
+    type: 'text',
+    placeholder: list.length ? 'Another name' : 'Your name',
+    'aria-label': 'Add a person',
+    autocomplete: 'off',
+    maxlength: '24',
+  });
+  form.appendChild(input);
+  const add = button('Add', { kind: 'secondary' });
+  add.type = 'submit';
+  form.appendChild(add);
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const person = store.addPerson(input.value);
+    if (!person) return;
+    store.emit('item');
+    toast(
+      store.people().length === 1
+        ? `${person.name} added — everything marked watched is now theirs`
+        : `${person.name} added`
+    );
+    render();
+  });
+  box.appendChild(form);
+
+  g.appendChild(box);
+  return g;
 }
 
 /* ── taste ──

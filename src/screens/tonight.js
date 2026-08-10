@@ -78,7 +78,14 @@ export function render() {
     return;
   }
 
-  const opts = { ownedOnly, muted: store.tastePrefs() };
+  /* Whose evening is it. Only meaningful once a second person exists; solo,
+     viewer() is null and this is exactly the code path it always was. */
+  const person = store.viewer();
+  const opts = {
+    ownedOnly,
+    muted: store.tastePrefs(),
+    viewerSeen: person ? new Set(items.filter((i) => store.seenBy(i, person)).map((i) => i.uid)) : null,
+  };
   const pick = tonightPick(items, opts);
 
   if (pick) {
@@ -130,11 +137,54 @@ export function render() {
     .slice(0, 20);
   if (recent.length) body.appendChild(rail('Recently watched', recent));
 
+  const who = viewerSwitch();
+  if (who) body.appendChild(who);
+
   const nudge = backupNudge();
   if (nudge) body.appendChild(nudge);
 
   body.appendChild(statLine());
   body.appendChild(el('div', { style: 'height:24px' }));
+}
+
+/**
+ * Whose evening is it.
+ *
+ * A household shares a shelf but not a history, and the question on the sofa is
+ * "something I have seen and she has not". Switching who the app is answering
+ * for is the whole feature; everything else follows from the scorer knowing.
+ *
+ * Absent entirely for one person, which is the point — a solo library should
+ * not have to look at a control for a situation it does not have.
+ */
+function viewerSwitch() {
+  const list = store.people();
+  if (list.length < 2) return null;
+
+  const current = store.viewer();
+  const wrap = el('section', { class: 'section', style: 'padding:20px 16px 0' });
+  wrap.appendChild(el('h2', { class: 'eyebrow', style: 'margin-bottom:10px', text: 'Watching' }));
+
+  const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px' });
+  for (const p of list) {
+    const active = p.id === current;
+    row.appendChild(
+      el('button', {
+        class: 'pill',
+        type: 'button',
+        'aria-pressed': String(active),
+        style: active ? 'border-color:var(--amber-line);color:var(--amber);background:var(--amber-dim)' : '',
+        text: p.name,
+        onclick: () => {
+          store.setViewer(p.id);
+          store.saveNow();
+          render();
+        },
+      })
+    );
+  }
+  wrap.appendChild(row);
+  return wrap;
 }
 
 function heroBlock(pick) {

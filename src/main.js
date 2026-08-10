@@ -354,6 +354,8 @@ function exposeTestHooks() {
       exportPayload: store.exportPayload,
       importPayload: store.importPayload,
       settings: store.settings,
+      addPerson: store.addPerson,
+      people: store.people,
       clearFilters: library.testClearFilters,
       visibleUids: library.testVisibleUids,
       currentDetailUid: detail.testCurrentUid,

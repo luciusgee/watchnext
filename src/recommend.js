@@ -77,7 +77,12 @@ export function scoreItem(item, profile, ctx) {
   /* Owned libraries are overwhelmingly re-watch libraries. A film you rated
      highly and last saw three years ago is a perfectly good answer to "what
      tonight" — every incumbent tracker throws that signal away. */
-  const isRewatch = item.watched;
+  /* Whose re-watch? In a household, a film his partner has seen and he has not
+     is a first watch for him, and offering it as a re-watch — penalised, and
+     only if he loved it — would hide it entirely. `viewerSeen` is the set of
+     uids the person being answered for has watched; without one, the shared
+     flag is the answer, which is the solo case and the default. */
+  const isRewatch = ctx.viewerSeen ? ctx.viewerSeen.has(item.uid) : item.watched;
   if (isRewatch && !ctx.allowRewatch) return null;
 
   /* In "tonight" mode, ownership is a hard filter, not a bonus: the whole
@@ -193,6 +198,8 @@ export function rank(
        than read from the store so this module has no dependency on it and its
        tests run without a browser. */
     muted = null,
+    /* Set<uid> the current viewer has watched. See scoreItem. */
+    viewerSeen = null,
     /* Taste is a property of the whole library, not of whatever subset is being
        ranked. A caller that has already narrowed the list — the session picker
        filters by genre and decade before it gets here — must pass the profile
@@ -209,6 +216,7 @@ export function rank(
     ownedOnly,
     allowRewatch,
     muted,
+    viewerSeen,
     /* 19:00–22:00 — the window where a 4K feature on the big screen makes
        most sense. Outside it, quality matters less than length. */
     primeTime: hour >= 19 && hour < 22,
