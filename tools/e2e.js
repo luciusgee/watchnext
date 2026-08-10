@@ -549,6 +549,147 @@ function check(name, cond, detail = '') {
       `${JSON.stringify(restored)} vs ${JSON.stringify(ownedBefore)}`);
   }
 
+  // ─────────────────────────────────────────────────────────
+  /* Telling the app to stop suggesting something. The scorer is otherwise
+     unarguable: it picks, and the only recourse is saying "something else"
+     forever. */
+  console.log('\n─── stop suggesting this ───');
+  await page.click('[data-tab="tonight"]');
+  await page.waitForTimeout(700);
+
+  const heroTitle = await page.evaluate(() =>
+    document.querySelector('#screen-tonight .hero-title')?.textContent);
+  await page.evaluate(() => document.querySelector('#screen-tonight .hero .card')?.click());
+  await page.waitForTimeout(600);
+
+  const hasMute = await page.evaluate(() =>
+    [...document.querySelectorAll('#detail button')].some((b) => /Stop suggesting this/.test(b.textContent)));
+  check('a title can be muted from its own screen', hasMute);
+
+  await page.evaluate(() =>
+    [...document.querySelectorAll('#detail button')].find((b) => /Stop suggesting this/.test(b.textContent)).click());
+  await page.waitForTimeout(500);
+
+  const stillThere = await page.evaluate((t) => {
+    const items = JSON.parse(localStorage.getItem('wn.state.v3')).items;
+    return items.some((i) => i.title === t);
+  }, heroTitle);
+  check('muting does not delete it — it stays in the library', stillThere, heroTitle);
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(700);
+  const newHero = await page.evaluate(() =>
+    document.querySelector('#screen-tonight .hero-title')?.textContent);
+  check('and Tonight suggests something else', newHero !== heroTitle, `${heroTitle} -> ${newHero}`);
+
+  /* Reversible, and findable. A preference you cannot undo is a bug that looks
+     like the app losing films. */
+  await page.click('#screen-tonight [data-nav="settings"]');
+  await page.waitForTimeout(700);
+  const listed = await page.evaluate((t) =>
+    [...document.querySelectorAll('#screen-settings button')].some((b) => b.textContent.includes(t)), heroTitle);
+  check('it is listed in Settings so it can be found again', listed, heroTitle);
+
+  await page.evaluate((t) =>
+    [...document.querySelectorAll('#screen-settings button')].find((b) => b.textContent.includes(t))?.click(), heroTitle);
+  await page.waitForTimeout(500);
+  const unmuted = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('wn.state.v3'));
+    return (s.settings.taste?.never || []).length === 0;
+  });
+  check('and un-muting puts it back', unmuted);
+
+  // ─────────────────────────────────────────────────────────
+  /* Sending someone a shelf.
+   *
+   * The whole point is that it needs no server: the list lives in the URL
+   * fragment, which browsers never transmit. So the assertions are that a link
+   * round-trips, that opening one shows the films without touching the library,
+   * and that adding is deliberate rather than automatic. */
+  console.log('\n─── sending someone a shelf ───');
+
+  const roundTrip = await page.evaluate(async () => {
+    const { encodeShelf, decodeShelf, MAX_TITLES } = await import('./src/share.js');
+    const films = [
+      { title: 'The Thing', year: 1982, quality: '4K', watched: true },
+      { title: "Rosemary's Baby", year: 1968, quality: null, watched: false },
+      /* A title carrying the characters an encoder is most likely to break on. */
+      { title: 'Amélie | 100% & "quotes"', year: 2001, quality: '1080p', watched: false },
+    ];
+    const url = await encodeShelf(films, { origin: 'https://example.test/app/index.html' });
+    const back = await decodeShelf(url.slice(url.indexOf('#')));
+    return { url, back, max: MAX_TITLES };
+  });
+
+  check('a shelf encodes into a link', /#l=1\./.test(roundTrip.url), roundTrip.url.slice(0, 60));
+  check('the list travels in the fragment, which is never sent to a server',
+    roundTrip.url.indexOf('#') > 0 && !/\?/.test(roundTrip.url.split('#')[0]));
+  check('and decodes back to the same films',
+    roundTrip.back.length === 3 && roundTrip.back[0].title === 'The Thing', JSON.stringify(roundTrip.back[0]));
+  check('punctuation survives the round trip',
+    roundTrip.back[2].title === 'Amélie | 100% & "quotes"', roundTrip.back[2].title);
+  check('so do year, format and watch state',
+    roundTrip.back[0].year === 1982 && roundTrip.back[0].quality === '4K' && roundTrip.back[0].watched === true,
+    JSON.stringify(roundTrip.back[0]));
+
+  /* The cap is what keeps a link inside what messaging apps will carry. */
+  const size = await page.evaluate(async () => {
+    const { encodeShelf } = await import('./src/share.js');
+    const films = Array.from({ length: 100 }, (_, i) => ({
+      title: `A Reasonably Long Film Title ${i}`, year: 1980 + (i % 45), quality: '4K', watched: i % 2 === 0,
+    }));
+    const url = await encodeShelf(films, { origin: 'https://example.test/app/index.html' });
+    return url.length;
+  });
+  check('100 titles fit in a link any app will carry', size < 2600, `${size} chars`);
+
+  /* Opening one. */
+  const beforeShelf = await page.evaluate(() => window.__test.count());
+  /* Setting the hash and reloading, not goto-with-a-fragment: a navigation that
+     changes only the fragment is same-document, so boot never re-runs and the
+     app never sees the shelf. */
+  const openLink = async (fragment) => {
+    await page.evaluate((f) => { location.hash = f; }, fragment);
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('body.is-ready');
+    await page.waitForTimeout(900);
+  };
+  await openLink(roundTrip.url.slice(roundTrip.url.indexOf('#')));
+
+  const shown = await page.evaluate(() => ({
+    active: document.querySelector('.screen.is-active')?.id,
+    text: document.querySelector('#screen-shelf [data-region="body"]')?.innerText || '',
+    count: window.__test.count(),
+  }));
+  check('opening a link shows the shelf', shown.active === 'screen-shelf', String(shown.active));
+  check('with the films on it', /The Thing/.test(shown.text), shown.text.slice(0, 120));
+  check('and nothing is added to your own library until you say so',
+    shown.count === beforeShelf, `${beforeShelf} -> ${shown.count}`);
+  check('it says which ones you have not got', /have not got|already have all/.test(shown.text), shown.text.slice(0, 200));
+  /* The recipient may not have the app, so the page has to explain itself. */
+  check('and explains that nothing was uploaded', /nothing was uploaded/i.test(shown.text));
+
+  const addedOne = await page.evaluate(async () => {
+    const before = window.__test.count();
+    [...document.querySelectorAll('#screen-shelf button')].find((b) => b.textContent.trim() === 'Add')?.click();
+    await new Promise((r) => setTimeout(r, 600));
+    return { before, after: window.__test.count() };
+  });
+  check('adding one is a single deliberate tap',
+    addedOne.after === addedOne.before + 1, `${addedOne.before} -> ${addedOne.after}`);
+
+  /* A truncated link must say so rather than render an empty shelf, which reads
+     as "their shelf is empty" or as the app being broken. */
+  await openLink('#l=1.thisisnotvalidbase64!!!');
+  check('a truncated or corrupt link says so',
+    await page.evaluate(() => /could not be read/.test(
+      document.querySelector('#screen-shelf [data-region="body"]')?.innerText || '')));
+
+  await page.evaluate(() => { history.replaceState(null, '', location.pathname); });
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('body.is-ready');
+  await page.waitForTimeout(700);
+
   /* Tonight's shortlist.
    *
    * The load-bearing property is the one in the brief — "it doesn't affect your

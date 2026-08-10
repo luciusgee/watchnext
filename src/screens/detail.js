@@ -149,6 +149,39 @@ function render(item) {
   /* collection */
   body.appendChild(collectionRow(item));
 
+  /* Stop suggesting this.
+     The scorer is otherwise unarguable — it picks, and the only recourse is to
+     keep saying "something else". One control here is the difference between a
+     recommendation you can correct and one you have to put up with. Muting is
+     not deleting: the film stays in the library, stays searchable, and stays
+     yours. */
+  {
+    const muted = store.tastePrefs().never.includes(item.uid);
+    body.appendChild(
+      el(
+        'div',
+        { style: 'margin-top:10px' },
+        el('button', {
+          class: 'btn btn-quiet btn-sm',
+          type: 'button',
+          style: 'width:100%',
+          text: muted ? 'Suggest this again' : 'Stop suggesting this',
+          onclick: () => {
+            store.setTaste('never', item.uid, !muted);
+            store.saveNow();
+            store.emit('item');
+            toast(
+              muted
+                ? `${item.title} can be suggested again`
+                : `${item.title} will not be suggested. It stays in your library.`
+            );
+            render(store.byUid(item.uid) || item);
+          },
+        })
+      )
+    );
+  }
+
   /* metadata state — surfaced honestly rather than hidden */
   if (item.meta?.status === 'review' || item.meta?.status === 'unmatched') {
     body.appendChild(matchWarning(item));

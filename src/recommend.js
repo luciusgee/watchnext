@@ -61,6 +61,19 @@ function dayStamp() {
  * can't interrogate is just noise.
  */
 export function scoreItem(item, profile, ctx) {
+  /* Told not to suggest this. Checked before anything else because a muted item
+     is not a low-scoring item — it is not a candidate at all, and letting it
+     score means it reappears the moment the rest of the library is exhausted. */
+  const muted = ctx.muted;
+  if (muted) {
+    if (muted.never?.includes(item.uid)) return null;
+    if (item.genre && muted.genres?.includes(item.genre)) return null;
+    if (muted.franchises?.length) {
+      const title = String(item.title || '').toLowerCase();
+      if (muted.franchises.some((f) => f && title.includes(String(f).toLowerCase()))) return null;
+    }
+  }
+
   /* Owned libraries are overwhelmingly re-watch libraries. A film you rated
      highly and last saw three years ago is a perfectly good answer to "what
      tonight" — every incumbent tracker throws that signal away. */
@@ -176,6 +189,10 @@ export function rank(
     ownedOnly = false,
     allowRewatch = true,
     maxRuntime = null,
+    /* { genres, franchises, never } — see store.tastePrefs(). Passed in rather
+       than read from the store so this module has no dependency on it and its
+       tests run without a browser. */
+    muted = null,
     /* Taste is a property of the whole library, not of whatever subset is being
        ranked. A caller that has already narrowed the list — the session picker
        filters by genre and decade before it gets here — must pass the profile
@@ -191,6 +208,7 @@ export function rank(
     hour,
     ownedOnly,
     allowRewatch,
+    muted,
     /* 19:00–22:00 — the window where a 4K feature on the big screen makes
        most sense. Outside it, quality matters less than length. */
     primeTime: hour >= 19 && hour < 22,

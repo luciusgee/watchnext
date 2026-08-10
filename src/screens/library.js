@@ -12,6 +12,7 @@ import { el, clear, poster, posterBadge, emptyState, openSheet, button, toast, c
 import { icon } from '../icons.js';
 import { runtime, rating, metaLine } from '../format.js';
 import { openDetail } from './detail.js';
+import { encodeShelf, canShare, MAX_TITLES } from '../share.js';
 import { cardFor } from './tonight.js';
 
 const CHUNK = 40;
@@ -451,6 +452,7 @@ function selectionBar() {
     return b;
   };
 
+  if (canShare()) bar.appendChild(act('Send', 'upload', () => sendShelf()));
   bar.appendChild(act('Owned', 'drive', () => openBulkOwned()));
   bar.appendChild(act('Watched', 'check', () => bulkWatched()));
   bar.appendChild(act('Remove', 'trash', () => bulkRemove()));
@@ -485,6 +487,64 @@ function applyBulk(patchFor, describe) {
   });
 }
 
+/**
+ * Send the selected films to someone as a link.
+ *
+ * The whole list travels in the URL fragment, which browsers never transmit —
+ * so this shares a shelf with no server, no account and nothing uploaded. The
+ * recipient does not need the app; they get a readable page and can add any of
+ * it to a library of their own.
+ *
+ * Capped, and the cap is stated rather than silently applied: a link longer
+ * than a messaging app will carry gets truncated in transit, and a list that
+ * arrives half-missing is worse than one that was honest about its limit.
+ */
+async function sendShelf() {
+  const picked = [...state.picked].map((uid) => store.byUid(uid)).filter(Boolean);
+  if (!picked.length) return;
+
+  if (picked.length > MAX_TITLES) {
+    toast(`Links hold about ${MAX_TITLES} titles — sending the first ${MAX_TITLES}.`, { duration: 5000 });
+  }
+
+  let url;
+  try {
+    url = await encodeShelf(picked);
+  } catch {
+    toast('Could not build that link');
+    return;
+  }
+
+  const n = Math.min(picked.length, MAX_TITLES);
+  const text = `${n} film${n === 1 ? '' : 's'} from my shelf`;
+  clearPicked();
+
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'My shelf', text, url });
+      return;
+    } catch (err) {
+      /* Dismissing the share sheet is not a failure and must not fall through
+         to a surprise clipboard write. */
+      if (err?.name === 'AbortError') return;
+    }
+  }
+
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('Link copied — paste it to anyone');
+  } catch {
+    /* No share sheet and no clipboard: show it, so it can still be copied by
+       hand rather than the action simply doing nothing. */
+    openSheet({
+      title: 'Your shelf link',
+      message: url,
+      actions: [],
+      dismissLabel: 'Done',
+    });
+  }
+}
+
 function openBulkOwned() {
   const n = state.picked.size;
   openSheet({
@@ -513,8 +573,17 @@ function setOwnedBulk(quality, owned = true) {
 }
 
 function bulkWatched() {
+  /* No watchedAt.
+     Marking three hundred discs watched in one go is triage, not three hundred
+     viewings — stamping today's date on all of them forges a watch history the
+     app then reasons from. The scorer weights recency, and stats.js already
+     refuses to claim a year total unless the timestamps span sixty days
+     (`datesAreHistory`), which this would have quietly satisfied with a
+     weekend's cataloguing. A null date says "watched, at some point", which is
+     the truth and is what a bulk mark actually means. Marking one film watched
+     from its own screen still records when. */
   applyBulk(
-    (i) => (i.watched ? null : { watched: true, watchedAt: Date.now(), seen: true, seenAt: i.seenAt || Date.now() }),
+    (i) => (i.watched ? null : { watched: true, watchedAt: null, seen: true, seenAt: i.seenAt || Date.now() }),
     (n) => `${n} marked as watched`
   );
 }

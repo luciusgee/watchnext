@@ -61,6 +61,9 @@ function render() {
   bodyEl.appendChild(backupGroup());
   refreshStorageHealth();
 
+  bodyEl.appendChild(groupLabel('What to suggest'));
+  bodyEl.appendChild(tasteGroup());
+
   bodyEl.appendChild(groupLabel('Recent activity'));
   bodyEl.appendChild(activityGroup());
 
@@ -434,6 +437,133 @@ async function runSweep(opts, statusEl) {
   if (result.review) bits.push(`${result.review} need checking`);
   if (result.unmatched) bits.push(`${result.unmatched} not found`);
   toast(result.stopped ? 'Stopped' : bits.join(' · '));
+}
+
+/* ── taste ──
+   Anything muted has to be visible and reversible somewhere. A preference you
+   cannot find again is indistinguishable from a bug — you stop seeing a film,
+   you do not remember telling the app not to show it, and the app looks broken
+   rather than obedient. */
+
+function tasteGroup() {
+  const g = el('div', { class: 'group' });
+  const box = el('div', { class: 'group-pad' });
+  const prefs = store.tastePrefs();
+
+  box.appendChild(
+    el('div', {
+      class: 'group-item-s',
+      style: 'margin-bottom:12px',
+      text: 'Mute a genre you never watch, or a franchise you are done with. Nothing is deleted — muted titles stay in your library and still show up in search.',
+    })
+  );
+
+  /* Genres, drawn from what is actually in the library rather than a fixed
+     list — a mute for a genre you do not own is noise. */
+  const genres = store.genresInUse().slice(0, 14);
+  if (genres.length) {
+    box.appendChild(el('div', { class: 'eyebrow', style: 'margin:6px 0 8px', text: 'Genres' }));
+    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px' });
+    for (const gname of genres) {
+      const off = prefs.genres.includes(gname);
+      row.appendChild(
+        el('button', {
+          class: 'pill',
+          type: 'button',
+          'aria-pressed': String(off),
+          style: off ? 'border-color:var(--ember);color:var(--ember)' : '',
+          text: off ? `${gname} — muted` : gname,
+          onclick: () => {
+            store.setTaste('genres', gname, !off);
+            store.saveNow();
+            store.emit('item');
+            render();
+          },
+        })
+      );
+    }
+    box.appendChild(row);
+  }
+
+  /* Franchises are a substring on the title, which is crude and is the right
+     amount of machinery: "Marvel" is not a field, and nobody wants to build a
+     franchise database to stop being shown Fast & Furious. */
+  box.appendChild(el('div', { class: 'eyebrow', style: 'margin:6px 0 8px', text: 'Titles containing' }));
+  const addRow = el('form', { style: 'display:flex;gap:8px;margin-bottom:10px' });
+  const input = el('input', {
+    class: 'input',
+    type: 'text',
+    placeholder: 'e.g. Fast & Furious',
+    'aria-label': 'Mute titles containing',
+    autocomplete: 'off',
+  });
+  addRow.appendChild(input);
+  const addBtn = button('Mute', { kind: 'secondary' });
+  addBtn.type = 'submit';
+  addRow.appendChild(addBtn);
+  addRow.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = input.value.trim();
+    if (!v) return;
+    store.setTaste('franchises', v, true);
+    store.saveNow();
+    store.emit('item');
+    render();
+  });
+  box.appendChild(addRow);
+
+  if (prefs.franchises.length) {
+    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px' });
+    for (const f of prefs.franchises) {
+      row.appendChild(
+        el('button', {
+          class: 'pill',
+          type: 'button',
+          style: 'border-color:var(--ember);color:var(--ember)',
+          text: `${f} ✕`,
+          'aria-label': `Stop muting titles containing ${f}`,
+          onclick: () => {
+            store.setTaste('franchises', f, false);
+            store.saveNow();
+            store.emit('item');
+            render();
+          },
+        })
+      );
+    }
+    box.appendChild(row);
+  }
+
+  /* Individually muted films, named — this is the list someone comes looking
+     for when a film has quietly stopped appearing. */
+  const never = prefs.never.map((uid) => store.byUid(uid)).filter(Boolean);
+  if (never.length) {
+    box.appendChild(
+      el('div', { class: 'eyebrow', style: 'margin:6px 0 8px', text: `Not suggested (${never.length})` })
+    );
+    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px' });
+    for (const item of never) {
+      row.appendChild(
+        el('button', {
+          class: 'pill',
+          type: 'button',
+          style: 'border-color:var(--ember);color:var(--ember)',
+          text: `${item.title} ✕`,
+          'aria-label': `Suggest ${item.title} again`,
+          onclick: () => {
+            store.setTaste('never', item.uid, false);
+            store.saveNow();
+            store.emit('item');
+            render();
+          },
+        })
+      );
+    }
+    box.appendChild(row);
+  }
+
+  g.appendChild(box);
+  return g;
 }
 
 /* ── review queue ── */

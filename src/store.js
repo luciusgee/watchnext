@@ -111,6 +111,8 @@ function emptyState() {
       keyStatus: {},     // { omdb: { ok, message, at } } — did the key actually answer?
       aiKey: '',
       libraryView: 'list',
+      /* Things you never want suggested. See tastePrefs(). */
+      taste: { genres: [], franchises: [], never: [] },
       /* No screenFit here, and no longer a setting at all — the app stays inside
          the safe area, which is what looks right on the device. It briefly lived
          here as a preference, which could not work: iOS reads the viewport meta
@@ -662,6 +664,33 @@ export function breakdown() {
     decades: [...decade.entries()].sort((a, b) => parseInt(a[0]) - parseInt(b[0])),
     genres: [...genre.entries()].sort((a, b) => b[1] - a[1]),
   };
+}
+
+/**
+ * What you have told the app not to suggest.
+ *
+ * Three kinds, because they are three different feelings: a genre you never
+ * watch, a franchise you are done with, and one specific film you are tired of
+ * being offered. Read through here rather than off settings directly so a
+ * library saved before this existed gets the empty shape rather than undefined.
+ */
+export function tastePrefs() {
+  const t = state.settings.taste || {};
+  return {
+    genres: Array.isArray(t.genres) ? t.genres : [],
+    franchises: Array.isArray(t.franchises) ? t.franchises : [],
+    never: Array.isArray(t.never) ? t.never : [],
+  };
+}
+
+/** Add or remove one entry. Returns the new list. */
+export function setTaste(kind, value, on) {
+  const prefs = tastePrefs();
+  const list = new Set(prefs[kind] || []);
+  if (on) list.add(value);
+  else list.delete(value);
+  updateSettings({ taste: { ...prefs, [kind]: [...list] } });
+  return [...list];
 }
 
 /** Genres present in the library, most common first. */

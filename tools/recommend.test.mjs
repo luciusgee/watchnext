@@ -233,6 +233,39 @@ console.log('\n─── taste actually moves the ranking ───');
     Math.abs(hThin.score - wThin.score) < 0.01, `${hThin.score} vs ${wThin.score}`);
 }
 
+console.log('\n─── things you have told it not to suggest ───');
+{
+  const horror = film({ genre: 'Horror', genres: ['Horror'], title: 'Some Horror' });
+  const fast = film({ genre: 'Action', genres: ['Action'], title: 'Fast & Furious 9' });
+  const fine = film({ genre: 'Drama', genres: ['Drama'], title: 'A Quiet Drama' });
+
+  check('a muted genre is not a candidate at all',
+    scoreItem(horror, flat, ctx({ muted: { genres: ['Horror'], franchises: [], never: [] } })) === null);
+  check('a muted franchise matches on the title, case-insensitively',
+    scoreItem(fast, flat, ctx({ muted: { genres: [], franchises: ['fast & furious'], never: [] } })) === null);
+  check('a specific film can be muted by uid',
+    scoreItem(fine, flat, ctx({ muted: { genres: [], franchises: [], never: [fine.uid] } })) === null);
+  check('and everything else is unaffected',
+    scoreItem(fine, flat, ctx({ muted: { genres: ['Horror'], franchises: ['fast'], never: [] } })) !== null);
+
+  /* Null, not a low score. A muted film that merely ranks badly reappears the
+     moment the rest of the library is exhausted, which is exactly when someone
+     notices the setting does not work. */
+  const ranked = rank([horror, fast, fine], {
+    seed: 'x',
+    hour: 20,
+    muted: { genres: ['Horror'], franchises: ['Fast & Furious'], never: [] },
+  });
+  check('rank() drops them entirely rather than ranking them last',
+    ranked.length === 1 && ranked[0].item.uid === fine.uid,
+    ranked.map((r) => r.item.title).join(', '));
+
+  check('no preferences at all changes nothing',
+    rank([horror, fast, fine], { seed: 'x', hour: 20 }).length === 3);
+  check('and an empty preference set is not treated as "mute everything"',
+    rank([horror, fast, fine], { seed: 'x', hour: 20, muted: { genres: [], franchises: [], never: [] } }).length === 3);
+}
+
 console.log('\n─── rank() ───');
 {
   const items = [

@@ -18,6 +18,8 @@ import { initDiscover, showDiscover } from './screens/discover.js';
 import { initAsk, showAsk } from './screens/ask.js';
 import { initPick, showPick } from './screens/pick.js';
 import { initStats, showStats } from './screens/stats.js';
+import { initShelf, showShelf } from './screens/shelf.js';
+import { isSharedShelf } from './share.js';
 import { initSettings, showSettings } from './screens/settings.js';
 import { initAdd, showAdd } from './screens/add.js';
 
@@ -35,6 +37,7 @@ const SHOW = {
   ask: showAsk,
   pick: showPick,
   stats: showStats,
+  shelf: showShelf,
   settings: showSettings,
   add: showAdd,
 };
@@ -66,7 +69,11 @@ function navigate(id, params = {}) {
     toast('Something went wrong opening that screen');
   }
 
-  if (location.hash !== `#${id}`) history.replaceState(null, '', `#${id}`);
+  /* Never overwrite a shared-shelf fragment with a screen name — the fragment
+     IS the shelf, and rewriting it loses the list the user just opened. */
+  if (id !== 'shelf' && !isSharedShelf(location.hash) && location.hash !== `#${id}`) {
+    history.replaceState(null, '', `#${id}`);
+  }
 }
 
 function buildTabBar() {
@@ -110,6 +117,7 @@ async function boot() {
   initAsk({ navigate });
   initPick({ navigate });
   initStats({ navigate });
+  initShelf({ navigate });
   initSettings({ navigate });
   initAdd({ navigate });
 
@@ -129,8 +137,15 @@ async function boot() {
     }
   });
 
-  const start = location.hash.slice(1);
-  navigate(TABS.some((t) => t.id === start) || SHOW[start] ? start : 'tonight');
+  /* A shared shelf arrives as a fragment, not a screen name, so it is checked
+     before the hash is treated as routing — otherwise `#l=1.…` looks like a
+     request for a screen called "l=1.…" and silently does nothing. */
+  if (isSharedShelf(location.hash)) {
+    navigate('shelf');
+  } else {
+    const start = location.hash.slice(1);
+    navigate(TABS.some((t) => t.id === start) || SHOW[start] ? start : 'tonight');
+  }
 
   exposeTestHooks();
   registerServiceWorker();

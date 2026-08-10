@@ -93,7 +93,17 @@ export function showPick(params = {}) {
 /* ── dealing ── */
 
 function matching(items, c) {
+  const muted = store.tastePrefs();
   let list = items.filter((i) => !i.watched);
+  /* Applied here as well as in the scorer so the "N films to deal from" count
+     in the sheet is the truth. Counting films the deck will then refuse to deal
+     is worse than no count. */
+  list = list.filter((i) => {
+    if (muted.never.includes(i.uid)) return false;
+    if (i.genre && muted.genres.includes(i.genre)) return false;
+    const title = String(i.title || '').toLowerCase();
+    return !muted.franchises.some((f) => f && title.includes(String(f).toLowerCase()));
+  });
   if (c.ownedOnly) list = list.filter((i) => i.owned);
   if (c.genre) list = list.filter((i) => i.genre === c.genre || (i.genres || []).includes(c.genre));
   if (c.decade) {
@@ -131,6 +141,7 @@ function deal() {
   const ranked = rank(pool, {
     /* Built from the whole library, not the filtered pool — see rank(). */
     profile: tasteProfile(all),
+    muted: store.tastePrefs(),
     seed: `pick-${Math.random().toString(36).slice(2)}`,
     limit: HOW_MANY,
     ownedOnly: false,        // already applied above, against the real field

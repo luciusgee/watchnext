@@ -78,7 +78,7 @@ export function render() {
     return;
   }
 
-  const opts = { ownedOnly };
+  const opts = { ownedOnly, muted: store.tastePrefs() };
   const pick = tonightPick(items, opts);
 
   if (pick) {
