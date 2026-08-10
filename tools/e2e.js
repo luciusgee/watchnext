@@ -43,7 +43,22 @@ function check(name, cond, detail = '') {
   console.log('\n─── boot & seed ───');
   await boot();
   let s = await state();
-  check('seeds the library on first run', s.items.length === 228, `got ${s.items.length}`);
+  /* A new install arrives empty. It used to arrive holding the author's own
+     228 titles, marked as owned — somebody else's shelf, presented as yours,
+     with no way to tell it apart from your own afterwards. */
+  check('a new install starts empty', s.items.length === 0, `got ${s.items.length}`);
+  const offered = await page.evaluate(() =>
+    [...document.querySelectorAll('#screen-tonight button')].some((b) => /try a sample/i.test(b.textContent))
+  );
+  check('and offers the sample rather than imposing it', offered);
+
+  await page.evaluate(() => window.__test.loadSample());
+  await page.waitForTimeout(600);
+  s = await state();
+  check('the sample loads on request', s.items.length === 228, `got ${s.items.length}`);
+  check('and no title hotlinks a third party CDN',
+    s.items.every((i) => !/m\.media-amazon\.com/.test(i.poster || '')),
+    s.items.filter((i) => /m\.media-amazon\.com/.test(i.poster || '')).length + ' do');
   check('every item has a stable uid', s.items.every((i) => typeof i.uid === 'string' && i.uid.length > 4));
   check('uids are unique', new Set(s.items.map((i) => i.uid)).size === s.items.length);
   check('schema is versioned', s.schema === 3, `got ${s.schema}`);

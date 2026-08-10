@@ -6,7 +6,6 @@
  */
 
 import * as store from './store.js';
-import { seedLibrary } from './seed.js';
 import { requestPersistence } from './durability.js';
 import { syncViewport, blockZoom, measureShortfall, applyHomeIndicatorFloor } from './viewport.js';
 import { icon } from './icons.js';
@@ -95,7 +94,9 @@ function wireChrome() {
 }
 
 async function boot() {
-  await store.init(seedLibrary);
+  /* No seed argument: a new install starts empty and the sample is offered from
+     the empty state instead. See store.init(). */
+  await store.init();
 
   document.getElementById('app').appendChild(buildTabBar());
   wireChrome();
@@ -303,11 +304,19 @@ function exposeTestHooks() {
 
   Promise.all([
     import('./actions.js'),
+    import('./seed.js'),
     import('./screens/library.js'),
     import('./screens/detail.js'),
-  ]).then(([actions, library, detail]) => {
+  ]).then(([actions, seed, library, detail]) => {
     window.__test = {
       items: store.items,
+      /* The starter set is no longer loaded on first run, so a suite that needs
+         a library asks for one. */
+      loadSample: () => {
+        const n = store.loadSample(seed.seedLibrary);
+        store.emit('item');
+        return n;
+      },
       count: () => store.items().length,
       byUid: store.byUid,
       add: (f) => store.add(f) && store.emit('item'),

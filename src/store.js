@@ -294,6 +294,28 @@ export function emit(reason = 'change') {
  * paint. That costs one IndexedDB `get` on a cold start, and only when
  * localStorage came back empty.
  */
+/**
+ * Load the starter sample on request.
+ *
+ * Kept as an explicit action rather than a first-run side effect: a library
+ * someone chose is theirs, and one they were handed is clutter they have to
+ * work out how to delete.
+ */
+export function loadSample(seedFn) {
+  if (typeof seedFn !== 'function') return 0;
+  const rows = seedFn().map(makeItem);
+  let added = 0;
+  for (const row of rows) {
+    if (findDuplicate(row.title, row.year, row.type)) continue;
+    state.items.push(row);
+    added += 1;
+  }
+  saveNow();
+  mirror(true);
+  emit('item');
+  return added;
+}
+
 export async function init(seedFn) {
   state = read();
 
@@ -310,11 +332,17 @@ export async function init(seedFn) {
     }
   }
 
-  if (!state.settings.seeded && !state.items.length && typeof seedFn === 'function') {
-    state.items = seedFn().map(makeItem);
+  /* A new install starts empty.
+     It used to arrive holding 228 titles from the author's own shelf, marked as
+     owned, with no way to clear them — so the first thing a stranger saw was
+     somebody else's horror collection presented as theirs, and "what should I
+     watch tonight" answered from films they do not have. The sample is still
+     here and still one tap away from the empty state; it is just no longer
+     imposed. Anyone already carrying it keeps it: seeded is only ever set, and
+     this branch cannot run once it is. */
+  if (!state.settings.seeded && !state.items.length) {
     state.settings.seeded = true;
     saveNow();
-    mirror(true);
   } else if (state.migratedFrom) {
     /* A library was just imported from the old `wn_lib2` format. Write it out
        immediately — otherwise nothing persists until the user happens to make

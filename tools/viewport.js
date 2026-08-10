@@ -302,6 +302,10 @@ async function measure(page) {
     );
     await p.goto(URL, { waitUntil: 'networkidle' });
     await p.waitForSelector('body.is-ready');
+    /* The heal tests need a library: something to scroll, and a card in the
+       Discover deck. The starter set is opt-in now, so ask for it. */
+    await p.evaluate(() => window.__test?.loadSample());
+    await p.waitForTimeout(500);
     return { c, p };
   };
 
@@ -663,6 +667,9 @@ async function measure(page) {
     const p = await c.newPage();
     await p.goto(URL, { waitUntil: 'networkidle' });
     await p.waitForSelector('body.is-ready');
+    /* Needs a deck card to check the swipe surface keeps its own touch-action. */
+    await p.evaluate(() => window.__test?.loadSample());
+    await p.waitForTimeout(500);
 
     /* The one that actually bites: iOS zooms the whole page when a field under
        16px takes focus. Every field has to clear it, on every screen, so this

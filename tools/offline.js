@@ -149,6 +149,10 @@ const URL_BASE = `http://127.0.0.1:${PORT}/watchnext/`;
   });
   check('app shell is precached', cached >= 15, `${cached} entries`);
 
+  /* A library to lose. The starter set is opt-in now, so ask for it. */
+  await page.evaluate(() => window.__test.loadSample());
+  await page.waitForTimeout(600);
+
   console.log('\n─── works with the network gone ───');
   await ctx.setOffline(true);
   await page.reload({ waitUntil: 'domcontentloaded' });

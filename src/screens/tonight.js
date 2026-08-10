@@ -14,6 +14,8 @@ import { runtime, commitment, relativeTime, rating } from '../format.js';
 import { tonightPick, alternates } from '../recommend.js';
 import { openDetail } from './detail.js';
 import { shouldNudgeBackup, markBackedUp } from '../durability.js';
+import { seedLibrary } from '../seed.js';
+import { toast } from '../ui.js';
 
 let root = null;
 let navigate = null;
@@ -52,6 +54,26 @@ export function render() {
         message: 'Add the films and shows you own, and this screen will tell you what to watch.',
         action: { label: 'Add titles', onClick: () => navigate('add') },
       })
+    );
+    /* The starter set, offered rather than imposed. It used to arrive
+       unannounced on every new install — somebody else's shelf, marked as
+       owned — and there was no way to tell it apart from your own titles
+       afterwards. Wanting something to poke at is a real reason to want it;
+       being given it without asking is not. */
+    body.appendChild(
+      el(
+        'div',
+        { style: 'display:flex;justify-content:center;margin-top:-8px' },
+        button('Or try a sample library', {
+          kind: 'quiet',
+          size: 'sm',
+          onClick: () => {
+            const n = store.loadSample(seedLibrary);
+            toast(n ? `Added ${n} titles to try. Remove any you do not want.` : 'Nothing to add');
+            render();
+          },
+        })
+      )
     );
     return;
   }
