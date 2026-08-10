@@ -86,7 +86,12 @@ export function addItem(fields) {
     /* Anything typed by hand is authoritative — enrichment must not
        silently rewrite it. */
     locked: fields.locked || [],
-    meta: { v: 0, status: 'pending', at: null, confidence: null },
+    /* A caller that already knows which record this is — search-to-add, where
+       the user picked it off a list — says so, and that must survive. Hardcoding
+       "pending" here meant a confirmed choice was downgraded on the way in and
+       re-matched by the next sweep, which is how a hand-picked film silently
+       becomes a different one. */
+    meta: fields.meta || { v: 0, status: 'pending', at: null, confidence: null },
   });
   store.emit('item');
   return { item, duplicate: false };

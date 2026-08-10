@@ -39,6 +39,12 @@ export function showSettings(params = {}) {
     root.querySelector('#ai-key')?.focus();
   } else if (params.focus === 'review') {
     openReviewQueue();
+  } else if (params.focus === 'sweep') {
+    /* Sent here from Add with titles waiting for details. Scrolling to the
+       control is the difference between "here is the thing you wanted" and
+       "here is Settings, find it". */
+    const target = root.querySelector('[data-region="sweep"]') || root.querySelector('#screen-settings .group');
+    target?.scrollIntoView({ block: 'center' });
   }
 }
 
@@ -251,7 +257,9 @@ function dataGroup() {
   const g = el('div', { class: 'group' });
   const summary = meta.enrichmentSummary(store.items());
 
-  const status = el('div', { class: 'group-pad' });
+  /* Named so Add can send someone straight here after a bulk paste — see
+     showSettings({ focus: 'sweep' }). */
+  const status = el('div', { class: 'group-pad', 'data-region': 'sweep' });
   status.appendChild(el('div', { class: 'group-item-s', style: 'margin-bottom:12px', text: summaryLine(summary) }));
   if (summary.stale) {
     status.appendChild(

@@ -255,6 +255,104 @@ const PROVIDERS = [
     check(`[${prov.id}] a locked field survives a re-sweep`, edited.genre === 'Neo-noir', edited.genre);
     check(`[${prov.id}] unlocked fields still refresh`, edited.runtime === 117);
 
+    /* ────────────────────────────────────────────────────────────
+     * Search-to-add.
+     *
+     * The old Add screen took a typed title on trust and left you with a grey
+     * placeholder until you found a chore in Settings. The point of searching is
+     * that one tap produces a finished record, so that is what is asserted here:
+     * poster, year and runtime present immediately, and — the part that is easy
+     * to get wrong — the match marked as a human decision so the next sweep
+     * leaves it alone rather than re-resolving it to something else.
+     * ──────────────────────────────────────────────────────────── */
+    console.log(`\n─── [${prov.id}] search to add ───`);
+
+    /* Planted directly rather than cleared through the UI: store writes are
+       debounced, so removing items and immediately reloading raced the save and
+       left the previous scenario's library in place — which then answered every
+       assertion below.
+       wipeAllStorage first, because clearing localStorage alone is not enough:
+       the store keeps a second copy in IndexedDB and recovers from it when the
+       primary looks emptier, which is exactly what it is for and exactly what
+       silently refilled this scenario. */
+    await wipeAllStorage(page);
+    await page.evaluate((id) => {
+      localStorage.setItem(
+        'wn.state.v3',
+        JSON.stringify({
+          schema: 3,
+          items: [],
+          activity: [],
+          settings: {
+            name: '', provider: id, dataKeys: { [id]: 'test-key' },
+            keyStatus: {}, aiKey: '', libraryView: 'list', seeded: true,
+          },
+        })
+      );
+    }, prov.id);
+    await page.goto('http://127.0.0.1:8899/index.html', { waitUntil: 'networkidle' });
+    await page.waitForSelector('body.is-ready');
+    const startCount = await page.evaluate(() => window.__test.count());
+    check(`[${prov.id}] the search scenario starts from an empty library`, startCount === 0, String(startCount));
+
+    await page.click('#screen-tonight [data-nav="add"]');
+    await page.waitForTimeout(500);
+
+    const defaultMode = await page.evaluate(() =>
+      [...document.querySelectorAll('#screen-add .seg button')]
+        .find((b) => b.getAttribute('aria-pressed') === 'true')?.textContent
+    );
+    check(`[${prov.id}] search is what Add opens on`, defaultMode === 'Search', String(defaultMode));
+
+    await page.fill('#add-search', 'Blade Runner 2049');
+    await page.click('#screen-add button[type="submit"]');
+    await page.waitForTimeout(900);
+
+    const found = await page.evaluate(() =>
+      [...document.querySelectorAll('#screen-add button')]
+        .map((b) => b.textContent)
+        .filter((t) => /Blade Runner/.test(t))
+    );
+    check(`[${prov.id}] the search returns the film`, found.length > 0, `${found.length} results`);
+
+    await page.evaluate(() =>
+      [...document.querySelectorAll('#screen-add button')]
+        .find((b) => /Blade Runner 2049/.test(b.textContent))?.click()
+    );
+    await page.waitForTimeout(1200);
+
+    const added = await page.evaluate(() => JSON.parse(localStorage.getItem('wn.state.v3')).items);
+    check(`[${prov.id}] one tap adds exactly one title`, added.length === 1, `${added.length}`);
+    const film = added[0] || {};
+    check(`[${prov.id}] it arrives with its year`, film.year === 2017, String(film.year));
+    check(`[${prov.id}] and a poster, not a grey placeholder`, !!film.poster, String(film.poster));
+    check(`[${prov.id}] and its runtime, without a separate sweep`, film.runtime === 164, String(film.runtime));
+    check(`[${prov.id}] and marked as owned, per the checkbox`, film.owned === true);
+    /* The important one. A record the user picked off a list is a human
+       decision; addItem used to overwrite meta with "pending" on the way in,
+       which handed it straight back to the matcher. */
+    /* Assert the property, not the label. What matters is that the next sweep
+       leaves it alone — pinning a particular status string just encodes
+       whichever one toPatch happens to write today. */
+    const wouldResweep = await page.evaluate(async () => {
+      const meta = await import('./src/metadata.js');
+      const store = await import('./src/store.js');
+      return meta.needsEnrichment(store.items()[0]);
+    });
+    check(`[${prov.id}] the next sweep leaves a hand-picked match alone`,
+      wouldResweep === false, JSON.stringify(film.meta));
+    check(`[${prov.id}] and attributed to the user, so a sweep will not redo it`,
+      film.meta?.source === 'user', JSON.stringify(film.meta));
+
+    /* Searching the same thing again must offer to open it, not add it twice. */
+    await page.fill('#add-search', 'Blade Runner 2049');
+    await page.click('#screen-add button[type="submit"]');
+    await page.waitForTimeout(900);
+    const flagged = await page.evaluate(() =>
+      [...document.querySelectorAll('#screen-add button')].some((b) => /Already in your library/.test(b.textContent))
+    );
+    check(`[${prov.id}] a title already held is flagged rather than duplicated`, flagged);
+
     await ctx.close();
   }
 
