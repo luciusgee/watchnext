@@ -148,6 +148,57 @@ const LEGACY = JSON.parse(fs.readFileSync(FIXTURE, 'utf8')).library;
   console.log('\n─── no errors ───');
   check('no uncaught JS errors', errs.length === 0, errs.slice(0, 3).join(' | '));
 
+  /* The nudge has to reach someone. It was computed by storageHealth and shown
+     nowhere, and the "last export" line only appeared once there had been one —
+     so the state that matters most, never backed up at all, said nothing. */
+  console.log('\n─── the backup prompt actually reaches you ───');
+  {
+    await page.evaluate(() => {
+      localStorage.removeItem('wn.backup.snoozed');
+      localStorage.removeItem('wn.lastBackupAt');
+      window.__test.seedMany(40);
+      window.__test.items().slice(0, 30).forEach((i) => window.__test.setWatched(i.uid, true, { silent: true }));
+    });
+    await page.waitForTimeout(500);
+    await page.click('[data-tab="tonight"]');
+    await page.waitForTimeout(700);
+
+    const prompt = await page.evaluate(() => {
+      const t = document.querySelector('#screen-tonight [data-region="body"]').innerText;
+      return {
+        shown: /live only on this phone/.test(t),
+        hasExport: [...document.querySelectorAll('#screen-tonight button')].some((b) => /Export a copy/.test(b.textContent)),
+        hasLater: [...document.querySelectorAll('#screen-tonight button')].some((b) => /Later/.test(b.textContent)),
+      };
+    });
+    check('a library with nothing backed up gets a prompt on the home screen', prompt.shown);
+    check('with a one-tap export', prompt.hasExport);
+    check('and a way to put it off — a nag that cannot be silenced gets ignored forever', prompt.hasLater);
+
+    await page.evaluate(() =>
+      [...document.querySelectorAll('#screen-tonight button')].find((b) => /Later/.test(b.textContent)).click()
+    );
+    await page.waitForTimeout(500);
+    const afterSnooze = await page.evaluate(() => ({
+      gone: !/live only on this phone/.test(document.querySelector('#screen-tonight [data-region="body"]').innerText),
+      until: parseInt(localStorage.getItem('wn.backup.snoozed') || '0', 10),
+    }));
+    check('putting it off hides it', afterSnooze.gone);
+    check('for a fortnight, not forever',
+      afterSnooze.until > Date.now() && afterSnooze.until < Date.now() + 15 * 24 * 3600 * 1000,
+      String(afterSnooze.until));
+
+    /* And it comes back once the snooze expires, or it is not a reminder. */
+    await page.evaluate(() => localStorage.setItem('wn.backup.snoozed', String(Date.now() - 1000)));
+    await page.click('[data-tab="library"]');
+    await page.waitForTimeout(300);
+    await page.click('[data-tab="tonight"]');
+    await page.waitForTimeout(600);
+    check('and returns when the snooze runs out',
+      await page.evaluate(() => /live only on this phone/.test(
+        document.querySelector('#screen-tonight [data-region="body"]').innerText)));
+  }
+
   console.log(`\n══════════  ${pass} passed, ${fail} failed  ══════════`);
   if (failures.length) { console.log('\nFailures:'); failures.forEach((f) => console.log('  · ' + f)); }
   await browser.close();

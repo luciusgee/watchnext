@@ -13,6 +13,7 @@ import { icon } from '../icons.js';
 import { runtime, commitment, relativeTime, rating } from '../format.js';
 import { tonightPick, alternates } from '../recommend.js';
 import { openDetail } from './detail.js';
+import { shouldNudgeBackup, markBackedUp } from '../durability.js';
 
 let root = null;
 let navigate = null;
@@ -106,6 +107,9 @@ export function render() {
     .sort((a, b) => b.watchedAt - a.watchedAt)
     .slice(0, 20);
   if (recent.length) body.appendChild(rail('Recently watched', recent));
+
+  const nudge = backupNudge();
+  if (nudge) body.appendChild(nudge);
 
   body.appendChild(statLine());
   body.appendChild(el('div', { style: 'height:24px' }));
@@ -216,6 +220,92 @@ function heroBlock(pick) {
   }
 
   return wrap;
+}
+
+/**
+ * Back up your library.
+ *
+ * This category is defined by data loss — "I had over 750 dvds on the app and
+ * they have all disappeared" is a real review of a real competitor — and this
+ * app has no server to restore from. Safari clears script-writable storage
+ * after seven days without a visit, which takes localStorage and the IndexedDB
+ * mirror together.
+ *
+ * So the prompt lives on the screen someone actually opens, not buried in
+ * Settings under a heading nobody reads. Quiet, once the threshold is passed,
+ * and dismissible for a fortnight — a nag that cannot be silenced gets ignored
+ * permanently, which is worse than one that can.
+ */
+const SNOOZE_KEY = 'wn.backup.snoozed';
+const SNOOZE_DAYS = 14;
+
+function snoozedUntil() {
+  try {
+    return parseInt(localStorage.getItem(SNOOZE_KEY) || '0', 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function backupNudge() {
+  if (!shouldNudgeBackup(store.stats())) return null;
+  if (Date.now() < snoozedUntil()) return null;
+
+  const box = el('section', {
+    class: 'section',
+    style:
+      'margin:0 16px 8px;padding:14px;border:1px solid var(--amber-line);' +
+      'background:var(--amber-dim);border-radius:var(--r-md)',
+  });
+  const n = store.stats().total;
+  box.appendChild(
+    el('div', {
+      style: 'font-size:13px;line-height:1.5;margin-bottom:10px',
+      text: `${n} titles live only on this phone. Browsers clear stored data after a long gap, and there is no copy anywhere else.`,
+    })
+  );
+
+  const row = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' });
+  row.appendChild(
+    button('Export a copy', {
+      kind: 'primary',
+      size: 'sm',
+      iconName: 'upload',
+      onClick: () => {
+        exportNow();
+        render();
+      },
+    })
+  );
+  row.appendChild(
+    button('Later', {
+      kind: 'quiet',
+      size: 'sm',
+      onClick: () => {
+        try {
+          localStorage.setItem(SNOOZE_KEY, String(Date.now() + SNOOZE_DAYS * 24 * 3600 * 1000));
+        } catch {
+          /* storage refused; the prompt simply returns next render */
+        }
+        render();
+      },
+    })
+  );
+  box.appendChild(row);
+  return box;
+}
+
+/** The same export Settings performs, reachable from where the prompt is. */
+function exportNow() {
+  const payload = store.exportPayload();
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: `watchnext-${new Date().toISOString().slice(0, 10)}.json` });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  markBackedUp();
 }
 
 function rail(title, items, onSeeAll) {

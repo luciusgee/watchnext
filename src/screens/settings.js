@@ -642,14 +642,20 @@ async function refreshStorageHealth() {
     );
   }
 
-  if (h.lastBackupAt) {
-    slot.appendChild(
-      el('div', {
-        style: 'font-size:12px;color:var(--faint);margin-top:4px',
-        text: `Last export ${relative(h.lastBackupAt)}.`,
-      })
-    );
-  }
+  /* Stated either way. "Last export never" is the case that matters most and
+     was the one case this said nothing at all about — a silent absence reads as
+     "fine" rather than "you have no copy of this anywhere". */
+  const stale = h.nudge;
+  slot.appendChild(
+    el('div', {
+      style: `font-size:12px;margin-top:6px;font-weight:${stale ? '600' : '400'};color:var(--${
+        stale ? 'amber' : 'faint'
+      })`,
+      text: h.lastBackupAt
+        ? `Last export ${relative(h.lastBackupAt)}.${stale ? ' Worth doing another.' : ''}`
+        : 'You have never exported a copy. Nothing outside this device holds your library.',
+    })
+  );
 }
 
 function backupGroup() {
