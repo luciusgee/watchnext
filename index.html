@@ -67,6 +67,24 @@
     </div>
   </main>
 
+  <!-- ─────────────  TONIGHT'S SHORTLIST  ───────────── -->
+  <main id="screen-pick" class="screen" aria-label="Tonight's shortlist">
+    <header class="topbar">
+      <button class="iconbtn" type="button" data-nav="tonight" data-icon="back" aria-label="Back"></button>
+      <h1 class="topbar-title">Pick one</h1>
+      <button class="iconbtn" type="button" data-action="constraints" data-icon="sliders" aria-label="Change what you fancy"></button>
+    </header>
+
+    <p class="pick-meta" data-region="meta"></p>
+
+    <div class="deck" data-region="deck"></div>
+
+    <div class="deck-controls" data-region="controls" hidden>
+      <button class="deck-btn" type="button" data-action="no" data-icon="close" data-icon-size="24" aria-label="Not tonight"></button>
+      <button class="deck-btn deck-btn-yes" type="button" data-action="yes" data-icon="playFill" data-icon-size="22" aria-label="That one"></button>
+    </div>
+  </main>
+
   <!-- ─────────────  LIBRARY  ───────────── -->
   <main id="screen-library" class="screen" aria-label="Library">
     <header class="topbar">

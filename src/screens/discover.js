@@ -12,14 +12,13 @@
  */
 
 import * as store from '../store.js';
+import { attachSwipe, flingOut } from '../deck.js';
 import * as actions from '../actions.js';
 import { el, clear, poster, emptyState, button, toast } from '../ui.js';
 import { icon } from '../icons.js';
 import { runtime, rating } from '../format.js';
 import { openDetail } from './detail.js';
 
-const SWIPE_THRESHOLD = 96;
-const VELOCITY_THRESHOLD = 0.45;
 
 let root = null;
 let deckEl = null;
@@ -130,7 +129,11 @@ function render() {
   }
   const card = cardFor(item, true);
   deckEl.appendChild(card);
-  teardown = attachGesture(card, item);
+  teardown = attachSwipe(card, {
+    blocked: () => busy,
+    onRight: () => commit('watched', card),
+    onLeft: () => commit('skip', card),
+  });
 }
 
 function cardFor(item, interactive) {
@@ -138,8 +141,8 @@ function cardFor(item, interactive) {
   card.appendChild(poster(item, { lazy: false }));
 
   if (interactive) {
-    card.appendChild(el('div', { class: 'deck-stamp stamp-yes', 'data-stamp': 'watched', text: 'Seen it' }));
-    card.appendChild(el('div', { class: 'deck-stamp stamp-no', 'data-stamp': 'skip', text: 'Skip' }));
+    card.appendChild(el('div', { class: 'deck-stamp stamp-yes', 'data-stamp': 'right', text: 'Seen it' }));
+    card.appendChild(el('div', { class: 'deck-stamp stamp-no', 'data-stamp': 'left', text: 'Not yet' }));
   }
 
   const info = el('div', { class: 'deck-info' });
@@ -185,81 +188,8 @@ function cardFor(item, interactive) {
   return card;
 }
 
-/* ── gesture ──
-   Pointer Events cover mouse, touch and pen with one code path. The old
-   version registered four separate touch/mouse handlers and never removed
-   them, leaking a listener set per card. */
-function attachGesture(card, item) {
-  let startX = 0;
-  let startY = 0;
-  let startT = 0;
-  let dx = 0;
-  let dy = 0;
-  let dragging = false;
-  let pointerId = null;
-
-  const stamps = {
-    watched: card.querySelector('[data-stamp="watched"]'),
-    skip: card.querySelector('[data-stamp="skip"]'),
-  };
-
-  const onDown = (e) => {
-    if (busy || e.button > 0) return;
-    dragging = true;
-    pointerId = e.pointerId;
-    startX = e.clientX;
-    startY = e.clientY;
-    startT = performance.now();
-    card.setPointerCapture(pointerId);
-    card.style.transition = 'none';
-  };
-
-  const onMove = (e) => {
-    if (!dragging || e.pointerId !== pointerId) return;
-    dx = e.clientX - startX;
-    dy = e.clientY - startY;
-    const rot = dx / 18;
-    card.style.transform = `translate(${dx}px, ${dy}px) rotate(${rot}deg)`;
-
-    stamps.watched.style.opacity = dx > 30 ? String(Math.min(1, (dx - 30) / 70)) : '0';
-    stamps.skip.style.opacity = dx < -30 ? String(Math.min(1, (-dx - 30) / 70)) : '0';
-  };
-
-  const onUp = (e) => {
-    if (!dragging || e.pointerId !== pointerId) return;
-    dragging = false;
-    try {
-      card.releasePointerCapture(pointerId);
-    } catch {
-      /* capture may already be gone */
-    }
-    card.style.transition = '';
-
-    const dt = Math.max(1, performance.now() - startT);
-    const vx = dx / dt;
-    const vy = dy / dt;
-
-    if (dx > SWIPE_THRESHOLD || vx > VELOCITY_THRESHOLD) return commit('watched', card);
-    if (dx < -SWIPE_THRESHOLD || vx < -VELOCITY_THRESHOLD) return commit('skip', card);
-
-    /* snap back */
-    card.style.transform = '';
-    Object.values(stamps).forEach((s) => (s.style.opacity = '0'));
-    dx = dy = 0;
-  };
-
-  card.addEventListener('pointerdown', onDown);
-  card.addEventListener('pointermove', onMove);
-  card.addEventListener('pointerup', onUp);
-  card.addEventListener('pointercancel', onUp);
-
-  return () => {
-    card.removeEventListener('pointerdown', onDown);
-    card.removeEventListener('pointermove', onMove);
-    card.removeEventListener('pointerup', onUp);
-    card.removeEventListener('pointercancel', onUp);
-  };
-}
+/* Gesture lives in ../deck.js so the two decks in this app cannot drift apart.
+   See the note there. */
 
 function commit(action, cardEl) {
   if (busy) return;
@@ -269,17 +199,7 @@ function commit(action, cardEl) {
   busy = true;
 
   const card = cardEl || deckEl.querySelector('.deck-card:last-child');
-  if (card) {
-    const to =
-      action === 'skip'
-        ? 'translate(-140%, 40px) rotate(-22deg)'
-        : action === 'watched'
-          ? 'translate(140%, 40px) rotate(22deg)'
-          : 'translateY(-130%) scale(.86)';
-    card.style.transition = 'transform .28s cubic-bezier(.22,.61,.36,1), opacity .28s linear';
-    card.style.transform = to;
-    card.style.opacity = '0';
-  }
+  if (card) flingOut(card, action === 'watched' ? 'right' : 'left');
 
   const prev = { seen: item.seen, seenAt: item.seenAt, watched: item.watched };
 

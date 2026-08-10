@@ -172,6 +172,17 @@ function heroBlock(pick) {
       },
     })
   );
+  /* The way out of "not that one, and not the next one either". Tonight's pick
+     is one opinion; this is where you say what you actually fancy and deal a
+     hand from it. */
+  acts.appendChild(
+    button('Something else', {
+      kind: 'quiet',
+      iconName: 'sliders',
+      size: 'sm',
+      onClick: () => navigate('pick'),
+    })
+  );
   copy.appendChild(acts);
 
   inner.appendChild(copy);

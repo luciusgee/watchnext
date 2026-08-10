@@ -89,8 +89,10 @@ function check(name, cond, detail = '') {
   /* Two outcomes, not three. The deck asks one question — have you seen this —
      and the watchlist swipe that used to be the third is gone with the
      watchlist itself. */
+  /* Scoped to Discover: the session picker has a deck of its own and an
+     unscoped query happily counts both. */
   const deckButtons = await page.evaluate(() =>
-    [...document.querySelectorAll('.deck-controls [data-action]')].map((b) => b.dataset.action)
+    [...document.querySelectorAll('#screen-discover .deck-controls [data-action]')].map((b) => b.dataset.action)
   );
   check('the deck offers exactly two answers', deckButtons.length === 2, deckButtons.join(', '));
   check('and they are not-yet and seen-it',
@@ -412,6 +414,103 @@ function check(name, cond, detail = '') {
     () => document.querySelector('#screen-ask [data-region="thread"]').innerText
   );
   check('clearing a key does not wipe an existing conversation', /A REAL MESSAGE/.test(kept), kept.slice(0, 80));
+
+  /* Tonight's shortlist.
+   *
+   * The load-bearing property is the one in the brief — "it doesn't affect your
+   * watchlist, it's just a way to pick a film there and then" — so the first
+   * thing asserted is that a whole session through the deck changes nothing at
+   * all. Not watched, not seen, not a timestamp. */
+  console.log('\n─── tonight\'s shortlist changes nothing ───');
+
+  await page.click('[data-tab="tonight"]');
+  await page.waitForTimeout(600);
+  const reachable = await page.evaluate(() =>
+    [...document.querySelectorAll('#screen-tonight button')].some((b) => /Something else/.test(b.textContent))
+  );
+  check('it is reachable from the Tonight pick', reachable);
+
+  await page.evaluate(() =>
+    [...document.querySelectorAll('#screen-tonight button')].find((b) => /Something else/.test(b.textContent))?.click()
+  );
+  await page.waitForTimeout(800);
+
+  const dealt = await page.evaluate(() => document.querySelectorAll('#screen-pick .deck-card').length);
+  check('it deals a hand', dealt > 0, `${dealt} cards`);
+
+  const beforeSession = await page.evaluate(() =>
+    JSON.stringify(JSON.parse(localStorage.getItem('wn.state.v3')).items)
+  );
+
+  /* Swipe all the way through — every "no" the deck will take. */
+  for (let i = 0; i < 14; i++) {
+    const gone = await page.evaluate(() => {
+      const b = document.querySelector('#screen-pick [data-action="no"]');
+      return !b || b.closest('[data-region="controls"]').hidden;
+    });
+    if (gone) break;
+    await page.click('#screen-pick [data-action="no"]');
+    await page.waitForTimeout(280);
+  }
+
+  const afterSession = await page.evaluate(() =>
+    JSON.stringify(JSON.parse(localStorage.getItem('wn.state.v3')).items)
+  );
+  check('a full session through the deck writes nothing to the library',
+    beforeSession === afterSession, beforeSession === afterSession ? '' : 'the stored library changed');
+
+  /* And structurally: the module has no way to write, which is a stronger
+     guarantee than remembering not to. */
+  const pickSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'screens', 'pick.js'), 'utf8');
+  const writeCalls = ['store.update', 'store.add(', 'store.remove', 'store.bulk', 'store.saveNow',
+                      'store.updateSettings', 'actions.', "from '../actions.js'"];
+  const foundWrites = writeCalls.filter((w) => pickSrc.includes(w));
+  check('and the picker cannot write even by accident', foundWrites.length === 0, foundWrites.join(', '));
+
+  check('running out offers a way to widen rather than a dead end',
+    await page.evaluate(() => {
+      const empty = document.querySelector('#screen-pick .empty');
+      return !!empty && /Widen it|Start again/.test(empty.textContent);
+    }));
+
+  /* Constraints actually constrain. Under 90 minutes is the easiest to check
+     against the real records. */
+  await page.click('#screen-pick [data-action="constraints"]');
+  await page.waitForTimeout(500);
+  await page.evaluate(() =>
+    [...document.querySelectorAll('.sheet .pill')].find((b) => b.textContent === 'Under 90 min')?.click()
+  );
+  await page.waitForTimeout(500);
+  await page.evaluate(() =>
+    [...document.querySelectorAll('.sheet button')].find((b) => /Deal me some/.test(b.textContent))?.click()
+  );
+  await page.waitForTimeout(800);
+
+  const runtimes = await page.evaluate(() => {
+    const titles = [...document.querySelectorAll('#screen-pick .deck-title')].map((n) => n.textContent);
+    const items = JSON.parse(localStorage.getItem('wn.state.v3')).items;
+    return titles.map((t) => items.find((i) => i.title === t)?.runtime ?? null);
+  });
+  check('a runtime constraint is honoured by every card dealt',
+    runtimes.length > 0 && runtimes.every((r) => r === null || r <= 90), JSON.stringify(runtimes));
+
+  const pickButtons = await page.evaluate(() =>
+    [...document.querySelectorAll('#screen-pick .deck-controls [data-action]')].map((b) => b.dataset.action)
+  );
+  check('the shortlist offers exactly two answers', pickButtons.join(',') === 'no,yes', pickButtons.join(','));
+
+  await page.click('#screen-pick [data-action="yes"]');
+  await page.waitForTimeout(700);
+  check('saying yes opens the film',
+    await page.evaluate(() => document.getElementById('detail').getAttribute('aria-hidden') === 'false'));
+
+  const afterYes = await page.evaluate(() =>
+    JSON.stringify(JSON.parse(localStorage.getItem('wn.state.v3')).items)
+  );
+  check('and even a yes writes nothing on its own', afterYes === afterSession);
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
 
   console.log('\n─── uncaught JS errors ───');
   check('no uncaught errors during the whole run', jsErrors.length === 0, jsErrors.slice(0, 3).join(' | '));

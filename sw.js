@@ -45,6 +45,7 @@ const SHELL = [
   './src/build.js',
   './src/durability.js',
   './src/viewport.js',
+  './src/deck.js',
   './src/providers/index.js',
   './src/providers/shared.js',
   './src/providers/omdb.js',
@@ -57,6 +58,7 @@ const SHELL = [
   './src/screens/settings.js',
   './src/screens/add.js',
   './src/screens/match.js',
+  './src/screens/pick.js',
 ];
 
 /* Every module under src/ belongs above. They are listed by hand rather than

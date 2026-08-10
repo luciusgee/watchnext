@@ -1200,6 +1200,17 @@ body.is-typing .tabbar {
   transform: rotate(9deg);
 }
 
+/* Tonight's shortlist — reuses the whole .deck-* family; only the constraint
+   line is new. */
+.pick-meta {
+  flex: none;
+  padding: var(--s3) var(--s4) 0;
+  text-align: center;
+  font-size: var(--t-sub);
+  color: var(--ash);
+  text-transform: lowercase;
+}
+
 .deck-controls {
   display: flex;
   align-items: center;

@@ -17,6 +17,7 @@ import { initTonight, showTonight } from './screens/tonight.js';
 import { initLibrary, showLibrary } from './screens/library.js';
 import { initDiscover, showDiscover } from './screens/discover.js';
 import { initAsk, showAsk } from './screens/ask.js';
+import { initPick, showPick } from './screens/pick.js';
 import { initSettings, showSettings } from './screens/settings.js';
 import { initAdd, showAdd } from './screens/add.js';
 
@@ -32,6 +33,7 @@ const SHOW = {
   discover: showDiscover,
   library: showLibrary,
   ask: showAsk,
+  pick: showPick,
   settings: showSettings,
   add: showAdd,
 };
@@ -103,6 +105,7 @@ async function boot() {
   initLibrary({ navigate });
   initDiscover({ navigate });
   initAsk({ navigate });
+  initPick({ navigate });
   initSettings({ navigate });
   initAdd({ navigate });
 
