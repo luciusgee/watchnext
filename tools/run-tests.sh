@@ -8,6 +8,7 @@ PW=${PLAYWRIGHT_PATH:-/opt/node22/lib/node_modules/playwright}
 
 echo "── unit ─────────────────────────────────────────"
 node tools/match.test.mjs || UNIT=1
+node tools/recommend.test.mjs || UNIT=1
 
 # Always own the server. Previously this reused whatever was already listening,
 # which meant a stray server from an earlier shell could be reaped part-way

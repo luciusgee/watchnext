@@ -415,6 +415,50 @@ function check(name, cond, detail = '') {
   );
   check('clearing a key does not wipe an existing conversation', /A REAL MESSAGE/.test(kept), kept.slice(0, 80));
 
+  // ─────────────────────────────────────────────────────────
+  /* The screen that makes the recommendation has to find out whether it was
+     right. Without this the taste profile never learns from the thing it just
+     suggested, which is the one place in the app where that feedback is free. */
+  console.log('\n─── Tonight closes its own loop ───');
+  await page.click('[data-tab="tonight"]');
+  await page.waitForTimeout(700);
+
+  const heroBefore = await page.evaluate(() => ({
+    title: document.querySelector('#screen-tonight .hero-title')?.textContent,
+    labels: [...document.querySelectorAll('#screen-tonight .hero-actions button')].map((b) => b.textContent.trim()),
+  }));
+  check('the hero offers a one-tap "seen it"', heroBefore.labels.includes('Seen it'),
+    heroBefore.labels.join(' | '));
+  /* Two labels a letter apart, one of which edits the library, is a mis-tap
+     waiting to happen. */
+  check('and it is not confusable with the play action',
+    !heroBefore.labels.includes('Watch it') && heroBefore.labels.includes('Put it on'),
+    heroBefore.labels.join(' | '));
+
+  const watchedBefore = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('wn.state.v3')).items.filter((i) => i.watched).length
+  );
+  await page.evaluate(() =>
+    [...document.querySelectorAll('#screen-tonight .hero-actions button')]
+      .find((b) => b.textContent.trim() === 'Seen it').click()
+  );
+  await page.waitForTimeout(700);
+
+  const afterWatch = await page.evaluate(() => {
+    const items = JSON.parse(localStorage.getItem('wn.state.v3')).items;
+    return {
+      watched: items.filter((i) => i.watched).length,
+      stamped: items.filter((i) => i.watched && i.watchedAt).length,
+      title: document.querySelector('#screen-tonight .hero-title')?.textContent,
+    };
+  });
+  check('tapping it marks exactly one more title watched',
+    afterWatch.watched === watchedBefore + 1, `${watchedBefore} -> ${afterWatch.watched}`);
+  check('with a timestamp, so the taste profile can weight it by age',
+    afterWatch.stamped === afterWatch.watched, `${afterWatch.stamped}/${afterWatch.watched}`);
+  check('and the hero moves on to something else',
+    afterWatch.title !== heroBefore.title, `${heroBefore.title} -> ${afterWatch.title}`);
+
   /* Tonight's shortlist.
    *
    * The load-bearing property is the one in the brief — "it doesn't affect your

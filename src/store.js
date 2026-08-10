@@ -110,7 +110,6 @@ function emptyState() {
       dataKeys: {},      // { tmdb: '…', omdb: '…' } — one per source
       keyStatus: {},     // { omdb: { ok, message, at } } — did the key actually answer?
       aiKey: '',
-      aiEnabled: false,
       libraryView: 'list',
       /* No screenFit here, and no longer a setting at all — the app stays inside
          the safe area, which is what looks right on the device. It briefly lived

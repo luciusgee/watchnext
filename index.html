@@ -23,7 +23,11 @@
 <title>Watch Next</title>
 
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="assets/icon.svg">
+<link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
+<!-- PNG, not the SVG. iOS does not reliably accept an SVG apple-touch-icon and
+     silently falls back to a screenshot of the page — which, for an app whose
+     only delivery channel is Add to Home Screen, is the first impression. -->
+<link rel="apple-touch-icon" sizes="180x180" href="assets/icon-180.png">
 <link rel="manifest" href="app.webmanifest">
 <link rel="stylesheet" href="styles/app.css">
 </head>

@@ -23,7 +23,6 @@ import { openDetail } from './detail.js';
 
 const MODEL = 'claude-haiku-4-5-20251001';
 const MAX_CANDIDATES = 40;
-const CACHE_KEY = 'wn.ask.cache';
 
 let root = null;
 let listEl = null;

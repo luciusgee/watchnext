@@ -19,7 +19,7 @@
  */
 
 import * as store from '../store.js';
-import { rank } from '../recommend.js';
+import { rank, tasteProfile } from '../recommend.js';
 import { el, clear, poster, button, emptyState } from '../ui.js';
 import { runtime as fmtRuntime } from '../format.js';
 import { attachSwipe, flingOut } from '../deck.js';
@@ -129,6 +129,8 @@ function deal() {
   const pool = matching(all, constraints);
 
   const ranked = rank(pool, {
+    /* Built from the whole library, not the filtered pool — see rank(). */
+    profile: tasteProfile(all),
     seed: `pick-${Math.random().toString(36).slice(2)}`,
     limit: HOW_MANY,
     ownedOnly: false,        // already applied above, against the real field

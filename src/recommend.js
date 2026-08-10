@@ -176,9 +176,16 @@ export function rank(
     ownedOnly = false,
     allowRewatch = true,
     maxRuntime = null,
+    /* Taste is a property of the whole library, not of whatever subset is being
+       ranked. A caller that has already narrowed the list — the session picker
+       filters by genre and decade before it gets here — must pass the profile
+       built from everything, or "90s horror" computes your taste from 90s
+       horror alone and, below three watched titles in that slice, ignores taste
+       entirely. */
+    profile = null,
   } = {}
 ) {
-  const profile = tasteProfile(items);
+  const taste = profile || tasteProfile(items);
   const ctx = {
     seed,
     hour,
@@ -195,7 +202,7 @@ export function rank(
 
   return items
     .map((item) => {
-      const s = scoreItem(item, profile, ctx);
+      const s = scoreItem(item, taste, ctx);
       return s ? { item, ...s } : null;
     })
     .filter(Boolean)
@@ -229,10 +236,21 @@ export function alternates(items, { exclude = [], limit = 12, ...opts } = {}) {
 /**
  * Similar titles — shares a genre, close in era, not the same film.
  * Used on the detail screen.
+ *
+ * A shared genre is required, not merely rewarded. It reads as though scoring
+ * alone would sort it out, and it does not: same type (+3), same era (+4) and
+ * unwatched (+2) clear the threshold of 4 on their own, so every film from the
+ * same year qualified as "more like this" regardless of what it was. The
+ * function has always said "shares a genre"; now it means it.
+ *
+ * Any overlap counts, not just the single display genre — a film tagged
+ * Horror/Thriller is a fair suggestion for a Thriller.
  */
 export function similarTo(item, items, limit = 12) {
+  const wanted = new Set([item.genre, ...(item.genres || [])].filter(Boolean));
   return items
     .filter((o) => o.uid !== item.uid)
+    .filter((o) => [o.genre, ...(o.genres || [])].some((g) => g && wanted.has(g)))
     .map((o) => {
       let s = 0;
       if (o.genre && o.genre === item.genre) s += 10;

@@ -93,6 +93,31 @@ const URL_BASE = `http://127.0.0.1:${PORT}/watchnext/`;
       [...listed].filter((f) => !onDisk.includes(f)).join(', '));
   }
 
+  /* Add to Home Screen is the entire delivery channel, so a missing or
+     unreferenced icon is not cosmetic. iOS falls back to a screenshot of the
+     page when it cannot use the icon, which is the first thing a new user
+     sees on their home screen. */
+  console.log('\n─── the install icons are real files ───');
+  {
+    const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'app.webmanifest'), 'utf8'));
+    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+
+    const missing = manifest.icons.filter((i) => !fs.existsSync(path.join(ROOT, i.src)));
+    check('every icon the manifest declares exists on disk',
+      missing.length === 0, missing.map((i) => i.src).join(', '));
+
+    check('there is a maskable icon, so Android does not crop the mark',
+      manifest.icons.some((i) => i.purpose === 'maskable'));
+    check('and a 512 for the splash screen',
+      manifest.icons.some((i) => /512/.test(i.sizes) && i.type === 'image/png'));
+
+    const touch = html.match(/rel="apple-touch-icon"[^>]*href="([^"]+)"/);
+    check('the apple-touch-icon is declared', !!touch);
+    check('it is a PNG — iOS does not reliably accept an SVG here',
+      !!touch && /\.png$/.test(touch[1]), touch?.[1]);
+    check('and it exists', !!touch && fs.existsSync(path.join(ROOT, touch[1])), touch?.[1]);
+  }
+
   console.log('\n─── registration ───');
   await page.goto(URL_BASE, { waitUntil: 'networkidle' });
   await page.waitForSelector('body.is-ready');

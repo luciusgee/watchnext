@@ -16,9 +16,7 @@ import { openDetail } from './detail.js';
 
 let root = null;
 let navigate = null;
-let offset = 0;
 let ownedOnly = true;
-const shown = [];
 
 export function initTonight({ navigate: nav }) {
   navigate = nav;
@@ -57,7 +55,7 @@ export function render() {
     return;
   }
 
-  const opts = { ownedOnly, offset };
+  const opts = { ownedOnly };
   const pick = tonightPick(items, opts);
 
   if (pick) {
@@ -153,32 +151,41 @@ function heroBlock(pick) {
 
   const acts = el('div', { class: 'hero-actions' });
   acts.appendChild(
-    button('Watch it', {
+    /* "Put it on" rather than "Watch it": the button next to it marks something
+        watched, and two labels a letter apart doing opposite things is how you
+        get a mis-tap that edits the library. */
+    button('Put it on', {
       kind: 'primary',
       iconName: 'playFill',
       size: 'sm',
       onClick: () => openDetail(item.uid),
     })
   );
+  /* Closes the loop. Until this existed the screen that made the recommendation
+     never found out whether it was right — you watched the film, and nothing
+     told the scorer. tasteProfile() weights history by 1/(1+age in years), so
+     every one of these makes tomorrow's pick better, and it is the only place
+     in the app where marking something watched costs a single tap. */
   acts.appendChild(
-    button('Not tonight', {
-      kind: 'quiet',
-      iconName: 'shuffle',
+    button('Seen it', {
+      kind: 'secondary',
+      iconName: 'check',
       size: 'sm',
       onClick: () => {
-        shown.push(item.uid);
-        offset += 1;
+        actions.setWatched(item.uid, true);
         render();
       },
     })
   );
-  /* The way out of "not that one, and not the next one either". Tonight's pick
-     is one opinion; this is where you say what you actually fancy and deal a
-     hand from it. */
+  /* This replaced a "Not tonight" button that advanced the hero by one pick.
+     Both answer "no, something else", and dealing a whole hand you can steer is
+     a better answer than one more take-it-or-leave-it — so there is one button
+     here rather than two doing the same job badly, and four would not fit a
+     phone anyway. */
   acts.appendChild(
     button('Something else', {
       kind: 'quiet',
-      iconName: 'sliders',
+      iconName: 'shuffle',
       size: 'sm',
       onClick: () => navigate('pick'),
     })
@@ -197,7 +204,6 @@ function heroBlock(pick) {
       'aria-pressed': String(ownedOnly),
       onclick: () => {
         ownedOnly = !ownedOnly;
-        offset = 0;
         render();
       },
     });
