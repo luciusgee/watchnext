@@ -615,6 +615,52 @@ export function stats() {
     hoursWatched: Math.round(
       watched.reduce((sum, i) => sum + (i.runtime || 0), 0) / 60
     ),
+    /* The number that lands: how long the pile would take to get through.
+       Titles with no runtime contribute nothing rather than an invented
+       average — an estimate presented as a fact is how a stat stops being
+       trusted. */
+    hoursUnwatched: Math.round(
+      all.filter((i) => !i.watched).reduce((sum, i) => sum + (i.runtime || 0), 0) / 60
+    ),
+    pctWatched: all.length ? Math.round((watched.length / all.length) * 100) : 0,
+    fourK: all.filter((i) => i.owned && i.quality === '4K').length,
+    watchedThisYear: watched.filter(
+      (i) => i.watchedAt && new Date(i.watchedAt).getFullYear() === new Date().getFullYear()
+    ).length,
+    /* Whether the watch dates describe history or just describe setup.
+       Every timestamp is written when someone TELLS the app they have seen
+       something, so a library imported and triaged over a weekend carries five
+       hundred dates from that weekend. Presenting that as "films watched this
+       year" is a claim the data cannot support — the same mistake as dating a
+       shelf by when a title entered the app. A real spread of more than about
+       two months is the cheapest honest test, and it becomes true on its own
+       once the app has been used for a while. */
+    datesAreHistory: (() => {
+      const stamps = watched.map((i) => i.watchedAt).filter(Boolean);
+      if (stamps.length < 5) return false;
+      return Math.max(...stamps) - Math.min(...stamps) > 60 * 24 * 3600 * 1000;
+    })(),
+  };
+}
+
+/**
+ * How the library breaks down by decade, and by genre.
+ * Returned as sorted [label, count] pairs so a caller can render without
+ * knowing anything about the shape of an item.
+ */
+export function breakdown() {
+  const decade = new Map();
+  const genre = new Map();
+  for (const i of state.items) {
+    if (i.year) {
+      const d = `${Math.floor(i.year / 10) * 10}s`;
+      decade.set(d, (decade.get(d) || 0) + 1);
+    }
+    if (i.genre) genre.set(i.genre, (genre.get(i.genre) || 0) + 1);
+  }
+  return {
+    decades: [...decade.entries()].sort((a, b) => parseInt(a[0]) - parseInt(b[0])),
+    genres: [...genre.entries()].sort((a, b) => b[1] - a[1]),
   };
 }
 

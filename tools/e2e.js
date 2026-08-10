@@ -571,6 +571,45 @@ function check(name, cond, detail = '') {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
 
+  /* Your shelf, counted — and the card, which is the only channel this app has
+     for anyone hearing about it. Both free on purpose. */
+  console.log('\n─── your shelf, counted ───');
+  await page.click('[data-tab="tonight"]');
+  await page.waitForTimeout(600);
+
+  const statBtn = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('#screen-tonight button')].find((x) => /titles.*watched/.test(x.textContent));
+    if (b) b.click();
+    return !!b;
+  });
+  check('the stat line is a way in, not a caption', statBtn);
+  await page.waitForTimeout(700);
+
+  const shelf = await page.evaluate(() => {
+    const t = document.querySelector('#screen-stats [data-region="body"]').innerText;
+    const items = JSON.parse(localStorage.getItem('wn.state.v3')).items;
+    const pile = items.filter((i) => i.owned && !i.watched).length;
+    return { text: t, pile, hasCard: /Make a card/.test(t) };
+  });
+  check('the pile is the headline number',
+    new RegExp(`\\b${shelf.pile}\\b`).test(shelf.text), `expected ${shelf.pile}`);
+  check('it says what the pile is', /never watched/.test(shelf.text));
+  check('and offers the card', shelf.hasCard);
+
+  /* The card is drawn locally and must produce a real PNG — a screenshot
+     prompt would be a different, worse feature. */
+  const card = await page.evaluate(async () => {
+    const before = document.querySelectorAll('a[download]').length;
+    [...document.querySelectorAll('#screen-stats button')].find((b) => /Make a card/.test(b.textContent)).click();
+    await new Promise((r) => setTimeout(r, 900));
+    return { madeALink: document.querySelectorAll('a[download]').length >= before };
+  });
+  check('making a card does not throw', card.madeALink);
+
+  const noNetwork = await page.evaluate(() => performance.getEntriesByType('resource')
+    .filter((e) => /upload|api\./.test(e.name)).length);
+  check('and uploads nothing', noNetwork === 0, `${noNetwork} requests`);
+
   console.log('\n─── uncaught JS errors ───');
   check('no uncaught errors during the whole run', jsErrors.length === 0, jsErrors.slice(0, 3).join(' | '));
 

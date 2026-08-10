@@ -369,14 +369,20 @@ export function cardFor(item) {
 
 function statLine() {
   const s = store.stats();
-  const pct = s.total ? Math.round((s.watched / s.total) * 100) : 0;
-  const bits = [`${s.total} titles`, `${s.watched} watched`, `${pct}% through`];
+  const bits = [`${s.total} titles`, `${s.watched} watched`, `${s.pctWatched}% through`];
   if (s.hoursWatched) bits.push(`${s.hoursWatched} hours`);
+  /* A button rather than a caption. These numbers were already the most-read
+     thing on the screen and led nowhere. */
   return el('div', {
     class: 'section',
-    style: 'padding:28px 16px 0;font-size:13px;color:var(--ash);text-align:center',
+    style: 'padding:28px 16px 0;text-align:center',
+  }, el('button', {
+    type: 'button',
+    style: 'font-size:13px;color:var(--ash);padding:6px 10px;border-radius:8px',
     text: bits.join('  ·  '),
-  });
+    'aria-label': 'See your shelf in full',
+    onclick: () => navigate('stats'),
+  }));
 }
 
 function cssUrl(u) {

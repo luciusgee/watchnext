@@ -63,6 +63,7 @@ const SHELL = [
   './src/screens/add.js',
   './src/screens/match.js',
   './src/screens/pick.js',
+  './src/screens/stats.js',
 ];
 
 /* Every module under src/ belongs above. They are listed by hand rather than

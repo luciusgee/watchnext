@@ -17,6 +17,7 @@ import { initLibrary, showLibrary } from './screens/library.js';
 import { initDiscover, showDiscover } from './screens/discover.js';
 import { initAsk, showAsk } from './screens/ask.js';
 import { initPick, showPick } from './screens/pick.js';
+import { initStats, showStats } from './screens/stats.js';
 import { initSettings, showSettings } from './screens/settings.js';
 import { initAdd, showAdd } from './screens/add.js';
 
@@ -33,6 +34,7 @@ const SHOW = {
   library: showLibrary,
   ask: showAsk,
   pick: showPick,
+  stats: showStats,
   settings: showSettings,
   add: showAdd,
 };
@@ -107,6 +109,7 @@ async function boot() {
   initDiscover({ navigate });
   initAsk({ navigate });
   initPick({ navigate });
+  initStats({ navigate });
   initSettings({ navigate });
   initAdd({ navigate });
 
