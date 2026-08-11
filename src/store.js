@@ -116,6 +116,11 @@ function emptyState() {
       dataKeys: {},      // { tmdb: '…', omdb: '…' } — one per source
       keyStatus: {},     // { omdb: { ok, message, at } } — did the key actually answer?
       aiKey: '',
+      /* Which Claude answers. Empty means the app's default — see ai.js, which
+         also treats an unknown id as the default, so neither an old saved state
+         nor a hand-edited backup can point this at a model that does not
+         exist. */
+      aiModel: '',
       libraryView: 'list',
       /* Things you never want suggested. See tastePrefs(). */
       taste: { genres: [], franchises: [], never: [] },
@@ -516,6 +521,8 @@ export function exportPayload() {
     settings: {
       name: state.settings.name,
       libraryView: state.settings.libraryView,
+      /* Which model, but never the key that pays for it. */
+      aiModel: state.settings.aiModel,
     },
   };
 }
@@ -567,6 +574,13 @@ export function importPayload(payload, mode = 'merge') {
       }
       if (incomingSettings.libraryView === 'list' || incomingSettings.libraryView === 'grid') {
         state.settings.libraryView = incomingSettings.libraryView;
+      }
+      /* Not validated against the model list here — store.js knowing about
+         ai.js would be a cycle, and it does not need to: an id nothing
+         recognises resolves to the default at the point of use. Length-capped
+         so a hand-edited file cannot stuff the settings blob. */
+      if (typeof incomingSettings.aiModel === 'string' && incomingSettings.aiModel.length <= 64) {
+        state.settings.aiModel = incomingSettings.aiModel;
       }
     }
     saveNow();

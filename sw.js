@@ -50,6 +50,7 @@ const SHELL = [
   './src/durability.js',
   './src/viewport.js',
   './src/deck.js',
+  './src/ai.js',
   './src/providers/index.js',
   './src/providers/shared.js',
   './src/providers/omdb.js',

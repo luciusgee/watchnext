@@ -797,17 +797,29 @@ function check(name, cond, detail = '') {
   await page.click('[data-tab="tonight"]');
   await page.waitForTimeout(600);
   const reachable = await page.evaluate(() =>
-    [...document.querySelectorAll('#screen-tonight button')].some((b) => /Something else/.test(b.textContent))
+    [...document.querySelectorAll('#screen-tonight button')].some((b) => /Find something else/.test(b.textContent))
   );
   check('it is reachable from the Tonight pick', reachable);
 
+  /* The entry point opens the sheet, not a hand. Landing straight on a deck
+     dealt from whatever was set last session is the bug this replaced. */
   await page.evaluate(() =>
-    [...document.querySelectorAll('#screen-tonight button')].find((b) => /Something else/.test(b.textContent))?.click()
+    [...document.querySelectorAll('#screen-tonight button')]
+      .find((b) => /Find something else/.test(b.textContent))?.click()
   );
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(500);
+  check('and asks what you fancy before dealing anything',
+    await page.evaluate(() => !!document.querySelector('.sheet #pick-brief')));
+
+  await page.evaluate(() =>
+    [...document.querySelectorAll('.sheet button')].find((b) => /Deal me some/.test(b.textContent))?.click()
+  );
+  await page.waitForTimeout(900);
 
   const dealt = await page.evaluate(() => document.querySelectorAll('#screen-pick .deck-card').length);
   check('it deals a hand', dealt > 0, `${dealt} cards`);
+  check('and dealing takes you to the deck',
+    await page.evaluate(() => document.getElementById('screen-pick').classList.contains('is-active')));
 
   const beforeSession = await page.evaluate(() =>
     JSON.stringify(JSON.parse(localStorage.getItem('wn.state.v3')).items)
@@ -843,6 +855,18 @@ function check(name, cond, detail = '') {
       const empty = document.querySelector('#screen-pick .empty');
       return !!empty && /Widen it|Start again/.test(empty.textContent);
     }));
+
+  /* Measured, not asserted from the property. `controls.hidden = true` sets the
+     attribute and the attribute did nothing: the browser's `[hidden]` rule is
+     outranked by any author `display`, and `.deck-controls` sets `display:flex`.
+     Reading `.hidden` back said what the code had just written, so the swipe
+     buttons sat live over an empty deck for weeks with a green test above
+     them. getBoundingClientRect is the version that can fail. */
+  const controlsGone = await page.evaluate(() => {
+    const c = document.querySelector('#screen-pick [data-region="controls"]');
+    return c.getBoundingClientRect().height === 0;
+  });
+  check('and takes the swipe buttons away with it', controlsGone, 'controls still occupy space');
 
   /* Constraints actually constrain. Under 90 minutes is the easiest to check
      against the real records. */
@@ -883,6 +907,183 @@ function check(name, cond, detail = '') {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
 
+  // ─────────────────────────────────────────────────────────
+  /*
+   * Asking Claude for the hand.
+   *
+   * Every assertion here is about the boundary, because that is where the risk
+   * is: a model returning a number for a film that is not on the shelf, a model
+   * that is sent a parameter it rejects, a network that is not there. The
+   * quality of the picks is not testable and is not what this guards.
+   */
+  console.log('\n─── the hand Claude deals ───');
+
+  let lastAsk = null;
+  let lastAskHeaders = null;
+  let askStatus = 200;
+
+  await ctx.route('https://api.anthropic.com/**', async (route) => {
+    lastAsk = JSON.parse(route.request().postData() || '{}');
+    lastAskHeaders = route.request().headers();
+    if (askStatus !== 200) {
+      await route.fulfill({
+        status: askStatus,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { message: 'planted failure' } }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        stop_reason: 'end_turn',
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              note: 'Two on your shelf get close to that.',
+              picks: [
+                { n: 3, why: 'The third one, and the closest thing you own to that.' },
+                { n: 1, why: 'The obvious one.' },
+                /* A film that is not on the shelf. The whole point of sending
+                   indices is that this cannot resolve to anything. */
+                { n: 9999, why: 'Something you do not own.' },
+              ],
+            }),
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.evaluate(async () => {
+    const store = await import('./src/store.js');
+    store.updateSettings({ aiKey: 'sk-ant-planted', aiModel: '' });
+    store.saveNow();
+  });
+
+  const askFor = async (text) => {
+    await page.click('[data-tab="tonight"]');
+    await page.waitForTimeout(500);
+    await page.evaluate(() =>
+      [...document.querySelectorAll('#screen-tonight button')]
+        .find((b) => /Find something else/.test(b.textContent))?.click()
+    );
+    await page.waitForTimeout(400);
+    await page.fill('.sheet #pick-brief', text);
+    await page.evaluate(() =>
+      [...document.querySelectorAll('.sheet button')].find((b) => /Ask Claude/.test(b.textContent))?.click()
+    );
+    await page.waitForTimeout(900);
+  };
+
+  await askFor('horror in the vein of Ari Aster');
+
+  /* What the shelf looked like from the model's side, so the reply above can be
+     checked against the titles that actually went out. */
+  const shelfLines = String(lastAsk?.messages?.[0]?.content || '')
+    .split('\n')
+    .filter((l) => /^\d+\.\s/.test(l))
+    .map((l) => l.replace(/^\d+\.\s*/, '').replace(/\s+—.*$/, '').replace(/\s+\(\d{4}\)$/, ''));
+
+  check('the ask reaches Anthropic', Boolean(lastAsk), 'no request captured');
+  check('with the key from settings',
+    lastAskHeaders?.['x-api-key'] === 'sk-ant-planted', lastAskHeaders?.['x-api-key']);
+  check('and the header a browser needs to be allowed to call it at all',
+    lastAskHeaders?.['anthropic-dangerous-direct-browser-access'] === 'true');
+  check('the default model is the balanced one',
+    lastAsk?.model === 'claude-sonnet-5', String(lastAsk?.model));
+  check('and the reply is schema-constrained rather than parsed out of prose',
+    lastAsk?.output_config?.format?.type === 'json_schema', JSON.stringify(lastAsk?.output_config));
+  check('the whole shelf goes over, not a pre-filtered slice',
+    shelfLines.length > 100, `${shelfLines.length} titles`);
+
+  const hand = await page.evaluate(() => {
+    /* The deck stacks back-to-front, so the last child is the card on top —
+       reading querySelectorAll order here would silently assert the reverse. */
+    const cards = [...document.querySelectorAll('#screen-pick [data-region="deck"] > .deck-card')];
+    const title = (c) => c?.querySelector('.deck-title')?.textContent || null;
+    return {
+      front: title(cards[cards.length - 1]),
+      behind: cards.length > 1 ? title(cards[0]) : null,
+      frontWhy: cards[cards.length - 1]?.querySelector('.deck-why')?.textContent || '',
+      meta: document.querySelector('#screen-pick [data-region="meta"]').innerText,
+      active: document.getElementById('screen-pick').classList.contains('is-active'),
+    };
+  });
+
+  check('the answer lands on the deck', hand.active);
+  check('the card on top is the one Claude ranked first',
+    hand.front === shelfLines[2], `${hand.front} vs ${shelfLines[2]}`);
+  check('and the one behind it is its second',
+    hand.behind === shelfLines[0], `${hand.behind} vs ${shelfLines[0]}`);
+  check('each card carries why it is there',
+    /closest thing you own/.test(hand.frontWhy), hand.frontWhy);
+  /* Case-sensitively: this line used to be lowercased by CSS, which is fine for
+     "tense · horror" and wrong for a title somebody typed. */
+  check('the ask is quoted back exactly as it was typed',
+    hand.meta.includes('Ari Aster'), hand.meta.replace(/\n/g, ' / '));
+  check("and Claude's note is shown", /close to that/.test(hand.meta), hand.meta.replace(/\n/g, ' / '));
+
+  /* The safety property. A number outside the list cannot become a film. */
+  for (let i = 0; i < 3; i++) {
+    const done = await page.evaluate(() => {
+      const b = document.querySelector('#screen-pick [data-action="no"]');
+      return !b || b.closest('[data-region="controls"]').hidden;
+    });
+    if (done) break;
+    await page.click('#screen-pick [data-action="no"]');
+    await page.waitForTimeout(300);
+  }
+  const exhaustedAfter = await page.evaluate(() =>
+    document.querySelector('#screen-pick [data-region="controls"]').hidden
+  );
+  check('a number for a film you do not own is dropped, not invented',
+    exhaustedAfter, 'a third card was dealt from an out-of-range index');
+
+  const afterAsk = await page.evaluate(() =>
+    JSON.stringify(JSON.parse(localStorage.getItem('wn.state.v3')).items)
+  );
+  check('and nothing Claude said was written to the library', afterAsk === afterSession);
+
+  /* Haiku 4.5 rejects output_config.effort outright — a 400 for a parameter
+     that is only ever an optimisation. Sending it anyway would take the whole
+     feature down for anyone who picked the cheap model. */
+  await page.evaluate(async () => {
+    const store = await import('./src/store.js');
+    store.updateSettings({ aiModel: 'claude-haiku-4-5' });
+    store.saveNow();
+  });
+  await askFor('something short');
+  check('the fast model is asked without the effort parameter it rejects',
+    lastAsk?.model === 'claude-haiku-4-5' && lastAsk?.output_config?.effort === undefined,
+    JSON.stringify({ model: lastAsk?.model, output_config: lastAsk?.output_config }));
+
+  /* A phone in a pocket with no signal must still be able to pick a film. */
+  askStatus = 500;
+  await page.evaluate(async () => {
+    const store = await import('./src/store.js');
+    store.updateSettings({ aiModel: '' });
+    store.saveNow();
+  });
+  await askFor('anything at all');
+  const fallback = await page.evaluate(() => ({
+    cards: document.querySelectorAll('#screen-pick .deck-card').length,
+    toast: document.querySelector('.toast')?.innerText || '',
+  }));
+  check('a failed ask falls back to a hand rather than a dead end', fallback.cards > 0, `${fallback.cards} cards`);
+  check('and says why it is not the one that was asked for',
+    /trouble|Anthropic|reach/i.test(fallback.toast), fallback.toast);
+
+  askStatus = 200;
+  await ctx.unroute('https://api.anthropic.com/**');
+  await page.evaluate(async () => {
+    const store = await import('./src/store.js');
+    store.updateSettings({ aiKey: '' });
+    store.saveNow();
+  });
+
   /* Your shelf, counted — and the card, which is the only channel this app has
      for anyone hearing about it. Both free on purpose. */
   console.log('\n─── your shelf, counted ───');
@@ -911,16 +1112,22 @@ function check(name, cond, detail = '') {
   /* The card is drawn locally and must produce a real PNG — a screenshot
      prompt would be a different, worse feature. */
   const card = await page.evaluate(async () => {
+    const net = () => performance.getEntriesByType('resource').filter((e) => /upload|api\./.test(e.name)).length;
+    /* Bracketed around the click rather than counted for the whole session.
+       Counting from boot made this a claim about the entire run that happened
+       to hold only while nothing else in the suite had called an API — it went
+       red the moment a Claude test ran earlier in the same page. */
+    const beforeNet = net();
     const before = document.querySelectorAll('a[download]').length;
     [...document.querySelectorAll('#screen-stats button')].find((b) => /Make a card/.test(b.textContent)).click();
     await new Promise((r) => setTimeout(r, 900));
-    return { madeALink: document.querySelectorAll('a[download]').length >= before };
+    return {
+      madeALink: document.querySelectorAll('a[download]').length >= before,
+      newRequests: net() - beforeNet,
+    };
   });
   check('making a card does not throw', card.madeALink);
-
-  const noNetwork = await page.evaluate(() => performance.getEntriesByType('resource')
-    .filter((e) => /upload|api\./.test(e.name)).length);
-  check('and uploads nothing', noNetwork === 0, `${noNetwork} requests`);
+  check('and uploads nothing', card.newRequests === 0, `${card.newRequests} requests`);
 
   console.log('\n─── uncaught JS errors ───');
   check('no uncaught errors during the whole run', jsErrors.length === 0, jsErrors.slice(0, 3).join(' | '));

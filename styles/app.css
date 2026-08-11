@@ -97,6 +97,15 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* The browser's own rule for this is `[hidden] { display: none }`, and any
+   author `display` at all outranks it — so `.deck-controls { display: flex }`
+   quietly beat `element.hidden = true` and the swipe buttons sat there, live,
+   on a deck with no cards under them. Both decks did it. `!important` because
+   the point is to outrank whatever the element's own rule says. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -1172,8 +1181,32 @@ body.is-typing .tabbar {
   overflow: hidden;
 }
 
+/* Why this one, when the hand came from Claude rather than the local scorer.
+   Amber and rule-marked so it reads as an argument someone is making, not as
+   another line of metadata scraped off the film. Clamped at three lines: a card
+   that grows to fit its reason pushes the poster out of the deck. */
+.deck-why {
+  font-size: var(--t-sub);
+  line-height: 1.5;
+  color: var(--amber);
+  margin-top: var(--s3);
+  padding-left: var(--s3);
+  border-left: 2px solid var(--amber-line);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .deck-card {
   position: relative;
+}
+/* The wait. Same footprint as a real card so the deck does not jump when the
+   answer lands. */
+.deck-card.is-thinking {
+  min-height: 320px;
+  background: var(--surface);
+  touch-action: auto;
 }
 .deck-stamp {
   position: absolute;
@@ -1265,7 +1298,11 @@ body.is-typing .tabbar {
   text-align: center;
   font-size: var(--t-sub);
   color: var(--ash);
-  text-transform: lowercase;
+  /* No text-transform. It used to lowercase this line, which was invisible
+     while the line only ever said "tense · horror · on your shelf" — summary()
+     builds those in lowercase itself. It now also carries the words somebody
+     typed and a sentence Claude wrote, and "something like blade runner" is
+     not what anybody asked for. */
 }
 
 .deck-controls {

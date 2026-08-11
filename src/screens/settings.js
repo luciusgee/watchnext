@@ -18,6 +18,7 @@ import { BUILD } from '../build.js';
 import { healState, safeAreaInsets } from '../viewport.js';
 import { openMatchPicker } from './match.js';
 import { runtime } from '../format.js';
+import { MODELS, currentModel } from '../ai.js';
 
 let root = null;
 let bodyEl = null;
@@ -218,7 +219,7 @@ function connectionsGroup() {
     el('div', {
       class: 'group-item-s',
       style: 'margin-bottom:12px',
-      text: 'An Anthropic API key powers the Ask tab. Your key is stored on this device only and sent directly to Anthropic — it never passes through anyone else’s server.',
+      text: 'An Anthropic API key powers the Ask tab and the “say what you fancy” box in the picker. Your key is stored on this device only and sent directly to Anthropic — it never passes through anyone else’s server.',
     })
   );
   const aiRow = el('div', { style: 'display:flex;gap:8px' });
@@ -251,6 +252,38 @@ function connectionsGroup() {
   ai.appendChild(aiRow);
   if (s.aiKey) {
     ai.appendChild(el('div', { style: 'font-size:12px;color:var(--sage);margin-top:8px', text: 'Connected' }));
+    /* Only once there is a key to spend. Offering a choice of models to
+       somebody who cannot call any of them is a decision about nothing.
+       The costs are on the pills because it is his bill, not the app's — a
+       tier list without prices makes "Best" look free. */
+    ai.appendChild(el('div', { class: 'eyebrow', style: 'margin:18px 0 10px', text: 'Which Claude' }));
+    const chosen = currentModel();
+    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px' });
+    for (const m of MODELS) {
+      const active = m.id === chosen.id;
+      row.appendChild(
+        el('button', {
+          class: 'pill',
+          type: 'button',
+          'aria-pressed': String(active),
+          style: active
+            ? 'border-color:var(--amber-line);color:var(--amber);background:var(--amber-dim)'
+            : '',
+          text: m.label,
+          onclick: () => {
+            store.updateSettings({ aiModel: m.id });
+            render();
+          },
+        })
+      );
+    }
+    ai.appendChild(row);
+    ai.appendChild(
+      el('div', {
+        style: 'font-size:12px;color:var(--ash);margin-top:10px;line-height:1.5',
+        text: chosen.note,
+      })
+    );
   }
   g.appendChild(ai);
 

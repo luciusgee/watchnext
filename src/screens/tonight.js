@@ -13,6 +13,7 @@ import { icon } from '../icons.js';
 import { runtime, commitment, relativeTime, rating } from '../format.js';
 import { tonightPick, alternates } from '../recommend.js';
 import { openDetail } from './detail.js';
+import { openPickSheet } from './pick.js';
 import { shouldNudgeBackup, markBackedUp } from '../durability.js';
 import { seedLibrary } from '../seed.js';
 import { toast } from '../ui.js';
@@ -110,6 +111,8 @@ export function render() {
       })
     );
   }
+
+  body.appendChild(pickerCta());
 
   /* rails */
   /* The pile. This rail used to be the watchlist, which was a list inside a
@@ -253,19 +256,10 @@ function heroBlock(pick) {
       },
     })
   );
-  /* This replaced a "Not tonight" button that advanced the hero by one pick.
-     Both answer "no, something else", and dealing a whole hand you can steer is
-     a better answer than one more take-it-or-leave-it — so there is one button
-     here rather than two doing the same job badly, and four would not fit a
-     phone anyway. */
-  acts.appendChild(
-    button('Something else', {
-      kind: 'quiet',
-      iconName: 'shuffle',
-      size: 'sm',
-      onClick: () => navigate('pick'),
-    })
-  );
+  /* "Something else" used to be a third small button in this row, which is
+     where it went to die: a quiet 15px control wedged beside two others, on a
+     dark poster, doing the single most-wanted thing on the screen. It is now
+     the full-width button underneath — see pickerCta. */
   copy.appendChild(acts);
 
   inner.appendChild(copy);
@@ -292,6 +286,32 @@ function heroBlock(pick) {
   }
 
   return wrap;
+}
+
+/**
+ * The other question this screen has to answer.
+ *
+ * Tonight makes one confident suggestion, which is right about as often as any
+ * recommendation is. The rest of the time the honest response is "no, but I
+ * know roughly what I want", and that needs somewhere obvious to go — right
+ * under the pick it is an alternative to, at full width, rather than as the
+ * third of three small buttons on top of a poster.
+ *
+ * It opens the sheet, not the deck. Going straight to a hand dealt from
+ * whatever filters happened to be set last time is how you end up swiping
+ * through the answer to a question you asked on Tuesday.
+ */
+function pickerCta() {
+  return el(
+    'section',
+    { class: 'section', style: 'padding:4px 16px 0' },
+    button('Find something else', {
+      kind: 'secondary',
+      iconName: 'sparkle',
+      block: true,
+      onClick: () => openPickSheet(),
+    })
+  );
 }
 
 /**
