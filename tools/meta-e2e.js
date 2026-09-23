@@ -26,6 +26,25 @@ const CATALOG = [
   { key: 'mbr',     title: 'Making Blade Runner',year: 1982, type: 'movie',  imdb: 'tt9999001', tmdb: 999001, genre: 'Documentary',     runtime: 50,  rating: 6.9, plot: 'Behind the scenes.' },
   { key: 's1899',   title: '1899',               year: 2022, type: 'tv',     imdb: 'tt9319668', tmdb: 90669,  genre: 'Mystery',         runtime: 56,  rating: 7.3, plot: 'Migrants encounter a riddle at sea.' },
   { key: 'm1899',   title: 'Making 1899',        year: 2022, type: 'movie',  imdb: 'tt2383010', tmdb: 999002, genre: 'Documentary',     runtime: 50,  rating: 6.5, plot: 'Behind the scenes.' },
+
+  /* A franchise, in the shape that broke the search. Thirteen entries share a
+     prefix, two share the exact title, and the one somebody actually wants is
+     the newest — which is to say the one both providers return last. The real
+     case was Resident Evil (2026): six live-action films, four animated ones
+     and two series stood between the query and the answer. */
+  { key: 're02',    title: 'Resident Evil',                     year: 2002, type: 'movie', imdb: 'tt0120804', tmdb: 1576,  genre: 'Horror', runtime: 100, rating: 6.7, plot: 'A team investigates the Hive.' },
+  { key: 're04',    title: 'Resident Evil: Apocalypse',         year: 2004, type: 'movie', imdb: 'tt0318627', tmdb: 1577,  genre: 'Horror', runtime: 94,  rating: 6.2, plot: 'Raccoon City falls.' },
+  { key: 're07',    title: 'Resident Evil: Extinction',         year: 2007, type: 'movie', imdb: 'tt0432021', tmdb: 1578,  genre: 'Horror', runtime: 94,  rating: 6.2, plot: 'The desert convoy.' },
+  { key: 're10',    title: 'Resident Evil: Afterlife',          year: 2010, type: 'movie', imdb: 'tt1220634', tmdb: 1579,  genre: 'Horror', runtime: 97,  rating: 5.8, plot: 'Alice reaches Arcadia.' },
+  { key: 're12',    title: 'Resident Evil: Retribution',        year: 2012, type: 'movie', imdb: 'tt1855325', tmdb: 1580,  genre: 'Horror', runtime: 96,  rating: 5.4, plot: 'Inside the Umbrella facility.' },
+  { key: 're17',    title: 'Resident Evil: The Final Chapter',  year: 2017, type: 'movie', imdb: 'tt2592614', tmdb: 1581,  genre: 'Horror', runtime: 107, rating: 5.6, plot: 'Back to the Hive.' },
+  { key: 'reDeg',   title: 'Resident Evil: Degeneration',       year: 2008, type: 'movie', imdb: 'tt1190107', tmdb: 1582,  genre: 'Animation', runtime: 96, rating: 6.3, plot: 'Animated outbreak.' },
+  { key: 'reDam',   title: 'Resident Evil: Damnation',          year: 2012, type: 'movie', imdb: 'tt2100546', tmdb: 1583,  genre: 'Animation', runtime: 100, rating: 6.6, plot: 'Animated civil war.' },
+  { key: 'reVen',   title: 'Resident Evil: Vendetta',           year: 2017, type: 'movie', imdb: 'tt5805470', tmdb: 1584,  genre: 'Animation', runtime: 97, rating: 6.0, plot: 'Animated vendetta.' },
+  { key: 'reDea',   title: 'Resident Evil: Death Island',       year: 2023, type: 'movie', imdb: 'tt16116174', tmdb: 1585, genre: 'Animation', runtime: 90, rating: 6.1, plot: 'Animated Alcatraz.' },
+  { key: 'reDark',  title: 'Resident Evil: Infinite Darkness',  year: 2021, type: 'tv',    imdb: 'tt10727276', tmdb: 1586, genre: 'Animation', runtime: 25, rating: 6.0, plot: 'Animated series.' },
+  { key: 'reTv',    title: 'Resident Evil',                     year: 2022, type: 'tv',    imdb: 'tt11235142', tmdb: 1587, genre: 'Horror', runtime: 60,  rating: 5.0, plot: 'New Raccoon City.' },
+  { key: 're26',    title: 'Resident Evil',                     year: 2026, type: 'movie', imdb: 'tt35538033', tmdb: 1588, genre: 'Horror', runtime: 95,  rating: 7.2, plot: 'A medical courier and one bad night.' },
 ];
 
 /* ── OMDb-shaped mock ── */
@@ -49,6 +68,12 @@ function omdbRoute(route, hits) {
     let hits2 = CATALOG.filter((c) => c.title.toLowerCase().includes(q));
     const type = u.searchParams.get('type');
     if (type) hits2 = hits2.filter((c) => (c.type === 'tv' ? 'series' : 'movie') === type);
+    const year = u.searchParams.get('y');
+    if (year) hits2 = hits2.filter((c) => String(c.year) === year);
+    /* The real endpoint pages ten at a time. Without this the mock is kinder
+       than OMDb is and the franchise bug cannot reproduce. */
+    const page = Math.max(1, parseInt(u.searchParams.get('page') || '1', 10) || 1);
+    hits2 = hits2.slice((page - 1) * 10, page * 10);
     return hits2.length ? j({ Response: 'True', Search: hits2.map(lite) }) : j({ Response: 'False', Error: 'Movie not found!' });
   }
   if (u.searchParams.get('t')) {                      // fuzzy, exactly like the real thing
@@ -80,11 +105,17 @@ function tmdbRoute(route, hits) {
   }
   if (p.startsWith('/3/search/movie')) {
     const q = (u.searchParams.get('query') || '').toLowerCase();
-    return j({ page: 1, results: CATALOG.filter((c) => c.type === 'movie' && c.title.toLowerCase().includes(q)).map(lite) });
+    const y = u.searchParams.get('primary_release_year');
+    return j({ page: 1, results: CATALOG
+      .filter((c) => c.type === 'movie' && c.title.toLowerCase().includes(q) && (!y || String(c.year) === y))
+      .map(lite) });
   }
   if (p.startsWith('/3/search/tv')) {
     const q = (u.searchParams.get('query') || '').toLowerCase();
-    return j({ page: 1, results: CATALOG.filter((c) => c.type === 'tv' && c.title.toLowerCase().includes(q)).map(lite) });
+    const y = u.searchParams.get('first_air_date_year');
+    return j({ page: 1, results: CATALOG
+      .filter((c) => c.type === 'tv' && c.title.toLowerCase().includes(q) && (!y || String(c.year) === y))
+      .map(lite) });
   }
   if (p.startsWith('/3/find/')) {
     const id = p.split('/').pop();
@@ -352,6 +383,71 @@ const PROVIDERS = [
       [...document.querySelectorAll('#screen-add button')].some((b) => /Already in your library/.test(b.textContent))
     );
     check(`[${prov.id}] a title already held is flagged rather than duplicated`, flagged);
+
+    /* ────────────────────────────────────────────────────────────
+     * Finding the newest film in a franchise.
+     *
+     * Reported from the app: searching "Resident evil" listed the six
+     * live-action films and not the one released the week before — which is
+     * called "Resident Evil", exactly what was typed. Three things conspired:
+     * both providers answer one page deep and put the newest entry last, the
+     * screen showed the first twelve of that untouched, and the Films/Series
+     * toggle filtered nothing, so series entries spent slots too.
+     * ──────────────────────────────────────────────────────────── */
+    console.log(`\n─── [${prov.id}] the newest film in a franchise ───`);
+
+    await page.fill('#add-search', 'Resident Evil');
+    await page.click('#screen-add button[type="submit"]');
+    await page.waitForTimeout(900);
+
+    const shelf = await page.evaluate(() =>
+      [...document.querySelectorAll('#screen-add button')]
+        .map((b) => b.textContent)
+        .filter((t) => /Resident Evil/.test(t))
+    );
+    check(`[${prov.id}] the franchise search returns results`, shelf.length > 0, `${shelf.length}`);
+    check(`[${prov.id}] the film released last week is among them`,
+      shelf.some((t) => /2026/.test(t)), shelf.slice(0, 4).join(' | '));
+    /* Exactly what was typed should not be below six films that merely start
+       with it. */
+    check(`[${prov.id}] and an exact title match is at the top`,
+      /Resident Evil/.test(shelf[0] || '') && !/Resident Evil:/.test(shelf[0] || ''),
+      String(shelf[0]));
+    /* "Films" is selected, so nothing here may be a series. */
+    check(`[${prov.id}] the Films toggle keeps series out`,
+      !shelf.some((t) => /Series/.test(t)), shelf.filter((t) => /Series/.test(t)).join(' | '));
+
+    /* The year somebody types is a disambiguator. It used to be parsed off the
+       query and then dropped before the request was made. */
+    await page.fill('#add-search', 'Resident Evil 2026');
+    await page.click('#screen-add button[type="submit"]');
+    await page.waitForTimeout(900);
+    const dated = await page.evaluate(() =>
+      [...document.querySelectorAll('#screen-add button')]
+        .map((b) => b.textContent)
+        .filter((t) => /Resident Evil/.test(t))
+    );
+    check(`[${prov.id}] a typed year puts that year first`,
+      /2026/.test(dated[0] || ''), String(dated[0]));
+    check(`[${prov.id}] and the year actually reached the provider`,
+      hits.some((h) => /y=2026|primary_release_year=2026/.test(h)),
+      hits.slice(-3).join(' | '));
+
+    /* Switching to Series must change the answer, not just the button state. */
+    await page.evaluate(() =>
+      [...document.querySelectorAll('#screen-add .seg button')].find((b) => b.textContent === 'Series')?.click()
+    );
+    await page.fill('#add-search', 'Resident Evil');
+    await page.click('#screen-add button[type="submit"]');
+    await page.waitForTimeout(900);
+    const series = await page.evaluate(() =>
+      [...document.querySelectorAll('#screen-add button')]
+        .map((b) => b.textContent)
+        .filter((t) => /Resident Evil/.test(t))
+    );
+    check(`[${prov.id}] the Series toggle keeps films out`,
+      series.length > 0 && series.every((t) => /Series/.test(t)),
+      series.filter((t) => !/Series/.test(t)).join(' | ') || `${series.length} rows`);
 
     await ctx.close();
   }

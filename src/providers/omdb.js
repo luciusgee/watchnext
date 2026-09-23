@@ -34,6 +34,17 @@ function url(params, key) {
   return u;
 }
 
+/* Two pages and a year query can name the same film more than once. */
+function dedupe(rows) {
+  const seen = new Set();
+  return rows.filter((r) => {
+    const k = r.imdbId || `${r.title}|${r.year}|${r.type}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 /** OMDb reports both "no results" and "bad key" as Response:"False". */
 function unwrap(data) {
   if (!data) return null;
@@ -104,10 +115,46 @@ export const omdb = {
       return data?.Search ? data.Search.map((r) => toRecord(r)) : [];
     };
 
+    /*
+     * A search somebody typed, as opposed to one the sweep generated.
+     *
+     * `s=` returns ten results and no more unless you ask for a page, and the
+     * app never did. For a franchise that is not enough to reach the end:
+     * "Resident Evil" fills all ten slots with films from 2002 to 2017, and
+     * the one released last week is simply not in the reply — so the screen
+     * could not have shown it however it sorted.
+     *
+     * In precise mode the type the user tapped is trusted (it came off a
+     * button, not out of a record), a second page is fetched when the first
+     * comes back full, and a typed year gets its own query. One to three
+     * requests instead of one, which is the right trade for an interactive
+     * search and the wrong one for a 500-title sweep — hence the gate.
+     */
+    if (query.precise) {
+      const base = { s: query.title };
+      if (query.type) base.type = query.type === 'tv' ? 'series' : 'movie';
+
+      let precise = await attempt(base);
+      /* A full page means there is probably another one behind it. */
+      if (precise.length >= 10) {
+        precise = precise.concat(await attempt({ ...base, page: 2 }));
+      }
+      if (query.year) {
+        const dated = await attempt({ ...base, y: query.year });
+        const held = new Set(dated.map((r) => r.imdbId).filter(Boolean));
+        precise = [...dated, ...precise.filter((r) => !r.imdbId || !held.has(r.imdbId))];
+      }
+      if (precise.length) return dedupe(precise);
+      /* Nothing at all under that type — fall through to the untyped search
+         below rather than reporting an empty result the user can see is
+         wrong. */
+    }
+
     /* Search untyped first. The stored type is the least reliable field we
        hold — everything batch-added defaults to "movie" — and constraining on
        it is what produced the 1899 failure. */
     let results = await attempt({ s: query.title });
+
     if (!results.length && query.type) {
       results = await attempt({ s: query.title, type: query.type === 'tv' ? 'series' : 'movie' });
     }

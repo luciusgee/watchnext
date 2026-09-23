@@ -63,6 +63,65 @@ function render() {
    One step: find it, tap it, it is in — with everything already filled in.
    Nothing is written until a result is tapped, so browsing costs nothing. */
 
+/*
+ * Ordering the results.
+ *
+ * Providers answer a franchise search with whatever their own relevance
+ * ranking thinks, one page deep, and the app used to show the first twelve of
+ * that untouched. For a franchise that is not enough: search "Resident Evil"
+ * and a dozen slots fill with sequels and animated spin-offs, while the film
+ * actually called "Resident Evil" that came out last week never appears —
+ * despite being the best possible match for what was typed.
+ *
+ * So: an exact title match outranks a title that merely starts with what you
+ * typed, which outranks everything else, and a year you typed outranks all of
+ * it. Provider order is kept inside each band, so a franchise still reads in
+ * the order it always did — the only thing that moves is the thing you asked
+ * for, upwards.
+ */
+const RESULT_LIMIT = 20;
+
+function plainTitle(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function rank(found, { title, year, type }) {
+  /* The Films/Series toggle changed what was asked for and then nothing
+     filtered on the answer, so picking "Films" still listed series. Neither
+     provider will narrow on type — the stored type is the least reliable field
+     the app holds and constraining the *matcher* on it is what produced the
+     1899 failure — but a tab somebody just tapped is not a stored guess. It is
+     filtered here, in the screen that asked, and nowhere near the matcher. */
+  const want = type === 'tv' ? 'tv' : 'movie';
+  const typed = found.filter((c) => c.type === want);
+  /* Unless that empties the list. A provider mis-typing the one film you are
+     looking for should not leave you staring at "nothing found" — but the
+     screen says so rather than quietly listing the other kind. */
+  const pool = typed.length ? typed : found;
+  const relaxed = !typed.length && found.length > 0;
+
+  const asked = plainTitle(title);
+  const band = (c) => {
+    const t = plainTitle(c.title);
+    const byTitle = t === asked ? 0 : t.startsWith(asked) ? 2 : 4;
+    if (!year) return byTitle;
+    return byTitle + (c.year === year ? 0 : 1);
+  };
+
+  const rows = pool
+    .map((c, i) => ({ c, i, b: band(c) }))
+    .sort((a, b) => a.b - b.b || a.i - b.i)
+    .map((x) => x.c)
+    .slice(0, RESULT_LIMIT);
+  rows.relaxed = relaxed;
+  return rows;
+}
+
 function searchForm() {
   const wrap = el('div', { style: 'padding:0 16px 32px' });
   const provider = getProvider(store.settings().provider);
@@ -162,14 +221,17 @@ function searchForm() {
     say('Searching…');
     try {
       const found = await provider.search(
-        { title, year, type },
+        /* `precise` says the year came off a keyboard rather than out of the
+           library, which is what lets the providers spend a request narrowing
+           on it. The sweep does not set it. */
+        { title, year, type, precise: true },
         {
           key,
           budget: new meta.RequestBudget(provider.dailyLimit, provider.id),
           signal: controller.signal,
         }
       );
-      show((found || []).slice(0, 12));
+      show(rank(found || [], { title, year, type }));
     } catch (err) {
       if (err?.name === 'AbortError') return;
       say(err?.message || 'That search failed.', 'var(--ember)');
@@ -178,7 +240,11 @@ function searchForm() {
 
   function show(list) {
     clear(results);
-    status.textContent = list.length ? 'Tap one to add it.' : '';
+    status.textContent = list.length
+      ? list.relaxed
+        ? `Nothing matched under ${type === 'tv' ? 'Series' : 'Films'} — showing the rest. Tap one to add it.`
+        : 'Tap one to add it.'
+      : '';
     if (!list.length) {
       say('Nothing found. Try the title on its own, or a different spelling.');
       return;

@@ -157,6 +157,39 @@ export const tmdb = {
         ...(shows?.results || []).map((r) => ({ ...r, media_type: 'tv' })),
       ];
     }
+
+    /*
+     * A year the user typed on purpose.
+     *
+     * /search/multi takes no year, and its one page of results is ordered by
+     * popularity — so for a franchise it is entirely possible for the exact
+     * film somebody is asking for to be off the end of it. The typed endpoints
+     * do take a year, so when one has been given deliberately they are asked
+     * as well and the answers merged.
+     *
+     * Additive, never subtractive: this only ever puts more candidates in
+     * front of the caller. And gated on `precise`, because the metadata sweep
+     * also passes a year — on a 500-title library making this the default
+     * would triple the request count against a daily limit.
+     */
+    if (query.precise && query.year) {
+      const [movies, shows] = await Promise.all([
+        call('/search/movie', { query: query.title, primary_release_year: query.year }, ctx),
+        call('/search/tv', { query: query.title, first_air_date_year: query.year }, ctx),
+      ]);
+      const extra = [
+        ...(movies?.results || []).map((r) => ({ ...r, media_type: 'movie' })),
+        ...(shows?.results || []).map((r) => ({ ...r, media_type: 'tv' })),
+      ];
+      const seen = new Set(rows.map((r) => `${r.media_type}:${r.id}`));
+      for (const r of extra) {
+        const k = `${r.media_type}:${r.id}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        rows.push(r);
+      }
+    }
+
     return rows.map((r) => toRecord(r)).filter(Boolean);
   },
 
