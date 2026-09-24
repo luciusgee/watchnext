@@ -13,6 +13,7 @@
  */
 
 import { writeMirror, readMirror } from './durability.js';
+import { cleanTitleLine, looksNumberedList } from './format.js';
 
 const KEY = 'wn.state.v3';
 const LEGACY_KEY = 'wn_lib2';
@@ -229,6 +230,10 @@ function readLegacy() {
   return s;
 }
 
+/* Titles migrate() repaired on this load, so init() can write the fix out
+   rather than repeating it in memory on every launch. */
+let repairedOnLoad = 0;
+
 function migrate(s) {
   /* Settings gained a provider choice; anyone who already saved an OMDb key
      keeps it and stays on OMDb rather than silently losing their setup. */
@@ -244,6 +249,23 @@ function migrate(s) {
   /* Added with sync. Absent on every state saved before it, and read on every
      merge, so it is defaulted here rather than guarded at each use. */
   if (!Array.isArray(s.tombstones)) s.tombstones = [];
+
+  /* Titles pasted from a bulleted list kept the bullet — "•\tThe Power" was
+     stored, displayed and exported that way. Repaired on every load rather
+     than behind a schema bump, because a backup restored from before the fix
+     carries the same damage, and because running it on both devices means a
+     sync converges on the clean title without either side writing. */
+  if (Array.isArray(s.items)) {
+    const numbered = looksNumberedList(s.items.map((i) => i && i.title));
+    for (const item of s.items) {
+      if (!item || typeof item.title !== 'string') continue;
+      const clean = cleanTitleLine(item.title, { numbered });
+      if (!clean || clean === item.title) continue;
+      item.title = clean;
+      item.sortTitle = sortableTitle(clean);
+      repairedOnLoad += 1;
+    }
+  }
 
   if (s.schema === SCHEMA) return s;
   /* future schema migrations land here, oldest first */
@@ -386,6 +408,10 @@ export async function init(seedFn) {
        place as a safety net. */
     saveNow();
     mirror(true);
+  }
+  if (repairedOnLoad) {
+    repairedOnLoad = 0;
+    saveNow();
   }
 
   return state;

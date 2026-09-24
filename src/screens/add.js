@@ -18,7 +18,8 @@ import * as store from '../store.js';
 import * as actions from '../actions.js';
 import * as meta from '../metadata.js';
 import { getProvider } from '../providers/index.js';
-import { el, clear, button, toast, poster } from '../ui.js';
+import { el, clear, button, toast, poster, checkRow } from '../ui.js';
+import { cleanTitleLine } from '../format.js';
 import { icon } from '../icons.js';
 import { openDetail } from './detail.js';
 
@@ -26,6 +27,10 @@ let root = null;
 let bodyEl = null;
 let navigate = null;
 let mode = 'search';
+/* Only focus the search box when someone chose Search. Focusing it on arrival
+   set body.is-typing before any keyboard existed, and the tab bar vanished the
+   moment the screen opened. */
+let focusSearch = false;
 
 export function initAdd({ navigate: nav }) {
   navigate = nav;
@@ -34,13 +39,19 @@ export function initAdd({ navigate: nav }) {
 }
 
 export function showAdd() {
+  focusSearch = false;
   render();
 }
 
 function render() {
   clear(bodyEl);
 
-  const seg = el('div', { class: 'seg', style: 'margin:16px' });
+  const seg = el('div', {
+    class: 'seg',
+    role: 'group',
+    'aria-label': 'How to add titles',
+    style: 'margin:var(--s4)',
+  });
   for (const [key, label] of [['search', 'Search'], ['list', 'Paste a list'], ['single', 'By hand']]) {
     seg.appendChild(
       el('button', {
@@ -49,6 +60,7 @@ function render() {
         text: label,
         onclick: () => {
           mode = key;
+          focusSearch = key === 'search';
           render();
         },
       })
@@ -127,7 +139,7 @@ function searchForm() {
   const provider = getProvider(store.settings().provider);
   const key = (store.settings().dataKeys || {})[provider.id];
 
-  const form = el('form', { style: 'display:flex;gap:8px;margin-bottom:6px' });
+  const form = el('form', { style: 'display:flex;gap:var(--s2)' });
   const input = el('input', {
     class: 'input',
     type: 'search',
@@ -138,15 +150,23 @@ function searchForm() {
     'aria-label': 'Search for a film or series',
   });
   form.appendChild(input);
-  const go = button('Search', { kind: 'secondary' });
-  go.type = 'submit';
+  const go = button('Search', { kind: 'secondary', type: 'submit' });
   form.appendChild(go);
   wrap.appendChild(form);
+  /* Attached here, before the no-key early return below. It used to be wired
+     only after that return, so on a fresh install a tap on Search fired a
+     native GET submit and cold-rebooted the app back to Tonight. */
+  form.addEventListener('submit', (e) => e.preventDefault());
 
   /* Type sits with the search box, not on the results: it changes what is
      searched for, and TV and film share plenty of titles. */
   let type = 'movie';
-  const typeSeg = el('div', { class: 'seg', style: 'margin:10px 0 6px' });
+  const typeSeg = el('div', {
+    class: 'seg',
+    role: 'group',
+    'aria-label': 'Search films or series',
+    style: 'margin:var(--s3) 0',
+  });
   for (const [k, text] of [['movie', 'Films'], ['tv', 'Series']]) {
     typeSeg.appendChild(
       el('button', {
@@ -164,33 +184,39 @@ function searchForm() {
   wrap.appendChild(typeSeg);
 
   let owned = true;
-  const ownedRow = el('label', {
-    style: 'display:flex;align-items:center;gap:10px;margin:10px 0 14px;cursor:pointer',
+  const ownedRow = checkRow('I own these', true, (on) => {
+    owned = on;
   });
-  const ownedBox = el('input', {
-    type: 'checkbox',
-    checked: true,
-    style: 'width:20px;height:20px;accent-color:var(--amber)',
-  });
-  ownedBox.addEventListener('change', () => {
-    owned = ownedBox.checked;
-  });
-  ownedRow.appendChild(ownedBox);
-  ownedRow.appendChild(el('span', { style: 'font-size:14px', text: 'I own what I add' }));
+  ownedRow.style.marginBottom = 'var(--s2)';
   wrap.appendChild(ownedRow);
 
-  const status = el('div', { style: 'font-size:13px;color:var(--ash);margin-bottom:10px;line-height:1.5' });
-  const results = el('div');
+  const status = el('div', {
+    role: 'status',
+    'aria-live': 'polite',
+    style: 'font-size:var(--t-sub);color:var(--ash);margin-bottom:var(--s3);line-height:1.5',
+  });
+  const results = el('div', { style: 'transition:opacity var(--fast) var(--ease)' });
   wrap.appendChild(status);
   wrap.appendChild(results);
 
+  const settle = () => {
+    results.style.opacity = '';
+    results.style.pointerEvents = '';
+  };
   const say = (text, colour = 'var(--ash)') => {
+    settle();
     clear(results);
     status.style.color = colour;
     status.textContent = text;
   };
 
   if (!key) {
+    /* Nothing here can work without a key, so nothing should look as if it
+       will. */
+    input.disabled = true;
+    go.disabled = true;
+    ownedRow.disabled = true;
+    [...typeSeg.children].forEach((b) => (b.disabled = true));
     say(`Searching needs a ${provider.label} key. Add one in Settings, or use "By hand" — that works with no key at all.`);
     wrap.appendChild(
       el('div', { style: 'margin-top:12px' },
@@ -218,7 +244,12 @@ function searchForm() {
 
     controller?.abort();
     controller = new AbortController();
-    say('Searching…');
+    /* Fade the list that is there rather than blanking it: clearing on every
+       debounced keystroke flashed the whole list away and back while typing. */
+    status.style.color = 'var(--ash)';
+    status.textContent = 'Searching…';
+    if (results.childElementCount) results.style.opacity = '0.45';
+    results.style.pointerEvents = 'none';
     try {
       /* searchPrecise is the interactive search: it trusts the type off the
          toggle, uses a typed year, and may spend an extra request to do it.
@@ -240,6 +271,7 @@ function searchForm() {
   }
 
   function show(list) {
+    settle();
     clear(results);
     status.textContent = list.length
       ? list.relaxed
@@ -256,9 +288,7 @@ function searchForm() {
         store.findDuplicate(c.title, c.year, c.type);
       const row = el('button', {
         type: 'button',
-        style:
-          'display:flex;gap:10px;align-items:center;width:100%;padding:8px;border-radius:10px;' +
-          `border:1px solid ${existing ? 'var(--amber-line)' : 'var(--hairline)'};margin-bottom:8px;text-align:left`,
+        class: existing ? 'result-row is-dupe' : 'result-row',
         onclick: () => (existing ? openDetail(existing.uid) : add(c, row)),
       });
       row.appendChild(
@@ -272,9 +302,7 @@ function searchForm() {
           text: [c.year, c.type === 'tv' ? 'Series' : 'Film'].filter(Boolean).join(' · '),
         })
       );
-      if (existing) {
-        b.appendChild(el('div', { style: 'font-size:11px;color:var(--amber)', text: 'Already in your library — tap to open' }));
-      }
+      if (existing) b.appendChild(dupeNote());
       row.appendChild(b);
       results.appendChild(row);
     }
@@ -291,6 +319,10 @@ function searchForm() {
   async function add(candidate, row) {
     row.disabled = true;
     row.style.opacity = '0.5';
+    /* Say why the row went grey — the details request after the write can take
+       a few seconds on a phone. */
+    const pending = el('div', { style: 'font-size:11px;color:var(--amber)', text: 'Adding…' });
+    row.lastElementChild.appendChild(pending);
 
     const { item, duplicate } = actions.addItem({
       title: candidate.title,
@@ -313,6 +345,7 @@ function searchForm() {
     });
 
     if (duplicate) {
+      pending.remove();
       row.disabled = false;
       row.style.opacity = '';
       toast(`${item.title} is already in your library`, { action: 'Open', onAction: () => openDetail(item.uid) });
@@ -338,25 +371,46 @@ function searchForm() {
       /* Already added and already useful. The sweep finishes it later. */
     }
 
-    /* Re-run so the row it came from now reads "already in your library" —
-       cheap, and it stops the same film being tapped twice. */
-    run();
+    /* Mark this row as already in the library, in place. This used to re-run
+       the whole search — a real API request, the list blanking and rebuilding,
+       the scroll collapsing — and read the box live, so an edit made while
+       details loaded replaced the results with a different query's. */
+    pending.remove();
+    row.classList.add('is-dupe');
+    row.style.opacity = '';
+    row.disabled = false;
+    row.onclick = () => openDetail(item.uid);
+    row.lastElementChild.appendChild(dupeNote());
   }
 
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
+  form.addEventListener('submit', () => {
     clearTimeout(timer);
     run();
   });
   /* Debounced as you type, so the common case needs no second tap. */
   input.addEventListener('input', () => {
     clearTimeout(timer);
-    if (input.value.trim().length < 3) return;
+    const n = input.value.trim().length;
+    /* An emptied box goes back to the intro, not a list of results for a query
+       that is no longer there under "Tap one to add it." */
+    if (!n) {
+      controller?.abort();
+      say('Search for anything — it arrives with its poster and details already filled in.');
+      return;
+    }
+    if (n < 3) return;
     timer = setTimeout(run, 450);
   });
 
-  requestAnimationFrame(() => input.focus());
+  if (focusSearch) requestAnimationFrame(() => input.focus());
   return wrap;
+}
+
+function dupeNote() {
+  return el('div', {
+    style: 'font-size:11px;color:var(--amber)',
+    text: 'Already in your library — tap to open',
+  });
 }
 
 function listForm() {
@@ -380,7 +434,12 @@ function listForm() {
     })
   );
 
-  const typeSeg = el('div', { class: 'seg', style: 'margin-bottom:16px' });
+  const typeSeg = el('div', {
+    class: 'seg',
+    role: 'group',
+    'aria-label': 'Add these as films or series',
+    style: 'margin:var(--s3) 0',
+  });
   let type = 'movie';
   for (const [key, text] of [['movie', 'Films'], ['tv', 'Series']]) {
     typeSeg.appendChild(
@@ -397,51 +456,67 @@ function listForm() {
   }
   wrap.appendChild(typeSeg);
 
-  const ownedRow = el('label', {
-    style: 'display:flex;align-items:center;gap:10px;margin-bottom:20px;cursor:pointer',
+  let owned = true;
+  const ownedRow = checkRow('I own these', true, (on) => {
+    owned = on;
   });
-  const ownedBox = el('input', { type: 'checkbox', checked: true, style: 'width:20px;height:20px;accent-color:var(--amber)' });
-  ownedRow.appendChild(ownedBox);
-  ownedRow.appendChild(el('span', { style: 'font-size:14px', text: 'I own these' }));
+  ownedRow.style.marginBottom = 'var(--s4)';
   wrap.appendChild(ownedRow);
 
-  const result = el('div', { style: 'margin-top:16px' });
+  /* No margin of its own: an empty container with a permanent 16px left the
+     paste form ending 16px lower than the other two modes. */
+  const result = el('div');
 
-  wrap.appendChild(
-    button('Add to library', {
-      kind: 'primary',
-      block: true,
-      iconName: 'plus',
-      onClick: () => {
-        const lines = ta.value.split('\n');
-        const report = actions.addMany(lines, type);
-        if (ownedBox.checked) {
-          report.added.forEach((i) => store.update(i.uid, { owned: true }));
-          store.saveNow();
-        }
-        clear(result);
-        if (!report.added.length && !report.duplicates.length) {
-          toast('Nothing to add');
-          return;
-        }
-        ta.value = '';
-        result.appendChild(summary(report));
-        toast(`${report.added.length} added`);
-      },
-    })
-  );
+  const addBtn = button('Add to library', {
+    kind: 'primary',
+    block: true,
+    iconName: 'plus',
+    onClick: () => {
+      const lines = ta.value.split('\n');
+      const report = actions.addMany(lines, type);
+      if (owned) {
+        report.added.forEach((i) => store.update(i.uid, { owned: true }));
+        store.saveNow();
+      }
+      clear(result);
+      if (!report.added.length && !report.duplicates.length) {
+        /* Forty unreadable lines deserve more than "Nothing to add". */
+        const bad = report.invalid.length;
+        toast(bad ? `Could not read ${bad} line${bad === 1 ? '' : 's'} — one title per line` : 'Nothing to add');
+        return;
+      }
+      ta.value = '';
+      addBtn.disabled = true;
+      const card = summary(report);
+      result.appendChild(card);
+      /* The report card says what happened; the toast only needs to confirm
+         it, and never reads "0 added". */
+      const n = report.added.length;
+      toast(n ? `${n} title${n === 1 ? '' : 's'} added` : 'Already in your library — nothing new added');
+      /* Below a 150px textarea and a full-width button, the report started
+         off-screen on a small phone. */
+      requestAnimationFrame(() => card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+    },
+  });
+  /* Live only when there is something to add, as the Ask composer does. */
+  addBtn.disabled = true;
+  ta.addEventListener('input', () => (addBtn.disabled = !ta.value.trim()));
+  wrap.appendChild(addBtn);
   wrap.appendChild(result);
   return wrap;
 }
 
 function summary(report) {
   const box = el('div', {
-    style: 'background:var(--surface);border:1px solid var(--hairline);border-radius:10px;padding:14px',
+    class: 'report-in',
+    style:
+      'margin-top:var(--s4);background:var(--surface);border:1px solid var(--hairline);' +
+      'border-radius:var(--r-md);padding:var(--s4)',
   });
   box.appendChild(
     el('div', {
-      style: 'font-weight:600;margin-bottom:8px',
-      text: `${report.added.length} added`,
+      style: 'font-weight:600;margin-bottom:var(--s2)',
+      text: report.added.length ? `${report.added.length} added` : 'Nothing new added',
     })
   );
   if (report.duplicates.length) {
@@ -480,7 +555,9 @@ function summary(report) {
 }
 
 function singleForm() {
-  const form = el('form', { style: 'padding:0 16px 32px' });
+  /* novalidate: the handler checks the title itself, and iOS's native bubble
+     is light-on-white over a dark app. */
+  const form = el('form', { novalidate: true, style: 'padding:0 16px 32px' });
 
   const field = (id, label, props = {}) => {
     const w = el('div', { class: 'field' });
@@ -491,7 +568,18 @@ function singleForm() {
     return input;
   };
 
-  const title = field('add-title', 'Title', { type: 'text', required: true, placeholder: 'The Thing' });
+  /* Autocorrect off: "Nosferatu", "Oldboy" and every non-English title are
+     what it mangles, and this is the mode with no provider to fix it later. */
+  const title = field('add-title', 'Title', {
+    type: 'text',
+    required: true,
+    placeholder: 'The Thing',
+    autocomplete: 'off',
+    autocorrect: 'off',
+    autocapitalize: 'words',
+    spellcheck: 'false',
+    enterkeyhint: 'done',
+  });
   const year = field('add-year', 'Year', { type: 'number', placeholder: '1982', min: '1870', max: '2100' });
 
   const typeWrap = el('div', { class: 'field' });
@@ -510,13 +598,21 @@ function singleForm() {
   qWrap.appendChild(quality);
   form.appendChild(qWrap);
 
-  form.appendChild(button('Add to library', { kind: 'primary', block: true, iconName: 'plus' }));
+  /* type=submit. button() defaults to type=button, so dropped into a form it
+     did nothing — this whole mode was inert, and Enter could not submit it
+     either with two fields and no submit button. */
+  form.appendChild(button('Add to library', { kind: 'primary', block: true, iconName: 'plus', type: 'submit' }));
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const t = title.value.trim();
+    /* Checked against the cleaned title, which is what addItem stores: "•"
+       passes a trim() and used to save an untitled record. */
+    const t = cleanTitleLine(title.value);
     if (!t) {
+      title.style.borderColor = 'var(--ember)';
+      title.addEventListener('input', () => (title.style.borderColor = ''), { once: true });
       title.focus();
+      toast('Give it a title first');
       return;
     }
     const locked = ['title'];

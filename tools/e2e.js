@@ -829,7 +829,7 @@ function check(name, cond, detail = '') {
   for (let i = 0; i < 14; i++) {
     const gone = await page.evaluate(() => {
       const b = document.querySelector('#screen-pick [data-action="no"]');
-      return !b || b.closest('[data-region="controls"]').hidden;
+      return !b || b.closest('[data-region="controls"]').classList.contains('is-idle');
     });
     if (gone) break;
     await page.click('#screen-pick [data-action="no"]');
@@ -862,11 +862,17 @@ function check(name, cond, detail = '') {
      Reading `.hidden` back said what the code had just written, so the swipe
      buttons sat live over an empty deck for weeks with a green test above
      them. getBoundingClientRect is the version that can fail. */
+  /* The row keeps its space now — collapsing it dropped the waiting card half
+     a button-row and made the deck jump when a hand arrived — so what is
+     measured is that nothing there can be seen or hit, not that it is gone. */
   const controlsGone = await page.evaluate(() => {
     const c = document.querySelector('#screen-pick [data-region="controls"]');
-    return c.getBoundingClientRect().height === 0;
+    const b = c.querySelector('[data-action="no"]');
+    const r = b.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return getComputedStyle(b).visibility === 'hidden' && !(hit && c.contains(hit));
   });
-  check('and takes the swipe buttons away with it', controlsGone, 'controls still occupy space');
+  check('and takes the swipe buttons away with it', controlsGone, 'controls still visible or hittable');
 
   /* Constraints actually constrain. Under 90 minutes is the easiest to check
      against the real records. */
@@ -1030,14 +1036,14 @@ function check(name, cond, detail = '') {
   for (let i = 0; i < 3; i++) {
     const done = await page.evaluate(() => {
       const b = document.querySelector('#screen-pick [data-action="no"]');
-      return !b || b.closest('[data-region="controls"]').hidden;
+      return !b || b.closest('[data-region="controls"]').classList.contains('is-idle');
     });
     if (done) break;
     await page.click('#screen-pick [data-action="no"]');
     await page.waitForTimeout(300);
   }
   const exhaustedAfter = await page.evaluate(() =>
-    document.querySelector('#screen-pick [data-region="controls"]').hidden
+    document.querySelector('#screen-pick [data-region="controls"]').classList.contains('is-idle')
   );
   check('a number for a film you do not own is dropped, not invented',
     exhaustedAfter, 'a third card was dealt from an out-of-range index');

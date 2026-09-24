@@ -35,10 +35,10 @@
 import * as store from '../store.js';
 import * as ai from '../ai.js';
 import { rank, tasteProfile } from '../recommend.js';
-import { el, clear, poster, button, emptyState, toast } from '../ui.js';
+import { el, clear, poster, button, emptyState, toast, reveal } from '../ui.js';
 import { icon } from '../icons.js';
-import { runtime as fmtRuntime } from '../format.js';
-import { attachSwipe, flingOut } from '../deck.js';
+import { runtime as fmtRuntime, rating as fmtRating } from '../format.js';
+import { attachSwipe, playDecision, FLING_MS } from '../deck.js';
 import { openDetail } from './detail.js';
 
 let root = null;
@@ -288,8 +288,14 @@ async function dealFromBrief(text) {
     /* Never a dead end. Fall back to the chips, which is the hand the same
        request would have produced before any of this existed, and say plainly
        why it is not the one that was asked for. */
-    toast(ai.friendlyError(err));
+    const why = ai.friendlyError(err);
+    toast(why);
     deal();
+    /* deal() clears brief and note, so without putting the reason back the
+       meta line silently reverted to "anything on your shelf" and the only
+       trace of the failure was a toast gone in three seconds. */
+    note = `${why} Here is the closest hand the filters can make.`;
+    render();
   }
 }
 
@@ -357,7 +363,10 @@ function render() {
   }
 
   if (loading) {
-    controls.hidden = true;
+    /* Not `hidden`: display:none takes ~94px out of a place-items:center
+       column, so the waiting card sat half a button-row below where the real
+       card lands and the deck jumped when the answer arrived. */
+    controls.classList.add('is-idle');
     deckEl.appendChild(thinking());
     return;
   }
@@ -365,12 +374,12 @@ function render() {
   const remaining = shortlist.slice(position);
 
   if (!remaining.length) {
-    controls.hidden = true;
+    controls.classList.add('is-idle');
     deckEl.appendChild(exhausted());
     return;
   }
 
-  controls.hidden = false;
+  controls.classList.remove('is-idle');
 
   const next = remaining[1] && store.byUid(remaining[1]);
   if (next) {
@@ -401,7 +410,13 @@ function render() {
 /* A card-shaped wait rather than a spinner in the middle of an empty screen —
    the deck is about to appear here and the placeholder says so. */
 function thinking() {
-  const card = el('article', { class: 'deck-card is-thinking', 'aria-busy': 'true' });
+  /* role=status so the change is actually announced — aria-busy on a
+     non-live element says nothing to anyone. */
+  const card = el('article', {
+    class: 'deck-card is-thinking',
+    role: 'status',
+    'aria-live': 'polite',
+  });
   const inner = el('div', {
     style:
       'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;' +
@@ -419,7 +434,9 @@ function thinking() {
       class: 'chat-dots',
       /* .chat-dots is built for a left-aligned chat thread. */
       style: 'align-self:center;padding:0',
-      'aria-label': 'Thinking',
+      /* Decorative: "Reading your shelf…" above it is the announcement, and
+         aria-label on a plain div reaches nobody anyway. */
+      'aria-hidden': 'true',
     }, [el('i'), el('i'), el('i')])
   );
   card.appendChild(inner);
@@ -443,7 +460,9 @@ function exhausted() {
       ? askedFor
         ? 'Nothing on your shelf fits that and the filters you have on at the same time.'
         : 'Nothing on your shelf fits all of that at once.'
-      : 'You have been through all of them. Widen it a little and there will be more.',
+      : askedFor
+        ? 'You have been through all twelve. Ask for something else and there will be a new dozen.'
+        : 'You have been through all of them. Widen it a little and there will be more.',
     action: {
       label: askedFor ? 'Ask for something else' : canRelax ? 'Widen it a bit' : 'Start again',
       onClick: () => {
@@ -474,12 +493,26 @@ function cardFor(item, interactive) {
   const info = el('div', { class: 'deck-info' });
   info.appendChild(el('h2', { class: 'deck-title', text: item.title }));
 
+  /* Identical to the Discover deck's chip row, in the same order. The two
+     decks share .deck-card and read as the same component, then rendered the
+     same five facts in three different styles — a bare ★ glyph against an
+     amber icon, borderless chips against bordered tags. */
   const chips = el('div', { class: 'chips' });
   if (item.year) chips.appendChild(el('span', { class: 'chip', text: String(item.year) }));
-  if (item.runtime) chips.appendChild(el('span', { class: 'chip', text: fmtRuntime(item.runtime) }));
-  if (item.genre) chips.appendChild(el('span', { class: 'chip', text: item.genre }));
-  if (item.quality) chips.appendChild(el('span', { class: 'chip', text: item.quality }));
-  if (item.rating) chips.appendChild(el('span', { class: 'chip', text: `★ ${item.rating.toFixed(1)}` }));
+  if (item.rating) {
+    const r = el('span', { class: 'chip chip-rating' });
+    r.appendChild(el('span', { html: icon('starFill', 13) }).firstChild);
+    r.appendChild(el('span', { text: fmtRating(item.rating) }));
+    chips.appendChild(r);
+  }
+  if (item.runtime) {
+    const t = el('span', { class: 'chip' });
+    t.appendChild(el('span', { html: icon('clock', 13) }).firstChild);
+    t.appendChild(el('span', { text: fmtRuntime(item.runtime) }));
+    chips.appendChild(t);
+  }
+  if (item.genre) chips.appendChild(el('span', { class: 'tag', text: item.genre }));
+  if (item.quality) chips.appendChild(el('span', { class: 'tag tag-accent', text: item.quality }));
   info.appendChild(chips);
 
   /* Why this one, when there is a reason. Text, never markup — this is the one
@@ -509,22 +542,25 @@ function decide(direction) {
   if (!item) return;
 
   busy = true;
-  const card = deckEl.lastElementChild;
-  if (card && card.classList.contains('deck-card')) flingOut(card, direction);
+  /* The same decision as a swipe, so it gets the same stamp and the same
+     promotion of the card behind — tapping the button used to just fling the
+     card with no label at all. */
+  playDecision(deckEl, direction);
 
   setTimeout(() => {
     busy = false;
     if (direction === 'right') {
       /* Yes means put it on: open the film. The hand is left exactly where it
          was, so closing the detail returns you to the same card rather than a
-         fresh shuffle. */
-      render();
+         fresh shuffle — but the overlay has to cover the deck first, or the
+         card that was just flung snaps back into view behind detailIn. */
       openDetail(uid);
+      setTimeout(render, 260);
       return;
     }
     position += 1;
     render();
-  }, 220);
+  }, FLING_MS);
 }
 
 /* ── the sheet ──
@@ -539,35 +575,64 @@ function decide(direction) {
    know exists. */
 
 export function openPickSheet() {
-  const scrim = el('div', { class: 'scrim is-open' });
+  const lastFocus = document.activeElement;
+  /* Built without is-open; reveal() gives it the class once the closed style
+     exists. Inserted with the class already on, .sheet's translateY never ran
+     and the sheet that matters most popped instead of sliding. */
+  const scrim = el('div', { class: 'scrim' });
   const panel = el('div', {
-    class: 'sheet is-open',
+    class: 'sheet has-pinned',
     role: 'dialog',
     'aria-modal': 'true',
     'aria-label': 'What do you fancy?',
-    style: 'max-height:86vh;overflow-y:auto',
+    /* --kb so a tall sheet is not pushed off the top when the keyboard, which
+       this sheet always summons, takes the bottom of the screen. */
+    style: 'max-height:calc(86vh - var(--kb, 0px));overflow-y:auto',
   });
 
+  let closing = false;
   const close = () => {
-    scrim.remove();
-    panel.remove();
+    if (closing) return;
+    closing = true;
+    scrim.classList.remove('is-open');
+    panel.classList.remove('is-open');
     document.removeEventListener('keydown', onKey);
+    if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
+    setTimeout(() => {
+      scrim.remove();
+      panel.remove();
+    }, 240);
   };
   const onKey = (e) => {
-    if (e.key === 'Escape') close();
+    if (e.key === 'Escape') {
+      close();
+      return;
+    }
+    /* aria-modal claims everything behind the scrim is inert; without a trap
+       Tab walked straight out into it. Same behaviour as the shared sheet. */
+    if (e.key !== 'Tab') return;
+    const f = panel.querySelectorAll(
+      'button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (!f.length) return;
+    const first = f[0];
+    const last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
   };
   document.addEventListener('keydown', onKey);
   scrim.addEventListener('click', close);
 
-  /* Re-open in place rather than teardown-and-rebuild, so a tapped chip does
-     not scroll the sheet back to the top or drop what has been typed. */
-  const reopen = () => {
-    const typed = input.value;
-    close();
-    openPickSheet();
-    const next = document.querySelector('#pick-brief');
-    if (next) next.value = typed;
-  };
+  /* Toggling a chip refreshes the count and nothing else. This used to close
+     and rebuild the whole sheet, which reset its scrollTop — so tapping the
+     last pill in the list threw you back to the title every time. */
+  let refreshCount = () => {};
+  const reopen = () => refreshCount();
 
   panel.appendChild(el('div', { class: 'sheet-grip' }));
   panel.appendChild(el('div', { class: 'sheet-title', text: 'What do you fancy?' }));
@@ -584,16 +649,18 @@ export function openPickSheet() {
   });
   panel.appendChild(input);
 
-  /* Small on purpose. Full-size pills wrapped to three rows and pushed the
-     button that matters below the fold on a phone — an example that costs you
-     the sight of the thing it is an example for is not helping. */
-  const examples = el('div', { style: 'display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 14px' });
+  /* Lighter than the facet pills below, but the same size: these were 29px
+     against their 44px, in the same sheet, and were the hardest thing in the
+     app to hit. Weight and colour carry the difference instead. */
+  const examples = el('div', {
+    style: 'display:flex;flex-wrap:wrap;gap:var(--s2);margin:var(--s3) 0 var(--s4)',
+  });
   for (const text of EXAMPLES) {
     examples.appendChild(
       el('button', {
         class: 'pill',
         type: 'button',
-        style: 'font-size:12px;padding:5px 10px;min-height:0;color:var(--ash)',
+        style: 'font-weight:500;color:var(--ash)',
         text,
         onclick: () => {
           input.value = text;
@@ -643,7 +710,7 @@ export function openPickSheet() {
   );
   panel.appendChild(
     el('div', {
-      style: 'font-size:12px;color:var(--ash);margin:8px 0 20px;line-height:1.5',
+      style: 'font-size:var(--t-sub);color:var(--ash);margin:var(--s2) 0 var(--s5);line-height:1.5',
       text: ai.hasKey()
         ? 'Claude reads the titles that get through the filters below and picks from those.'
         : 'An Anthropic key, kept on this device, lets Claude read your shelf and answer in film terms rather than genre labels.',
@@ -655,25 +722,27 @@ export function openPickSheet() {
   panel.appendChild(
     el('div', {
       class: 'eyebrow',
-      style: 'margin-bottom:14px;padding-top:16px;border-top:1px solid var(--hairline)',
+      style: 'margin-bottom:var(--s3);padding-top:var(--s4);border-top:1px solid var(--hairline)',
       text: 'Or narrow it down',
     })
   );
 
   const facet = (label, options, key) => {
-    const box = el('div', { style: 'margin-bottom:20px' });
-    box.appendChild(el('div', { class: 'eyebrow', style: 'margin-bottom:10px', text: label }));
-    const wrap = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px' });
+    const box = el('div', { style: 'margin-bottom:var(--s5)' });
+    box.appendChild(el('div', { class: 'eyebrow', style: 'margin-bottom:var(--s3)', text: label }));
+    const wrap = el('div', { style: 'display:flex;flex-wrap:wrap;gap:var(--s2)' });
     for (const [value, text] of options) {
-      const active = constraints[key] === value;
       wrap.appendChild(
         el('button', {
           class: 'pill',
           type: 'button',
-          'aria-pressed': String(active),
+          'aria-pressed': String(constraints[key] === value),
           text,
-          onclick: () => {
-            constraints[key] = active ? null : value;
+          onclick: (e) => {
+            constraints[key] = constraints[key] === value ? null : value;
+            /* One of a set, so clear the row and re-press the one that won. */
+            for (const p of wrap.children) p.setAttribute('aria-pressed', 'false');
+            e.currentTarget.setAttribute('aria-pressed', String(constraints[key] === value));
             reopen();
           },
         })
@@ -691,17 +760,20 @@ export function openPickSheet() {
   panel.appendChild(facet('Decade', DECADES, 'decade'));
   panel.appendChild(facet('How long', LENGTHS, 'minutes'));
 
-  const whereBox = el('div', { style: 'margin-bottom:20px' });
-  whereBox.appendChild(el('div', { class: 'eyebrow', style: 'margin-bottom:10px', text: 'Where from' }));
-  const whereRow = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px' });
+  const whereBox = el('div', { style: 'margin-bottom:var(--s5)' });
+  whereBox.appendChild(
+    el('div', { class: 'eyebrow', style: 'margin-bottom:var(--s3)', text: 'Where from' })
+  );
+  const whereRow = el('div', { style: 'display:flex;flex-wrap:wrap;gap:var(--s2)' });
   const flag = (label, key) =>
     el('button', {
       class: 'pill',
       type: 'button',
       'aria-pressed': String(constraints[key]),
       text: label,
-      onclick: () => {
+      onclick: (e) => {
         constraints[key] = !constraints[key];
+        e.currentTarget.setAttribute('aria-pressed', String(constraints[key]));
         reopen();
       },
     });
@@ -715,34 +787,44 @@ export function openPickSheet() {
   /* A live count, because the failure mode of a constraint sheet is stacking
      four filters and finding out afterwards that nothing survives them. It
      counts for both paths: this is also the set Claude gets to read. */
-  const count = matching(store.items(), constraints).length;
-  panel.appendChild(
-    el('div', {
-      style: `font-size:var(--t-sub);color:${count ? 'var(--ash)' : 'var(--ember)'};margin-bottom:14px`,
-      text: count
-        ? `${count} film${count === 1 ? '' : 's'} to choose from`
-        : 'Nothing on your shelf matches all of that',
-    })
-  );
-
-  const acts = el('div', { class: 'sheet-actions' });
+  /* The count and the deal ride the bottom edge of the sheet. Five facet rows
+     down, they used to be below the fold — so the thing that answers "does
+     anything survive these filters" was out of sight while you tapped them. */
+  const acts = el('div', { class: 'sheet-actions is-pinned' });
+  const countEl = el('div', {
+    style: 'font-size:var(--t-sub);text-align:center;margin-bottom:var(--s1)',
+    'aria-live': 'polite',
+  });
+  acts.appendChild(countEl);
+  const dealBtn = button('Deal me some', {
+    kind: 'secondary',
+    onClick: () => {
+      close();
+      relaxed = 0;
+      deal();
+      goToDeck();
+    },
+  });
   acts.appendChild(
-    button('Deal me some', {
-      kind: 'secondary',
-      block: true,
-      onClick: () => {
-        close();
-        relaxed = 0;
-        deal();
-        goToDeck();
-      },
-    })
+    el('div', { class: 'btn-pair' }, [button('Close', { kind: 'quiet', onClick: close }), dealBtn])
   );
-  acts.appendChild(button('Close', { kind: 'quiet', block: true, onClick: close }));
   panel.appendChild(acts);
+
+  refreshCount = () => {
+    const n = matching(store.items(), constraints).length;
+    countEl.style.color = n ? 'var(--ash)' : 'var(--ember)';
+    countEl.textContent = n
+      ? `${n} film${n === 1 ? '' : 's'} to choose from`
+      : 'Nothing on your shelf matches all of that';
+    /* Offering the deal when the sheet has just said nothing survives the
+       filters only takes you to a deck that says it again. */
+    dealBtn.disabled = n === 0;
+  };
+  refreshCount();
 
   document.body.appendChild(scrim);
   document.body.appendChild(panel);
+  reveal(scrim, panel);
   requestAnimationFrame(() => input.focus({ preventScroll: true }));
 }
 

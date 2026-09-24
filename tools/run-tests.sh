@@ -10,6 +10,7 @@ echo "── unit ────────────────────�
 node tools/match.test.mjs || UNIT=1
 node tools/recommend.test.mjs || UNIT=1
 node tools/merge.test.mjs || UNIT=1
+node tools/format.test.mjs || UNIT=1
 
 # Always own the server. Previously this reused whatever was already listening,
 # which meant a stray server from an earlier shell could be reaped part-way
@@ -33,7 +34,7 @@ if ! curl -s -o /dev/null "http://127.0.0.1:$PORT/index.html"; then
 fi
 
 FAILED=0
-for suite in migration legacy-scale meta-e2e keycheck rematch offline durability viewport sync e2e; do
+for suite in migration legacy-scale meta-e2e keycheck rematch offline durability viewport sync e2e polish; do
   echo ""
   echo "── $suite ───────────────────────────────────────"
   node "tools/$suite.js" || FAILED=1

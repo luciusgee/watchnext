@@ -18,6 +18,16 @@
 const DISTANCE = 96;
 const VELOCITY = 0.45; // px per ms
 
+/* How long a caller should wait before rebuilding the deck under a card it has
+   just flung. The reduced-motion block in app.css kills the transition with
+   !important, which outranks the inline shorthand flingOut writes — so for
+   anyone with the preference on the card is already gone and the wait was a
+   quarter-second of empty deck. Exported so both decks read the same number. */
+export const FLING_MS =
+  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+    ? 0
+    : 220;
+
 /**
  * Make a card draggable.
  *
@@ -108,6 +118,32 @@ export function attachSwipe(card, { onRight, onLeft, blocked = () => false }) {
     card.removeEventListener('pointerup', onUp);
     card.removeEventListener('pointercancel', onUp);
   };
+}
+
+/**
+ * Play the decision on a card the user did not drag.
+ *
+ * Tapping the yes/no button is the same decision as the swipe, and used to
+ * look completely different: the stamp is painted by the pointermove handler,
+ * which a tap never runs, so the card just left with no label. This lights the
+ * stamp, promotes the card behind it, and throws the front card — so both
+ * routes to the same outcome land in the same place.
+ */
+export function playDecision(deckEl, direction) {
+  const card = deckEl && deckEl.lastElementChild;
+  if (!card || !card.classList.contains('deck-card')) return false;
+  const stamp = card.querySelector(`[data-stamp="${direction}"]`);
+  if (stamp) stamp.style.opacity = '1';
+  /* The card behind used to sit at scale(.94) until it was replaced wholesale
+     by a full-size one, so the stack blinked a size up instead of the next
+     card rising into the gap. */
+  const back = deckEl.querySelector('.deck-card:not(:last-child)');
+  if (back) {
+    back.style.transform = 'scale(1) translateY(0)';
+    back.style.opacity = '1';
+  }
+  flingOut(card, direction);
+  return true;
 }
 
 /** Throw a card off screen. Resolves when it is gone. */

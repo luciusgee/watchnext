@@ -171,11 +171,19 @@ img {
   flex: none;
 }
 
-/* focus — visible, never a default blue ring on dark */
+/* focus — visible, never a default blue ring on dark. No border-radius here:
+   outlines follow the element's own corners, and setting one on :focus-visible
+   reshaped whatever took focus — a 10px button went square-ish, a sheet lost
+   its rounded top. */
 :focus-visible {
   outline: 2px solid var(--amber);
   outline-offset: 2px;
-  border-radius: var(--r-sm);
+}
+/* Containers given focus programmatically so a screen reader starts in the
+   right place — the detail dialog, a sheet, a screen — are not controls, and
+   an amber ring round the whole overlay is not a focus indicator anyone needs. */
+[tabindex='-1']:focus {
+  outline: none;
 }
 
 .sr-only {
@@ -193,6 +201,10 @@ img {
    app shell
    ============================================================ */
 
+body.is-ready #app {
+  opacity: 1;
+}
+
 #app {
   position: fixed;
   top: 0;
@@ -200,6 +212,12 @@ img {
   right: 0;
   display: flex;
   flex-direction: column;
+  /* boot() adds body.is-ready once the store has loaded and the first screen
+     has rendered. Without this rule the hook did nothing, so the launch was:
+     native splash, then a bare top bar on black, then every rail banging in
+     at once. Fading the shell in covers the gap between those two frames. */
+  opacity: 0;
+  transition: opacity var(--med) var(--ease);
   /* Deliberately NOT `inset: 0`.
 
      On iOS 26 in a home-screen web app, the layout viewport is reported as the
@@ -276,8 +294,10 @@ img {
 }
 
 .iconbtn {
-  width: 40px;
-  height: 40px;
+  /* 44pt, the iOS minimum. At 40 the top-bar buttons sat beside a 44px Filter
+     pill and a 42px search field as an uneven staircase. */
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   border-radius: var(--r-md);
@@ -355,7 +375,9 @@ body.is-typing .tabbar {
 }
 .section-head {
   display: flex;
-  align-items: baseline;
+  /* Centre, not baseline: padding on a baseline-aligned flex child shifts the
+     box, and "See all" needs padding to reach a 44px target. */
+  align-items: center;
   justify-content: space-between;
   gap: var(--s3);
   padding: 0 var(--s4) var(--s3);
@@ -368,10 +390,22 @@ body.is-typing .tabbar {
   align-items: center;
   gap: 2px;
   flex: none;
+  /* 13px of text is a 19px hit box. Pad out to 44px and pull the extra back
+     with a negative margin so nothing moves visually. */
+  min-height: 44px;
+  padding-left: var(--s3);
+  margin: -13px 0;
+  transition: opacity var(--fast) var(--ease);
+}
+.section-link:active {
+  opacity: 0.55;
 }
 
 .empty {
-  padding: var(--s7) var(--s5);
+  /* clamp keeps the original 32px inside short containers — the library's
+     inline empty state, a sheet — and optically centres it on a full screen,
+     which is where a fresh install lands. */
+  padding: clamp(var(--s7), 16vh, 104px) var(--s5) var(--s7);
   text-align: center;
   color: var(--ash);
   font-size: var(--t-sub);
@@ -403,6 +437,14 @@ body.is-typing .tabbar {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  /* Sixty posters decoding one at a time used to replace their grey box in a
+     single frame each. ui.js adds is-in on load (and immediately for anything
+     already in cache), so a rail fills in rather than popping. */
+  opacity: 0;
+  transition: opacity var(--med) var(--ease);
+}
+.poster img.is-in {
+  opacity: 1;
 }
 
 /* Designed fallback: title initials on a hue derived from the title.
@@ -490,6 +532,11 @@ body.is-typing .tabbar {
   scroll-padding-inline: var(--s4);
   padding: 0 var(--s4) var(--s1);
   scrollbar-width: none;
+  /* The vertical scroller gets both of these; the rail is the one the thumb
+     actually flicks, and without them it dragged 1:1 while the page under it
+     had momentum, and a fling off the end chained out to the document. */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 }
 .rail::-webkit-scrollbar {
   display: none;
@@ -501,6 +548,13 @@ body.is-typing .tabbar {
   scroll-snap-align: start;
   text-align: left;
   display: block;
+  /* The main tappable thing on three screens, and the only one that used to
+     acknowledge nothing at all — .btn, .row, .iconbtn and .tab all dip. */
+  transition: transform var(--fast) var(--ease), opacity var(--fast) var(--ease);
+}
+.card:active {
+  transform: scale(0.96);
+  opacity: 0.82;
 }
 .card .poster {
   width: 108px;
@@ -511,6 +565,10 @@ body.is-typing .tabbar {
   font-weight: 550;
   line-height: 1.3;
   color: var(--bone);
+  /* Two lines reserved, so a one-line title does not pull its meta row 17px
+     up against the card beside it. Reserved here rather than on .lib-grid,
+     because the same card renders into every rail on Tonight too. */
+  min-height: 2.6em;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -535,9 +593,24 @@ body.is-typing .tabbar {
   border-bottom: 1px solid var(--hairline);
   min-height: 64px;
   text-align: left;
+  transition: background var(--fast) var(--ease), transform var(--fast) var(--ease);
+  /* Press-and-hold is the library's selection gesture, and on iOS it raced
+     WebKit's own text selection and callout — the magnifier came up over the
+     title and then the app's selection fired underneath it. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 .row:active {
   background: var(--surface);
+}
+/* The hold, while it is running. It used to look exactly like a tap for 450ms
+   and then selection mode arrived out of nowhere; the row now sinks into the
+   press so the gesture is visibly underway. */
+.row.is-holding {
+  transform: scale(0.975);
+  background: var(--surface);
+  transition: transform 330ms var(--ease), background 330ms var(--ease);
 }
 .row .poster {
   width: 44px;
@@ -646,6 +719,12 @@ body.is-typing .tabbar {
 .btn:active {
   transform: scale(0.985);
 }
+/* .iconbtn and .composer .send both had a disabled look; .btn never did, so a
+   button that had been switched off still read as live. */
+.btn[disabled] {
+  opacity: 0.45;
+  pointer-events: none;
+}
 .btn-block {
   width: 100%;
 }
@@ -692,7 +771,12 @@ body.is-typing .tabbar {
 }
 .seg button {
   flex: 1;
-  min-height: 40px;
+  /* Buttons inherit text-align in this stylesheet, so inside a left-aligned
+     form every segment's label sat against its own left edge. */
+  text-align: center;
+  /* The mode switcher is the first thing a thumb meets on the Add screen and
+     was the only control there under 44pt. */
+  min-height: 44px;
   border-radius: 8px;
   font-size: var(--t-sub);
   font-weight: 550;
@@ -702,6 +786,68 @@ body.is-typing .tabbar {
 .seg button[aria-pressed='true'] {
   background: var(--raised);
   color: var(--bone);
+}
+/* Controls that cannot work yet — no key, nothing to add — should say so. The
+   inputs and segments on the Add screen went dead with no change in look. */
+.seg button[disabled],
+.checkrow[disabled],
+.input:disabled,
+.textarea:disabled,
+.select:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* A tappable search result. Three screens hand-rolled the same inline blob,
+   none of them with a press state — on the one control that spends a network
+   write. */
+.result-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: var(--s2);
+  border-radius: var(--r-md);
+  border: 1px solid var(--hairline);
+  margin-bottom: var(--s2);
+  text-align: left;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease),
+    transform var(--fast) var(--ease), opacity var(--fast) var(--ease);
+}
+.result-row:active {
+  background: var(--surface);
+  transform: scale(0.985);
+}
+.result-row.is-dupe {
+  border-color: var(--amber-line);
+}
+
+/* The designed checkbox, lifted off .hero-scope so every screen uses the same
+   one. The Add screen was the only place in the app showing iOS's native box. */
+.checkrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 14px;
+  color: var(--silver);
+  text-align: left;
+}
+.checkbox {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid var(--hairline-strong);
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: transparent;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+[aria-pressed='true'] > .checkbox {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--ink);
 }
 
 /* filter pills */
@@ -715,9 +861,13 @@ body.is-typing .tabbar {
 .pills::-webkit-scrollbar {
   display: none;
 }
+.pill:active {
+  background: var(--surface);
+  transform: scale(0.97);
+}
 .pill {
   flex: none;
-  min-height: 40px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -728,12 +878,16 @@ body.is-typing .tabbar {
   font-weight: 550;
   color: var(--ash);
   white-space: nowrap;
-  transition: all var(--fast) var(--ease);
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease),
+    color var(--fast) var(--ease), transform var(--fast) var(--ease);
 }
 .pill[aria-pressed='true'] {
   background: var(--amber-dim);
   border-color: var(--amber-line);
   color: var(--amber);
+}
+.pill[aria-pressed='true']:active {
+  background: rgba(232, 163, 61, 0.22);
 }
 
 /* ============================================================
@@ -804,7 +958,7 @@ body.is-typing .tabbar {
 }
 .searchbar input {
   width: 100%;
-  min-height: 42px;
+  min-height: 44px;
   padding: 0 var(--s4) 0 42px;
   background: var(--surface);
   border: 1px solid var(--hairline);
@@ -819,7 +973,11 @@ body.is-typing .tabbar {
 .searchbar input::placeholder {
   color: var(--faint);
 }
-.searchbar input::-webkit-search-cancel-button {
+/* Any search field in the app, not only the library's — the Add screen's is
+   a plain .input[type=search] and was rendering Safari's stock grey × inside a
+   dark field, next to an amber focus ring. */
+.searchbar input::-webkit-search-cancel-button,
+.input[type='search']::-webkit-search-cancel-button {
   -webkit-appearance: none;
 }
 
@@ -913,6 +1071,13 @@ body.is-typing .tabbar {
   transform: translate(-50%, 0);
   pointer-events: auto;
 }
+/* The overlay covers the tab bar, so a toast raised from it — an Undo, most of
+   all — was left hovering over 72px of empty overlay instead of near the
+   thumb. The toast node is appended to <body> after #detail, so this reaches
+   it. */
+.detail.is-open ~ .toast {
+  bottom: calc(max(var(--sb), var(--sb-floor, 0px)) + var(--s5));
+}
 .toast-action {
   font-weight: 650;
   color: var(--amber);
@@ -944,14 +1109,25 @@ body.is-typing .tabbar {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  /* Sheets are appended to <body>, not to #app, so they miss the keyboard
+     compensation #app gets. A sheet that autofocuses a field — the pick
+     sheet — otherwise opens with its buttons already behind the keyboard. */
+  bottom: var(--kb, 0px);
   background: var(--overlay);
   border-top: 1px solid var(--hairline-strong);
   border-radius: var(--r-xl) var(--r-xl) 0 0;
   padding: var(--s5) var(--s4) calc(var(--sb) + var(--s5));
   transform: translateY(100%);
-  transition: transform var(--med) var(--ease);
+  transition: transform var(--med) var(--ease), bottom var(--med) var(--ease);
   z-index: 960;
+  /* Any sheet that scrolls gets the same treatment as every other scroller in
+     the app: no visible track over the rounded corner, no chaining. */
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.sheet::-webkit-scrollbar {
+  display: none;
 }
 .sheet.is-open {
   transform: translateY(0);
@@ -981,6 +1157,36 @@ body.is-typing .tabbar {
   flex-direction: column;
   gap: var(--s2);
 }
+/* The action block of a sheet long enough to scroll, pinned to its bottom edge.
+   With eleven genres the filter sheet's "Show results" started 123px below the
+   fold, with nothing on screen to say it was there. The sheet drops its own
+   bottom padding (.has-pinned) and this block carries the safe area instead. */
+.sheet.has-pinned {
+  padding-bottom: 0;
+}
+/* Dismiss beside the action rather than under it, in a pinned block: two
+   stacked full-width buttons plus the safe area took a fifth of the sheet. The
+   action is on the right, under the thumb. */
+.btn-pair {
+  display: flex;
+  gap: var(--s2);
+}
+.btn-pair > .btn {
+  flex: 1;
+  min-width: 0;
+}
+.btn-pair > .btn:last-child {
+  flex: 2;
+}
+.sheet-actions.is-pinned {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin: 0 calc(var(--s4) * -1);
+  padding: var(--s3) var(--s4) calc(var(--sb) + var(--s5));
+  background: var(--overlay);
+  box-shadow: 0 -14px 22px -14px rgba(0, 0, 0, 0.85);
+}
 
 /* ============================================================
    detail
@@ -998,6 +1204,15 @@ body.is-typing .tabbar {
   display: flex;
   animation: detailIn var(--med) var(--ease);
 }
+@keyframes reportIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.report-in {
+  animation: reportIn var(--med) var(--ease) both;
+}
 @keyframes detailIn {
   from {
     opacity: 0;
@@ -1006,6 +1221,30 @@ body.is-typing .tabbar {
   to {
     opacity: 1;
     transform: none;
+  }
+}
+/* The open was animated and the close was not, so every dismissal of the most
+   used surface in the app read as a glitch. */
+.detail.is-closing {
+  display: flex;
+  pointer-events: none;
+  animation: detailOut 180ms var(--ease) forwards;
+}
+@keyframes detailOut {
+  to {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+/* Drilling from one film into a related one keeps the overlay open, so
+   detailIn cannot replay. Animate the rebuilt subtree instead. */
+.detail-swap {
+  animation: detailSwap 200ms var(--ease) both;
+}
+@keyframes detailSwap {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
   }
 }
 
@@ -1057,24 +1296,46 @@ body.is-typing .tabbar {
   padding-bottom: 2px;
 }
 .detail-title {
-  font-size: 24px;
+  /* Was a flat 24px, between --t-title and --t-display and on neither. The
+     clamp also lets a long title come down on a 320pt screen rather than
+     wrapping four lines and pushing the hero past its own poster. */
+  font-size: clamp(20px, 6vw, 24px);
   font-weight: 680;
   letter-spacing: -0.022em;
   line-height: 1.14;
   margin-bottom: var(--s2);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
 }
 .detail-back {
   position: absolute;
   top: calc(var(--st) + var(--s2));
   left: var(--s2);
   z-index: 2;
-  background: rgba(11, 10, 9, 0.5);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  /* The only dismiss control on a full-screen overlay — no scrim to tap, no
+     swipe-down — and it was 40px. */
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  /* No backdrop-filter: it sits directly on .detail-hero-bg, which is already
+     blurred 34px, so there was nothing left to resolve — it only cost a live
+     backdrop pass on every frame of the open animation. */
+  background: rgba(11, 10, 9, 0.55);
+  border: 1px solid var(--hairline);
   color: var(--bone);
 }
 .detail-body {
-  padding: var(--s5) var(--s4) var(--s7);
+  /* The overlay spans the physical screen — the hero compensates for the top
+     inset — so the body has to clear the home indicator itself. It was the one
+     bottom-anchored surface in the app that did not. */
+  padding: var(--s5) var(--s4) calc(var(--s7) + max(var(--sb), var(--sb-floor, 0px)));
+}
+/* .banner carries its own 16px margin for use straight inside a .scroll; the
+   detail body already pads 16px, so the warning was inset 32px against
+   everything around it. */
+.detail-body > .banner {
+  margin-inline: 0;
+  margin-block: 0 var(--s4);
 }
 .detail-overview {
   font-size: var(--t-body);
@@ -1097,6 +1358,18 @@ body.is-typing .tabbar {
 .detail-links .btn {
   min-width: 0;
   padding: 0 var(--s2);
+}
+/* The links row was given shrink safety and the action grid was not. Its 1fr
+   tracks resolve to the label width plus 40px of padding plus the icon, which
+   on a 375pt screen clears by half a pixel and overflows on anything narrower
+   or any longer label. */
+.detail-actions .btn {
+  min-width: 0;
+  padding: 0 var(--s3);
+}
+.detail-actions .btn > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status-strip {
@@ -1151,6 +1424,11 @@ body.is-typing .tabbar {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  /* An abandoned half-swipe used to teleport back to centre: clearing the
+     inline transform resolved to `all 0s`. deck.js sets transition:none for
+     the duration of the drag, and flingOut writes its own, so this only ever
+     governs the snap back and the back card promoting. */
+  transition: transform var(--med) var(--ease), opacity var(--med) var(--ease);
 }
 .deck-card .poster {
   width: 100%;
@@ -1169,6 +1447,14 @@ body.is-typing .tabbar {
   letter-spacing: -0.018em;
   line-height: 1.2;
   margin-bottom: var(--s2);
+  /* The longest string on the card, and the only one that was not clamped —
+     four lines of "The Assassination of Jesse James…" at 21px squeezed the
+     poster to its floor. The full title is one tap away on the detail screen,
+     and the card's aria-label still carries it whole. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .deck-overview {
   font-size: var(--t-sub);
@@ -1201,10 +1487,11 @@ body.is-typing .tabbar {
 .deck-card {
   position: relative;
 }
-/* The wait. Same footprint as a real card so the deck does not jump when the
-   answer lands. */
+/* The wait. `min-height: 320px` was not the same footprint as a real card at
+   all — the card grew ~280px and slid up when the answer landed. Filling the
+   cell is. */
 .deck-card.is-thinking {
-  min-height: 320px;
+  height: 100%;
   background: var(--surface);
   touch-action: auto;
 }
@@ -1220,7 +1507,8 @@ body.is-typing .tabbar {
   text-transform: uppercase;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 90ms linear;
+  /* Was 90ms, so the label dissolved while the card was still easing home. */
+  transition: opacity var(--fast) var(--ease);
 }
 .stamp-yes {
   left: 16px;
@@ -1248,6 +1536,22 @@ body.is-typing .tabbar {
   background: var(--overlay);
   border-top: 1px solid var(--hairline-strong);
   z-index: 800;
+  /* It used to blink into existence over the list and blink out again. */
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  transition: opacity var(--fast) var(--ease), transform var(--med) var(--ease),
+    bottom var(--med) var(--ease);
+}
+.select-bar.is-open {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+/* The tab bar hides while a field has focus, and the bar was still reserving
+   its 56px — a dead strip between the actions and the keyboard. */
+body.is-typing .select-bar {
+  bottom: 0;
 }
 .select-count {
   font-size: var(--t-meta);
@@ -1274,15 +1578,35 @@ body.is-typing .tabbar {
 .row.is-picked {
   background: var(--amber-dim);
 }
+/* Same specificity as .row:active and declared later, so a picked row used to
+   ignore the finger entirely — the one row you are working with. */
+.row.is-picked:active {
+  background: rgba(232, 163, 61, 0.26);
+}
+/* Always in the row, collapsed to nothing until selection starts, so the list
+   eases 32px across instead of every poster and title jumping in one frame.
+   The negative margin cancels the row's gap while it is closed. */
 .row-pick {
-  width: 20px;
+  width: 0;
   height: 20px;
   flex: none;
   display: grid;
   place-items: center;
   border-radius: 50%;
-  border: 1.5px solid var(--amber-line);
+  border: 1.5px solid transparent;
   color: var(--amber);
+  overflow: hidden;
+  opacity: 0;
+  margin-right: calc(var(--s3) * -1);
+  transition: width var(--med) var(--ease), margin var(--med) var(--ease),
+    opacity var(--fast) var(--ease), background var(--fast) var(--ease),
+    border-color var(--fast) var(--ease);
+}
+.row-pick.is-on {
+  width: 20px;
+  margin-right: 0;
+  opacity: 1;
+  border-color: var(--amber-line);
 }
 .row.is-picked .row-pick {
   background: var(--amber);
@@ -1312,6 +1636,15 @@ body.is-typing .tabbar {
   gap: var(--s5);
   padding: var(--s4) var(--s4) var(--s5);
   flex: none;
+  transition: opacity var(--fast) var(--ease);
+}
+/* While a hand is being fetched. `hidden` would be display:none, which takes
+   ~94px out of a `place-items: center` column and drops the waiting card half
+   a button-row lower than the real one lands. Keep the space, lose the row. */
+.deck-controls.is-idle {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 .deck-btn {
   width: 58px;
@@ -1512,15 +1845,28 @@ body.is-typing .tabbar {
   position: relative;
   padding: var(--s5) var(--s4) var(--s6);
   overflow: hidden;
+  /* Marking something watched rebuilds this block. Without an entrance the
+     swap read as a flicker rather than as a new suggestion. */
+  animation: heroIn var(--med) var(--ease);
+}
+@keyframes heroIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 .hero-bg {
   position: absolute;
-  inset: 0;
+  /* Oversized rather than scaled: a 40px blur needs ~40px of real pixels past
+     each edge or it samples transparency, and scale(1.2) on a 230px-tall hero
+     only supplied 23px — so the wash faded out top and bottom and read as a
+     rectangle of tint instead of colour bleeding up under the bar. .hero
+     clips, so the excess costs nothing. */
+  inset: -64px;
   background-size: cover;
   background-position: center 25%;
   filter: blur(40px) saturate(140%);
   opacity: 0.34;
-  transform: scale(1.2);
 }
 .hero-veil {
   position: absolute;
@@ -1531,10 +1877,16 @@ body.is-typing .tabbar {
   position: relative;
   display: flex;
   gap: var(--s4);
+  /* Not stretch: the poster button would grow to the copy column's height and
+     drag its rail-card bottom margin along with it. */
+  align-items: flex-start;
 }
 .hero .poster {
   width: 104px;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55);
+  /* The hero reuses .card for its styling, which brings 8px meant to separate
+     a rail card's poster from the title beneath it. There is no title here. */
+  margin-bottom: 0;
 }
 .hero-copy {
   flex: 1;
@@ -1569,7 +1921,10 @@ body.is-typing .tabbar {
   align-items: center;
   gap: 6px;
   margin-top: var(--s4);
-  padding: 0 var(--s4);
+  /* .hero already pads 16px; this added another 16 on top, so the one control
+     between the poster and the button below it sat 20px right of both. */
+  padding: 0;
+  margin-left: -4px;
   font-size: var(--t-meta);
   color: var(--ash);
 }
@@ -1577,11 +1932,15 @@ body.is-typing .tabbar {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  min-height: 32px;
+  /* Was 32px, on the control that decides what the whole screen recommends.
+     The negative margin keeps the taller target from pushing the hero out. */
+  min-height: 44px;
+  margin: -6px 0;
   padding: 0 4px;
   font-size: var(--t-meta);
   font-weight: 550;
   color: var(--silver);
+  transition: color var(--fast) var(--ease);
 }
 .hero-scope button[aria-pressed='true'] {
   color: var(--amber);
@@ -1594,11 +1953,41 @@ body.is-typing .tabbar {
   display: grid;
   place-items: center;
   flex: none;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
 }
 .hero-scope button[aria-pressed='true'] .box {
   background: var(--amber);
   border-color: var(--amber);
   color: var(--ink);
+}
+
+/* The route from Tonight to Stats. It was a button styled exactly like the
+   caption beside it — no border, no chevron, no press state, 31px tall. */
+.statline {
+  /* Inline, not flex: when the figures wrap, the chevron has to follow the
+     last word rather than float at the far edge of a full-width box. */
+  display: inline-block;
+  min-height: 44px;
+  padding: 12px var(--s3);
+  line-height: 1.5;
+  border-radius: var(--r-sm);
+  font-size: var(--t-sub);
+  color: var(--ash);
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.statline:active {
+  background: var(--surface);
+  color: var(--bone);
+}
+/* Four figures wrap on a narrow phone; balanced, they wrap as two even lines
+   rather than a full line and a stray "hours". */
+.statline > span {
+  text-wrap: balance;
+}
+.statline .ic {
+  display: inline;
+  vertical-align: -2px;
+  margin-left: 4px;
 }
 
 .statbar {
@@ -1693,6 +2082,22 @@ body.is-typing .tabbar {
 .lib-list {
   display: flex;
   flex-direction: column;
+  /* Grid view ended on 24px of room; the list ended on a hairline pressed
+     flat against the tab bar. */
+  padding-bottom: var(--s6);
+}
+.lib-list .row:last-child {
+  border-bottom: none;
+}
+/* Room to scroll the last title clear of the selection bar. */
+.lib-list.has-select-bar,
+.lib-grid.has-select-bar {
+  padding-bottom: 88px;
+}
+/* An empty state is not a grid item. In a 104px column it rendered one word
+   per line with its button hanging off the edge of the screen. */
+.lib-grid > .empty {
+  grid-column: 1 / -1;
 }
 
 .lib-grid {
@@ -1704,10 +2109,6 @@ body.is-typing .tabbar {
 .lib-grid .card,
 .lib-grid .card .poster {
   width: 100%;
-}
-/* Two lines reserved for the title keeps every row on the same baseline. */
-.lib-grid .card-t {
-  min-height: 2.6em;
 }
 .lib-grid .card {
   align-self: start;

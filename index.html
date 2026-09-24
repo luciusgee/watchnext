@@ -55,7 +55,7 @@
   <main id="screen-tonight" class="screen is-active" aria-label="Tonight">
     <header class="topbar">
       <button class="iconbtn" type="button" data-nav="settings" data-icon="settings" aria-label="Settings"></button>
-      <span class="wordmark">Watch<span>.</span>Next</span>
+      <h1 class="wordmark">Watch<span>.</span>Next</h1>
       <button class="iconbtn" type="button" data-nav="add" data-icon="plus" aria-label="Add titles"></button>
     </header>
     <div class="scroll">
@@ -95,11 +95,11 @@
       <button class="iconbtn" type="button" data-action="constraints" data-icon="sliders" aria-label="Change what you fancy"></button>
     </header>
 
-    <p class="pick-meta" data-region="meta"></p>
+    <p class="pick-meta" data-region="meta" aria-live="polite"></p>
 
     <div class="deck" data-region="deck"></div>
 
-    <div class="deck-controls" data-region="controls" hidden>
+    <div class="deck-controls is-idle" data-region="controls">
       <button class="deck-btn" type="button" data-action="no" data-icon="close" data-icon-size="24" aria-label="Not tonight"></button>
       <button class="deck-btn deck-btn-yes" type="button" data-action="yes" data-icon="playFill" data-icon-size="22" aria-label="That one"></button>
     </div>
@@ -156,7 +156,7 @@
   <main id="screen-shelf" class="screen" aria-label="A shared shelf">
     <header class="topbar">
       <span class="iconbtn" aria-hidden="true"></span>
-      <span class="wordmark">Watch<span>.</span>Next</span>
+      <h1 class="wordmark">Watch<span>.</span>Next</h1>
       <span class="iconbtn" aria-hidden="true"></span>
     </header>
     <div class="scroll">
@@ -203,7 +203,7 @@
 </div>
 
 <!-- ─────────────  DETAIL OVERLAY  ───────────── -->
-<div id="detail" class="detail" role="dialog" aria-modal="true" aria-label="Title details" aria-hidden="true"></div>
+<div id="detail" class="detail" role="dialog" aria-modal="true" aria-labelledby="detail-title" tabindex="-1" aria-hidden="true"></div>
 
 <script type="module" src="src/main.js"></script>
 <noscript>

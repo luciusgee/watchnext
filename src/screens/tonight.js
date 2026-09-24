@@ -10,7 +10,7 @@ import * as store from '../store.js';
 import * as actions from '../actions.js';
 import { el, clear, poster, posterBadge, button, iconButton, emptyState } from '../ui.js';
 import { icon } from '../icons.js';
-import { runtime, commitment, relativeTime, rating } from '../format.js';
+import { runtime, commitment, relativeTime, rating, plural } from '../format.js';
 import { tonightPick, alternates } from '../recommend.js';
 import { openDetail } from './detail.js';
 import { openPickSheet } from './pick.js';
@@ -44,6 +44,10 @@ export function showTonight() {
 
 export function render() {
   const body = root.querySelector('[data-region="body"]');
+  /* Every mutation on this screen rebuilds it, which used to rewind all three
+     rails to the left edge — including when the mutation came from behind the
+     detail overlay, so they had silently reset by the time it was closed. */
+  const railScroll = [...body.querySelectorAll('.rail')].map((r) => r.scrollLeft);
   clear(body);
 
   const items = store.items();
@@ -64,14 +68,17 @@ export function render() {
     body.appendChild(
       el(
         'div',
-        { style: 'display:flex;justify-content:center;margin-top:-8px' },
+        /* Matched to the primary above it — same height, same radius, same
+           type size — and spaced off the scale rather than with a negative
+           margin fighting emptyState's own. The `quiet` kind carries the
+           hierarchy on its own. */
+        { style: 'display:flex;justify-content:center;margin-top:var(--s3)' },
         button('Or try a sample library', {
           kind: 'quiet',
-          size: 'sm',
           onClick: () => {
             const n = store.loadSample(seedLibrary);
             toast(n ? `Added ${n} titles to try. Remove any you do not want.` : 'Nothing to add');
-            render();
+            /* loadSample emits 'item'; the subscriber above renders. */
           },
         })
       )
@@ -91,6 +98,10 @@ export function render() {
 
   if (pick) {
     body.appendChild(heroBlock(pick));
+    /* Only when there is a pick to be an alternative to. Offering "find
+       something else" directly under "nothing left to suggest" pointed at the
+       same exhausted set. */
+    body.appendChild(pickerCta());
   } else {
     body.appendChild(
       emptyState({
@@ -98,7 +109,7 @@ export function render() {
         title: 'Nothing left to suggest',
         message: ownedOnly
           ? 'Everything you own is watched. Turn off the collection filter to see the rest.'
-          : "You've watched everything. Genuinely impressive.",
+          : 'You’ve watched everything. Genuinely impressive.',
         action: ownedOnly
           ? {
               label: 'Include titles I don’t own',
@@ -111,8 +122,6 @@ export function render() {
       })
     );
   }
-
-  body.appendChild(pickerCta());
 
   /* rails */
   /* The pile. This rail used to be the watchlist, which was a list inside a
@@ -148,6 +157,10 @@ export function render() {
 
   body.appendChild(statLine());
   body.appendChild(el('div', { style: 'height:24px' }));
+
+  body.querySelectorAll('.rail').forEach((r, i) => {
+    if (railScroll[i]) r.scrollLeft = railScroll[i];
+  });
 }
 
 /**
@@ -165,10 +178,14 @@ function viewerSwitch() {
   if (list.length < 2) return null;
 
   const current = store.viewer();
-  const wrap = el('section', { class: 'section', style: 'padding:20px 16px 0' });
-  wrap.appendChild(el('h2', { class: 'eyebrow', style: 'margin-bottom:10px', text: 'Watching' }));
+  /* Same structure as rail(), so this section cannot drift off the 24/12
+     rhythm the three beside it keep. */
+  const wrap = el('section', { class: 'section' });
+  wrap.appendChild(
+    el('div', { class: 'section-head' }, el('h2', { class: 'eyebrow', text: 'Watching' }))
+  );
 
-  const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px' });
+  const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:var(--s2);padding:0 var(--s4)' });
   for (const p of list) {
     const active = p.id === current;
     row.appendChild(
@@ -206,7 +223,6 @@ function heroBlock(pick) {
   const posterBtn = el('button', {
     class: 'card',
     type: 'button',
-    style: 'width:104px',
     'aria-label': `Open ${item.title}`,
     onclick: () => openDetail(item.uid),
   });
@@ -251,8 +267,9 @@ function heroBlock(pick) {
       iconName: 'check',
       size: 'sm',
       onClick: () => {
+        /* setWatched emits 'item'; the subscriber renders. Calling render()
+           here as well rebuilt ~60 poster nodes and the blurred hero twice. */
         actions.setWatched(item.uid, true);
-        render();
       },
     })
   );
@@ -343,21 +360,22 @@ function backupNudge() {
   if (!shouldNudgeBackup(store.stats())) return null;
   if (Date.now() < snoozedUntil()) return null;
 
-  const box = el('section', {
-    class: 'section',
-    style:
-      'margin:0 16px 8px;padding:14px;border:1px solid var(--amber-line);' +
-      'background:var(--amber-dim);border-radius:var(--r-md)',
-  });
+  /* The app already has an amber warning notice — .banner / .banner-warn, used
+     by the detail screen. This used to rebuild the same thing inline with
+     different padding, a different background and no leading glyph, so the two
+     screens appeared to come from different apps. */
+  const box = el('div', { class: 'banner banner-warn' });
+  box.appendChild(el('span', { html: icon('warning', 18) }).firstChild);
+  const inner = el('div', { style: 'flex:1;min-width:0' });
   const n = store.stats().total;
-  box.appendChild(
+  inner.appendChild(
     el('div', {
-      style: 'font-size:13px;line-height:1.5;margin-bottom:10px',
+      style: 'font-size:var(--t-sub);line-height:1.5',
       text: `${n} titles live only on this phone. Browsers clear stored data after a long gap, and there is no copy anywhere else.`,
     })
   );
 
-  const row = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' });
+  const row = el('div', { style: 'display:flex;gap:var(--s2);flex-wrap:wrap;margin-top:10px' });
   row.appendChild(
     button('Export a copy', {
       kind: 'primary',
@@ -383,7 +401,8 @@ function backupNudge() {
       },
     })
   );
-  box.appendChild(row);
+  inner.appendChild(row);
+  box.appendChild(inner);
   return box;
 }
 
@@ -413,16 +432,23 @@ function rail(title, items, onSeeAll) {
   sec.appendChild(head);
 
   const list = el('div', { class: 'rail', role: 'list' });
-  for (const item of items) list.appendChild(cardFor(item));
+  /* display:contents keeps the flex and scroll-snap layout of .card exactly as
+     it was while giving the list its items. */
+  for (const item of items) {
+    list.appendChild(el('div', { role: 'listitem', style: 'display:contents' }, cardFor(item)));
+  }
   sec.appendChild(list);
   return sec;
 }
 
 export function cardFor(item) {
+  /* No role="listitem" here. An explicit role replaces the implicit one, so
+     VoiceOver announced the poster as a list item and never said "button" —
+     and the same card renders into the library grid, which has no list
+     ancestor at all, making those orphan listitems. rail() wraps instead. */
   const card = el('button', {
     class: 'card',
     type: 'button',
-    role: 'listitem',
     'aria-label': `${item.title}${item.year ? `, ${item.year}` : ''}`,
     onclick: () => openDetail(item.uid),
   });
@@ -439,20 +465,27 @@ export function cardFor(item) {
 
 function statLine() {
   const s = store.stats();
-  const bits = [`${s.total} titles`, `${s.watched} watched`, `${s.pctWatched}% through`];
-  if (s.hoursWatched) bits.push(`${s.hoursWatched} hours`);
+  const bits = [plural(s.total, 'title'), `${s.watched} watched`, `${s.pctWatched}% through`];
+  if (s.hoursWatched) bits.push(plural(s.hoursWatched, 'hour'));
   /* A button rather than a caption. These numbers were already the most-read
-     thing on the screen and led nowhere. */
-  return el('div', {
-    class: 'section',
-    style: 'padding:28px 16px 0;text-align:center',
-  }, el('button', {
+     thing on the screen and led nowhere — but nothing about them said so, so
+     .statline gives it a real target, a press state and a chevron. The
+     separator uses en-spaces: the doubled ASCII spaces that were here collapse
+     to one the moment they reach textContent. */
+  const btn = el('button', {
+    class: 'statline',
     type: 'button',
-    style: 'font-size:13px;color:var(--ash);padding:6px 10px;border-radius:8px',
-    text: bits.join('  ·  '),
     'aria-label': 'See your shelf in full',
     onclick: () => navigate('stats'),
-  }));
+  });
+  /* The last figure and the chevron are welded together, so a wrap can never
+     leave the chevron on a line of its own. */
+  const label = el('span', { text: bits.slice(0, -1).join(' · ') + ' · ' });
+  const tail = el('span', { style: 'white-space:nowrap', text: bits[bits.length - 1] });
+  tail.appendChild(el('span', { html: icon('chevronRight', 13) }).firstChild);
+  label.appendChild(tail);
+  btn.appendChild(label);
+  return el('div', { class: 'section', style: 'padding:28px 16px 0;text-align:center' }, btn);
 }
 
 function cssUrl(u) {

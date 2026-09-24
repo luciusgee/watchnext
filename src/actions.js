@@ -5,6 +5,7 @@
 
 import * as store from './store.js';
 import { toast } from './ui.js';
+import { cleanTitleLine, stripListMarkers } from './format.js';
 
 /** Snapshot only the fields an action touches, so undo is precise. */
 function snapshot(item, fields) {
@@ -101,6 +102,9 @@ export function removeItem(uid) {
 }
 
 export function addItem(fields) {
+  /* Same hygiene as a pasted block: one title copied out of a list carries its
+     bullet too, and a title is not the place to keep a stray tab. */
+  fields = { ...fields, title: cleanTitleLine(fields.title) };
   const dupe = store.findDuplicate(fields.title, fields.year, fields.type);
   if (dupe) return { item: dupe, duplicate: true };
   const item = store.add({
@@ -122,8 +126,9 @@ export function addItem(fields) {
 /** Bulk add from pasted lines. Returns a report. */
 export function addMany(lines, type) {
   const report = { added: [], duplicates: [], invalid: [] };
-  for (const raw of lines) {
-    const line = raw.trim();
+  /* Lists get pasted with their bullets attached. Strip them once, for the
+     whole block, so "1." markers are judged against their neighbours. */
+  for (const line of stripListMarkers(lines)) {
     if (!line) continue;
     /* Accept "Title (2016)" and "Title, 2016" as well as a bare title. */
     const m = line.match(/^(.*?)[\s,]*\((\d{4})\)\s*$/) || line.match(/^(.*?),\s*(\d{4})\s*$/);

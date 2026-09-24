@@ -12,7 +12,7 @@
  */
 
 import * as store from '../store.js';
-import { attachSwipe, flingOut } from '../deck.js';
+import { attachSwipe, playDecision, FLING_MS } from '../deck.js';
 import * as actions from '../actions.js';
 import { el, clear, poster, emptyState, button, toast } from '../ui.js';
 import { icon } from '../icons.js';
@@ -131,8 +131,8 @@ function render() {
   deckEl.appendChild(card);
   teardown = attachSwipe(card, {
     blocked: () => busy,
-    onRight: () => commit('watched', card),
-    onLeft: () => commit('skip', card),
+    onRight: () => commit('watched'),
+    onLeft: () => commit('skip'),
   });
 }
 
@@ -191,15 +191,16 @@ function cardFor(item, interactive) {
 /* Gesture lives in ../deck.js so the two decks in this app cannot drift apart.
    See the note there. */
 
-function commit(action, cardEl) {
+function commit(action) {
   if (busy) return;
   const uid = queue[0];
   const item = uid && store.byUid(uid);
   if (!item) return;
   busy = true;
 
-  const card = cardEl || deckEl.querySelector('.deck-card:last-child');
-  if (card) flingOut(card, action === 'watched' ? 'right' : 'left');
+  /* Stamps the card and promotes the one behind it, so tapping the button
+     looks like the swipe it stands in for. */
+  playDecision(deckEl, action === 'watched' ? 'right' : 'left');
 
   const prev = { seen: item.seen, seenAt: item.seenAt, watched: item.watched };
 
@@ -221,5 +222,5 @@ function commit(action, cardEl) {
         store.emit('item');
       },
     });
-  }, 220);
+  }, FLING_MS);
 }

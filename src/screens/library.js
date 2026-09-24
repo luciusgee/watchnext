@@ -8,7 +8,18 @@
  */
 
 import * as store from '../store.js';
-import { el, clear, poster, posterBadge, emptyState, openSheet, button, toast, confirmDestructive } from '../ui.js';
+import {
+  el,
+  clear,
+  poster,
+  posterBadge,
+  emptyState,
+  openSheet,
+  button,
+  toast,
+  confirmDestructive,
+  reveal,
+} from '../ui.js';
 import { icon } from '../icons.js';
 import { runtime, rating, metaLine } from '../format.js';
 import { openDetail } from './detail.js';
@@ -24,6 +35,10 @@ let observer = null;
 
 const state = {
   query: '',
+  /* What was typed, for quoting back. `query` is folded for matching, and
+     echoing that meant "Blade Runner" came back as "blade runner" directly
+     under the field that still said "Blade Runner". */
+  queryRaw: '',
   type: 'all', // all | movie | tv
   genre: null,
   quality: null, // 4K | 1080p | owned
@@ -35,6 +50,11 @@ const state = {
   view: 'list', // list | grid
   rendered: 0,
   results: [],
+  /* Whether the list is currently laid out as a grid. Derived in render() and
+     read by appendChunk(), so the container and its children can never
+     disagree — they used to, and selecting then switching view packed
+     full-width rows into 111px grid cells. */
+  asGrid: false,
 };
 
 export function initLibrary({ navigate: nav }) {
@@ -48,7 +68,8 @@ export function initLibrary({ navigate: nav }) {
   search.addEventListener('input', () => {
     clearTimeout(debounce);
     debounce = setTimeout(() => {
-      state.query = search.value.trim().toLowerCase();
+      state.queryRaw = search.value.trim();
+      state.query = state.queryRaw.toLowerCase();
       render();
     }, 140);
   });
@@ -69,8 +90,10 @@ export function initLibrary({ navigate: nav }) {
   );
   observer.observe(sentinel);
 
+  /* keep: a change to one title — watched from the detail overlay, a bulk
+     action — should not throw the list back to the top. */
   store.subscribe((r) => {
-    if (r === 'item' && root.classList.contains('is-active')) render();
+    if (r === 'item' && root.classList.contains('is-active')) render({ keep: true });
   });
 }
 
@@ -78,6 +101,7 @@ export function showLibrary(params = {}) {
   if (params.filter === 'pile') {
     state.status = 'pile';
     state.query = '';
+    state.queryRaw = '';
     root.querySelector('#library-search').value = '';
   }
   if (params.filter === 'owned') state.quality = 'owned';
@@ -128,42 +152,73 @@ export function activeFilterCount() {
 
 /* ── render ── */
 
-function render() {
+/**
+ * Rebuild the list.
+ *
+ * `keep` holds the rendered depth and the scroll offset across the rebuild.
+ * Without it a change deep in the list — a long press at row 280, a title
+ * marked watched from the overlay — dropped everything past the first chunk
+ * and the browser clamped the scroll by thousands of pixels.
+ */
+function render({ keep = false } = {}) {
+  const scroller = root.querySelector('.scroll');
+  const top = keep && scroller ? scroller.scrollTop : 0;
+  const depth = keep ? state.rendered : 0;
+
   state.results = compute();
   state.rendered = 0;
   clear(listEl);
-  listEl.className = state.view === 'grid' ? 'lib-grid' : 'lib-list';
+  /* Grid cards come from Tonight and know nothing about selection, so the
+     mode is list-only rather than half-working in both. */
+  state.asGrid = state.view === 'grid' && !state.picked.size;
+  listEl.className = state.asGrid ? 'lib-grid' : 'lib-list';
 
   updateChrome();
-
-  const existingBar = root.querySelector('[data-region="select-bar"]');
-  existingBar?.remove();
-  if (state.picked.size) root.appendChild(selectionBar());
+  syncSelectionBar();
 
   if (!state.results.length) {
-    listEl.appendChild(
-      emptyState({
-        iconName: 'search',
-        title: state.query ? 'No matches' : 'Nothing here',
-        message: state.query
-          ? `Nothing in your library matches “${state.query}”.`
-          : 'Try clearing the filters.',
-        action: activeFilterCount() || state.query ? { label: 'Clear filters', onClick: clearFilters } : null,
-      })
-    );
+    listEl.className = 'lib-list';
+    listEl.appendChild(emptyFor());
     return;
   }
   appendChunk();
+  while (state.rendered < depth && state.rendered < state.results.length) appendChunk();
+  if (keep && scroller) scroller.scrollTop = top;
+}
+
+/* Three different situations, which used to share one message: a fresh
+   install's library said "Try clearing the filters" with no filters set and no
+   button to press. */
+function emptyFor() {
+  const filters = activeFilterCount();
+  if (!store.items().length) {
+    return emptyState({
+      iconName: 'library',
+      title: 'Your library is empty',
+      message: 'Add a few films and they will turn up here.',
+      action: { label: 'Add titles', onClick: () => navigate('add') },
+    });
+  }
+  if (state.query) {
+    return emptyState({
+      iconName: 'search',
+      title: 'No matches',
+      message: `Nothing in your library matches “${state.queryRaw}”${filters ? ' with those filters on' : ''}.`,
+      action: { label: filters ? 'Clear search and filters' : 'Clear search', onClick: clearFilters },
+    });
+  }
+  return emptyState({
+    iconName: 'search',
+    title: 'Nothing matches those filters',
+    message: 'Try loosening them a little.',
+    action: { label: 'Clear filters', onClick: clearFilters },
+  });
 }
 
 function appendChunk() {
   const slice = state.results.slice(state.rendered, state.rendered + CHUNK);
   const f = document.createDocumentFragment();
-  for (const item of slice) {
-    /* Grid cards come from Tonight and know nothing about selection, so the
-       mode is list-only rather than half-working in both. */
-    f.appendChild(state.view === 'grid' && !state.picked.size ? cardFor(item) : rowFor(item));
-  }
+  for (const item of slice) f.appendChild(state.asGrid ? cardFor(item) : rowFor(item));
   listEl.appendChild(f);
   state.rendered += slice.length;
 }
@@ -173,7 +228,7 @@ function updateChrome() {
   const total = store.items().length;
   count.textContent =
     state.results.length === total
-      ? `${total} titles`
+      ? `${total} title${total === 1 ? '' : 's'}`
       : `${state.results.length} of ${total}`;
 
   const badge = root.querySelector('[data-region="filter-count"]');
@@ -192,24 +247,27 @@ function rowFor(item) {
   const row = el('button', {
     class: 'row' + (chosen ? ' is-picked' : ''),
     type: 'button',
+    'data-uid': item.uid,
     'aria-label': `${item.title}${item.year ? `, ${item.year}` : ''}`,
     'aria-pressed': selecting ? String(chosen) : null,
-    onclick: () => (selecting ? toggle(item.uid) : openDetail(item.uid)),
+    /* Read live, not captured: selection now updates rows in place rather than
+       rebuilding them, so a row built before selection started has to know. */
+    onclick: () => (state.picked.size ? toggle(item.uid) : openDetail(item.uid)),
   });
   /* Long-press to start selecting. A checkbox on every row would be clutter for
      the 99% of visits that are "find one film"; a press-and-hold costs nothing
      until you want it, and is what the platform already teaches. */
   attachLongPress(row, () => toggle(item.uid));
 
-  if (selecting) {
-    row.appendChild(
-      el('span', {
-        class: 'row-pick',
-        html: chosen ? icon('check', 14) : '',
-        'aria-hidden': 'true',
-      })
-    );
-  }
+  /* Always present, collapsed until selection starts, so the list eases across
+     rather than jumping 32px in a frame. */
+  row.appendChild(
+    el('span', {
+      class: 'row-pick' + (selecting ? ' is-on' : ''),
+      html: chosen ? icon('check', 14) : '',
+      'aria-hidden': 'true',
+    })
+  );
   row.appendChild(poster(item, { width: 44 }));
 
   const body = el('div', { class: 'row-body' });
@@ -250,6 +308,7 @@ function clearFilters() {
   state.quality = null;
   state.status = null;
   state.query = '';
+  state.queryRaw = '';
   root.querySelector('#library-search').value = '';
   render();
 }
@@ -264,8 +323,11 @@ function openSort() {
       ['runtime', 'Runtime, shortest first'],
       ['added', 'Recently added'],
     ].map(([key, label]) => ({
-      label: state.sort === key ? `${label}  ✓` : label,
-      kind: state.sort === key ? 'primary' : 'secondary',
+      /* The app's "this one is on" treatment, as the filter pills use. A
+         glued-on "  ✓" and a solid amber fill made the current sort read as
+         the button to press. */
+      label,
+      kind: state.sort === key ? 'on-amber' : 'secondary',
       onClick: () => {
         state.sort = key;
         render();
@@ -277,23 +339,47 @@ function openSort() {
 /* A single filter surface with four independent facets — the old version put
    type, genre, quality and status into one pill row that claimed to be genre. */
 function openFilters() {
-  const scrim = el('div', { class: 'scrim is-open' });
+  const lastFocus = document.activeElement;
+  const scrim = el('div', { class: 'scrim' });
   const panel = el('div', {
-    class: 'sheet is-open',
+    class: 'sheet has-pinned',
     role: 'dialog',
     'aria-modal': 'true',
     'aria-label': 'Filter library',
+    tabindex: '-1',
     style: 'max-height:82vh;overflow-y:auto',
   });
 
+  let closing = false;
   const close = () => {
-    scrim.remove();
-    panel.remove();
+    if (closing) return;
+    closing = true;
+    scrim.classList.remove('is-open');
+    panel.classList.remove('is-open');
     document.removeEventListener('keydown', onKey);
-    render();
+    if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
+    setTimeout(() => {
+      scrim.remove();
+      panel.remove();
+    }, 240);
   };
   const onKey = (e) => {
-    if (e.key === 'Escape') close();
+    if (e.key === 'Escape') {
+      close();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const f = panel.querySelectorAll('button:not([disabled]):not([hidden])');
+    if (!f.length) return;
+    const first = f[0];
+    const last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
   };
   document.addEventListener('keydown', onKey);
   scrim.addEventListener('click', close);
@@ -301,24 +387,32 @@ function openFilters() {
   panel.appendChild(el('div', { class: 'sheet-grip' }));
   panel.appendChild(el('div', { class: 'sheet-title', text: 'Filter' }));
 
-  const facet = (label, options, current, onPick) => {
-    const box = el('div', { style: 'margin-bottom:20px' });
-    box.appendChild(el('div', { class: 'eyebrow', style: 'margin-bottom:10px', text: label }));
-    const wrap = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px' });
+  /* Pills update in place and the list behind the scrim updates live. Every
+     tap used to close the sheet and build a new one, which reset its scroll to
+     the top and moved focus to "Everything" — after every single choice. */
+  let refresh = () => {};
+  const facet = (label, options, read, write) => {
+    const box = el('div', { style: 'margin-bottom:var(--s5)' });
+    box.appendChild(el('div', { class: 'eyebrow', style: 'margin-bottom:var(--s3)', text: label }));
+    const wrap = el('div', { style: 'display:flex;flex-wrap:wrap;gap:var(--s2)' });
     for (const [value, text] of options) {
-      const active = current === value;
-      const b = el('button', {
-        class: 'pill',
-        type: 'button',
-        'aria-pressed': String(active),
-        text,
-        onclick: () => {
-          onPick(active && value !== 'all' ? null : value);
-          close();
-          openFilters();
-        },
-      });
-      wrap.appendChild(b);
+      wrap.appendChild(
+        el('button', {
+          class: 'pill',
+          type: 'button',
+          'data-value': value,
+          'aria-pressed': String(read() === value),
+          text,
+          onclick: () => {
+            write(read() === value && value !== 'all' ? null : value);
+            for (const p of wrap.children) {
+              p.setAttribute('aria-pressed', String(read() === p.dataset.value));
+            }
+            render();
+            refresh();
+          },
+        })
+      );
     }
     box.appendChild(wrap);
     return box;
@@ -332,7 +426,7 @@ function openFilters() {
         ['movie', 'Films'],
         ['tv', 'Series'],
       ],
-      state.type,
+      () => state.type,
       (v) => (state.type = v || 'all')
     )
   );
@@ -340,7 +434,12 @@ function openFilters() {
   const genres = store.genresInUse();
   if (genres.length) {
     panel.appendChild(
-      facet('Genre', genres.map((g) => [g, g]), state.genre, (v) => (state.genre = v))
+      facet(
+        'Genre',
+        genres.map((g) => [g, g]),
+        () => state.genre,
+        (v) => (state.genre = v)
+      )
     );
   }
 
@@ -352,7 +451,7 @@ function openFilters() {
         ['4K', '4K'],
         ['1080p', '1080p'],
       ],
-      state.quality,
+      () => state.quality,
       (v) => (state.quality = v)
     )
   );
@@ -365,32 +464,39 @@ function openFilters() {
         ['watched', 'Watched'],
         ['pile', 'Own it, never watched'],
       ],
-      state.status,
+      () => state.status,
       (v) => (state.status = v)
     )
   );
 
-  const acts = el('div', { class: 'sheet-actions' });
-  acts.appendChild(
-    button('Show results', { kind: 'primary', block: true, onClick: close })
-  );
-  if (activeFilterCount()) {
-    acts.appendChild(
-      button('Clear all', {
-        kind: 'quiet',
-        block: true,
-        onClick: () => {
-          clearFilters();
-          close();
-        },
-      })
-    );
-  }
+  const acts = el('div', { class: 'sheet-actions is-pinned' });
+  const show = button('Show results', { kind: 'primary', onClick: close });
+  const clearAll = button('Clear all', {
+    kind: 'quiet',
+    onClick: () => {
+      clearFilters();
+      close();
+    },
+  });
+  acts.appendChild(el('div', { class: 'btn-pair' }, [clearAll, show]));
   panel.appendChild(acts);
+
+  refresh = () => {
+    const n = state.results.length;
+    /* The count on the button is the answer to "what will I get". */
+    show.lastElementChild.textContent = n
+      ? `Show ${n} title${n === 1 ? '' : 's'}`
+      : 'Nothing matches that';
+    clearAll.hidden = !activeFilterCount();
+  };
+  refresh();
 
   document.body.appendChild(scrim);
   document.body.appendChild(panel);
-  requestAnimationFrame(() => panel.querySelector('button')?.focus());
+  reveal(scrim, panel);
+  /* The panel, not the first pill: landing focus on a filter value made
+     "Everything" look chosen. */
+  requestAnimationFrame(() => panel.focus({ preventScroll: true }));
 }
 
 /* ── multi-select ──────────────────────────────────────────────────────────
@@ -402,31 +508,104 @@ function openFilters() {
 function toggle(uid) {
   if (state.picked.has(uid)) state.picked.delete(uid);
   else state.picked.add(uid);
-  render();
+  syncSelection();
 }
 
 function clearPicked() {
   state.picked.clear();
-  render();
+  syncSelection();
+}
+
+/**
+ * Reflect the selection in the rows already on screen.
+ *
+ * Selection used to rebuild the list, which threw away every row past the
+ * first chunk and made the row picking-mode eases in impossible to animate.
+ * Only a change of layout — leaving selection while the view is set to grid —
+ * still needs a rebuild.
+ */
+function syncSelection() {
+  const asGrid = state.view === 'grid' && !state.picked.size;
+  if (asGrid !== state.asGrid) {
+    render({ keep: true });
+    return;
+  }
+  const selecting = state.picked.size > 0;
+  for (const row of listEl.querySelectorAll('.row[data-uid]')) {
+    const chosen = state.picked.has(row.dataset.uid);
+    row.classList.toggle('is-picked', chosen);
+    if (selecting) row.setAttribute('aria-pressed', String(chosen));
+    else row.removeAttribute('aria-pressed');
+    const mark = row.querySelector('.row-pick');
+    if (mark) {
+      mark.classList.toggle('is-on', selecting);
+      mark.innerHTML = chosen ? icon('check', 14) : '';
+    }
+  }
+  syncSelectionBar();
+}
+
+/* Built once per selection and updated in place, so it can slide in and out
+   rather than blinking into existence on every toggle. */
+function syncSelectionBar() {
+  const n = state.picked.size;
+  listEl.classList.toggle('has-select-bar', n > 0);
+  let bar = root.querySelector('[data-region="select-bar"]:not(.is-leaving)');
+  if (n) {
+    if (!bar) {
+      bar = selectionBar();
+      root.appendChild(bar);
+      reveal(bar);
+    }
+    bar.querySelector('.select-count').textContent = `${n} selected`;
+  } else if (bar) {
+    bar.classList.add('is-leaving');
+    bar.classList.remove('is-open');
+    setTimeout(() => bar.remove(), 240);
+  }
 }
 
 /** Press and hold, without swallowing a scroll or a tap. */
 function attachLongPress(node, fn) {
   let timer = null;
+  let sink = null;
+  let held = false;
   let startY = 0;
   const cancel = () => {
     clearTimeout(timer);
+    clearTimeout(sink);
     timer = null;
+    node.classList.remove('is-holding');
   };
   node.addEventListener('pointerdown', (e) => {
     startY = e.clientY;
+    held = false;
+    /* Start sinking only once this is clearly not a tap or the start of a
+       scroll, so ordinary scrolling does not make every row twitch. */
+    sink = setTimeout(() => node.classList.add('is-holding'), 120);
     timer = setTimeout(() => {
       timer = null;
+      node.classList.remove('is-holding');
+      held = true;
       /* Haptic where the platform offers one; silent where it does not. */
       navigator.vibrate?.(12);
       fn();
     }, 450);
   });
+  /* The hold is the whole gesture. Its pointerup still produces a click, and
+     now that the row survives selecting, that click would immediately undo
+     the selection it just made. Capture phase runs before the row's own
+     handler. */
+  node.addEventListener(
+    'click',
+    (e) => {
+      if (!held) return;
+      held = false;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    },
+    true
+  );
   /* A drag is a scroll, not a hold. */
   node.addEventListener('pointermove', (e) => {
     if (timer && Math.abs(e.clientY - startY) > 8) cancel();
@@ -442,7 +621,7 @@ function selectionBar() {
   const bar = el('div', { class: 'select-bar', 'data-region': 'select-bar' });
 
   bar.appendChild(
-    el('div', { class: 'select-count', text: `${n} selected` })
+    el('div', { class: 'select-count', 'aria-live': 'polite', text: `${n} selected` })
   );
 
   const act = (label, iconName, onClick) => {
@@ -462,19 +641,25 @@ function selectionBar() {
 
 /** Every bulk action is one undo, not one per title. */
 function applyBulk(patchFor, describe) {
-  const uids = [...state.picked];
-  const before = uids.map((uid) => {
+  /* Only titles that actually change are counted and restored. Selecting ten
+     with seven already watched used to report "10 marked as watched", and Undo
+     rewrote seven records that had never been touched. */
+  const before = [];
+  for (const uid of state.picked) {
     const i = store.byUid(uid);
-    return i ? { uid, prev: { ...i } } : null;
-  }).filter(Boolean);
-
-  for (const { uid } of before) {
-    const patch = patchFor(store.byUid(uid));
-    if (patch) store.update(uid, patch);
+    if (!i) continue;
+    const patch = patchFor(i);
+    if (!patch) continue;
+    before.push({ uid, prev: { ...i } });
+    store.update(uid, patch);
+  }
+  clearPicked();
+  if (!before.length) {
+    toast('Nothing to change — they were all like that already');
+    return;
   }
   store.saveNow();
   store.emit('item');
-  clearPicked();
 
   toast(describe(before.length), {
     action: 'Undo',

@@ -65,6 +65,11 @@ export function poster(item, { width = null, badge = null, lazy = true } = {}) {
       img.remove();
       wrap.appendChild(fallbackTile(item));
     });
+    /* Fade in rather than replacing the grey box in a single frame. `complete`
+       covers an image already in cache, which fires load before a listener
+       attached on the next line could hear it. */
+    if (img.complete) img.classList.add('is-in');
+    else img.addEventListener('load', () => img.classList.add('is-in'), { once: true });
     wrap.appendChild(img);
   } else {
     wrap.appendChild(fallbackTile(item));
@@ -136,6 +141,20 @@ export function hideToast() {
 let sheetEls = null;
 let lastFocus = null;
 
+/**
+ * Give freshly inserted layers their `is-open` class so that they transition.
+ *
+ * A node inserted and given its open class in the same task has no earlier
+ * computed style to animate from, so it appears at its final state — which is
+ * how two of the three sheets in the app came to pop rather than slide, and
+ * why the shared one popped on its very first use. Reading offsetWidth forces
+ * the closed style to be computed first. One flush covers every node passed.
+ */
+export function reveal(...nodes) {
+  if (nodes[0]) void nodes[0].offsetWidth;
+  for (const n of nodes) n?.classList.add('is-open');
+}
+
 function ensureSheet() {
   if (sheetEls) return sheetEls;
   const scrim = el('div', { class: 'scrim' });
@@ -198,6 +217,8 @@ export function openSheet({ title, message, actions = [], dismissLabel = 'Cancel
         class: `btn btn-block btn-${a.kind || 'secondary'}`,
         type: 'button',
         text: a.label,
+        /* The "this one is on" treatment says so to VoiceOver as well. */
+        'aria-pressed': a.kind === 'on-amber' ? 'true' : null,
         onclick: () => {
           closeSheet();
           a.onClick?.();
@@ -215,13 +236,12 @@ export function openSheet({ title, message, actions = [], dismissLabel = 'Cancel
   );
   sheet.appendChild(box);
 
-  scrim.classList.add('is-open');
-  sheet.classList.add('is-open');
+  reveal(scrim, sheet);
   document.addEventListener('keydown', onSheetKey);
-  requestAnimationFrame(() => {
-    const first = sheet.querySelector('button');
-    (first || sheet).focus();
-  });
+  /* The sheet, not its first button. Focusing the button painted a focus ring
+     on the current sort for someone who had only tapped, and made the first
+     option look pre-chosen; Tab still lands on it straight away. */
+  requestAnimationFrame(() => sheet.focus({ preventScroll: true }));
 }
 
 export function closeSheet() {
@@ -293,14 +313,50 @@ export function iconButton(name, label, onClick, { size = 21, cls = '' } = {}) {
 }
 
 /** Button with a leading icon. */
-export function button(label, { kind = 'secondary', iconName = null, onClick, block = false, size = null } = {}) {
+export function button(
+  label,
+  { kind = 'secondary', iconName = null, onClick, block = false, size = null, type = 'button' } = {}
+) {
+  /* `type` is opt-in because a button built by this helper and dropped into a
+     <form> defaults to type=button and does nothing — which is exactly how the
+     "By hand" form's only control came to be inert. */
   const b = el('button', {
     class: `btn btn-${kind}${block ? ' btn-block' : ''}${size === 'sm' ? ' btn-sm' : ''}`,
-    type: 'button',
+    type,
     onclick: onClick,
   });
   if (iconName) b.appendChild(el('span', { html: icon(iconName, size === 'sm' ? 15 : 17) }).firstChild);
   b.appendChild(el('span', { text: label }));
+  return b;
+}
+
+/**
+ * A designed checkbox row.
+ *
+ * The Add screen used to draw two native `<input type=checkbox>` with an
+ * accent-colour — the only ones anywhere in the app — beside Tonight's
+ * hand-drawn amber box. Same idea, visibly different control, 20px of hit
+ * strip. This is Tonight's version, made shareable.
+ *
+ * @param {string}   label
+ * @param {boolean}  checked  initial state
+ * @param {(on:boolean)=>void} onChange
+ */
+export function checkRow(label, checked, onChange) {
+  const b = el('button', {
+    class: 'checkrow',
+    type: 'button',
+    'aria-pressed': String(!!checked),
+  });
+  const box = el('span', { class: 'checkbox' });
+  box.appendChild(el('span', { html: icon('check', 12) }).firstChild);
+  b.appendChild(box);
+  b.appendChild(el('span', { text: label }));
+  b.addEventListener('click', () => {
+    const next = b.getAttribute('aria-pressed') !== 'true';
+    b.setAttribute('aria-pressed', String(next));
+    onChange?.(next);
+  });
   return b;
 }
 

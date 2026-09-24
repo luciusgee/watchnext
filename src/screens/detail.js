@@ -11,7 +11,16 @@ import * as store from '../store.js';
 import * as actions from '../actions.js';
 import { el, clear, poster, button, iconButton, confirmDestructive, openSheet, toast } from '../ui.js';
 import { icon } from '../icons.js';
-import { runtime, metaLine, imdbUrl, trailerUrl, justWatchUrl, relativeTime, rating } from '../format.js';
+import {
+  runtime,
+  metaLine,
+  imdbUrl,
+  trailerUrl,
+  justWatchUrl,
+  relativeTime,
+  rating,
+  fallbackColors,
+} from '../format.js';
 import { similarTo } from '../recommend.js';
 import { openMatchPicker } from './match.js';
 
@@ -25,9 +34,26 @@ export function initDetail({ navigate }) {
   onNavigate = navigate;
   root = document.getElementById('detail');
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && root.classList.contains('is-open')) {
+    if (!root.classList.contains('is-open')) return;
+    if (e.key === 'Escape') {
       e.preventDefault();
       closeDetail();
+      return;
+    }
+    /* aria-hidden on #app tells a screen reader the app is not there; it does
+       not stop Tab walking into it. Without this, tabbing off "Remove from
+       library" landed on the tab bar behind an opaque modal. */
+    if (e.key !== 'Tab') return;
+    const f = [...root.querySelectorAll('a[href], button:not([disabled])')];
+    if (!f.length) return;
+    const first = f[0];
+    const last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
     }
   });
   store.subscribe((reason) => {
@@ -45,13 +71,25 @@ export function openDetail(uid, { push = true } = {}) {
   if (push && currentUid && currentUid !== uid) historyStack.push(currentUid);
   if (!root.classList.contains('is-open')) lastFocus = document.activeElement;
 
+  /* Drilling into a related film keeps the overlay open, so detailIn cannot
+     replay — classList.add is a no-op and the whole screen swapped in a single
+     frame. Animate the rebuilt subtree instead. */
+  const wasOpen = root.classList.contains('is-open');
+
   currentUid = uid;
   render(item);
+  root.classList.remove('is-closing');
   root.classList.add('is-open');
   root.setAttribute('aria-hidden', 'false');
   document.getElementById('app').setAttribute('aria-hidden', 'true');
   root.querySelector('.detail-body').scrollTop = 0;
-  requestAnimationFrame(() => root.querySelector('.detail-back')?.focus());
+  if (wasOpen) {
+    root.querySelector('.detail-hero')?.classList.add('detail-swap');
+    root.querySelector('.detail-body')?.classList.add('detail-swap');
+  }
+  /* Focus the dialog, not the back button: the dialog is labelled by the film's
+     own <h1>, so the first thing announced is the title rather than "Back". */
+  requestAnimationFrame(() => root.focus());
 }
 
 export function closeDetail() {
@@ -62,6 +100,11 @@ export function closeDetail() {
       return;
     }
   }
+  /* The open was animated and the close was not, so the film vanished on the
+     frame you tapped. The reduced-motion block clamps the duration to 0.001ms,
+     so animationend still fires straight away for anyone who has it on. */
+  root.classList.add('is-closing');
+  root.addEventListener('animationend', () => root.classList.remove('is-closing'), { once: true });
   root.classList.remove('is-open');
   root.setAttribute('aria-hidden', 'true');
   document.getElementById('app').setAttribute('aria-hidden', 'false');
@@ -90,6 +133,10 @@ export function isDetailOpen() {
 /* ── render ── */
 
 function render(item) {
+  /* Every mutation emits 'item' and re-renders this overlay from scratch, so
+     scrolling down to "More like this" and tapping anything threw you back to
+     the hero. openDetail resets this to 0 afterwards for a genuine open. */
+  const keepY = root.querySelector('.detail-body')?.scrollTop || 0;
   clear(root);
 
   root.appendChild(hero(item));
@@ -102,7 +149,7 @@ function render(item) {
   if (item.watched && item.watchedAt) {
     body.appendChild(
       el('p', {
-        style: 'font-size:13px;color:var(--sage);margin-bottom:16px',
+        style: 'font-size:var(--t-sub);color:var(--sage);margin-bottom:var(--s4)',
         text: `Watched ${relativeTime(item.watchedAt)}`,
       })
     );
@@ -133,8 +180,12 @@ function render(item) {
   acts.appendChild(
     button(item.owned ? 'I own this' : 'Mark as owned', {
       kind: item.owned ? 'on-amber' : 'secondary',
-      iconName: 'drive',
-      onClick: () => actions.setOwned(item.uid, !item.owned),
+      /* Swaps like its neighbour does. A tick beside "Watched" and a hard
+         drive beside "I own this" stopped reading as a matched pair. */
+      iconName: item.owned ? 'check' : 'drive',
+      /* Same handler as the collection row 60px below it, which used to ask
+         for the quality where this one silently did not. */
+      onClick: () => toggleOwned(item),
     })
   );
   body.appendChild(acts);
@@ -160,22 +211,22 @@ function render(item) {
     body.appendChild(
       el(
         'div',
-        { style: 'margin-top:10px' },
-        el('button', {
-          class: 'btn btn-quiet btn-sm',
-          type: 'button',
-          style: 'width:100%',
-          text: muted ? 'Suggest this again' : 'Stop suggesting this',
-          onclick: () => {
+        { style: 'margin-top:var(--s3)' },
+        /* Through the helper, so all three full-width controls in this column
+           land on the same height and the same corner radius. */
+        button(muted ? 'Suggest this again' : 'Stop suggesting this', {
+          kind: 'quiet',
+          block: true,
+          onClick: () => {
             store.setTaste('never', item.uid, !muted);
             store.saveNow();
+            /* emit('item') re-renders this overlay through the subscriber. */
             store.emit('item');
             toast(
               muted
                 ? `${item.title} can be suggested again`
                 : `${item.title} will not be suggested. It stays in your library.`
             );
-            render(store.byUid(item.uid) || item);
           },
         })
       )
@@ -193,13 +244,11 @@ function render(item) {
   body.appendChild(
     el(
       'div',
-      { style: 'margin-top:14px' },
-      el('button', {
-        class: 'btn btn-quiet btn-sm',
-        type: 'button',
-        style: 'width:100%',
-        text: 'Wrong film? Pick another',
-        onclick: () =>
+      { style: 'margin-top:var(--s3)' },
+      button('Wrong film? Pick another', {
+        kind: 'quiet',
+        block: true,
+        onClick: () =>
           openMatchPicker(item, {
             /* Re-read from the store rather than re-using the captured item —
                the picker has just replaced most of its fields. */
@@ -215,7 +264,7 @@ function render(item) {
   /* similar */
   const similar = similarTo(item, store.items());
   if (similar.length) {
-    const sec = el('div', { class: 'section', style: 'margin:0 -16px' });
+    const sec = el('div', { class: 'section', style: 'margin:0 calc(var(--s4) * -1)' });
     sec.appendChild(
       el('div', { class: 'section-head' }, el('div', { class: 'eyebrow', text: 'More like this' }))
     );
@@ -247,26 +296,40 @@ function render(item) {
       })
     )
   );
+
+  if (keepY) body.scrollTop = keepY;
 }
 
 function hero(item) {
   const wrap = el('div', { class: 'detail-hero' });
 
-  if (item.poster) {
-    wrap.appendChild(
-      el('div', { class: 'detail-hero-bg', style: `background-image:url("${cssUrl(item.poster)}")` })
-    );
-  }
+  /* Always a wash, even with no art: the generated hue that makes the fallback
+     tile look designed is right there, and without it a title with no poster
+     sat in a black void while every other film got colour. */
+  const fb = fallbackColors(item.title);
+  wrap.appendChild(
+    el('div', {
+      class: 'detail-hero-bg',
+      style: item.poster
+        ? `background-image:url("${cssUrl(item.poster)}")`
+        : `background-image:linear-gradient(160deg, ${fb.a}, ${fb.b});filter:none;opacity:1`,
+    })
+  );
   wrap.appendChild(el('div', { class: 'detail-hero-veil' }));
 
-  const back = iconButton('back', 'Back', closeDetail, { cls: 'detail-back' });
+  /* On first open there is nothing behind this — it dismisses the overlay. It
+     only becomes Back once "More like this" has been followed. */
+  const deep = historyStack.length > 0;
+  const back = iconButton(deep ? 'back' : 'close', deep ? 'Back' : 'Close', closeDetail, {
+    cls: 'detail-back',
+  });
   wrap.appendChild(back);
 
   const inner = el('div', { class: 'detail-hero-in' });
   inner.appendChild(poster(item, { width: 116, lazy: false }));
 
   const heading = el('div', { class: 'detail-heading' });
-  heading.appendChild(el('h1', { class: 'detail-title', text: item.title }));
+  heading.appendChild(el('h1', { class: 'detail-title', id: 'detail-title', text: item.title }));
 
   const chips = el('div', { class: 'chips' });
   if (item.year) chips.appendChild(el('span', { class: 'chip', text: String(item.year) }));
@@ -284,7 +347,7 @@ function hero(item) {
   }
   heading.appendChild(chips);
 
-  const tags = el('div', { class: 'chips', style: 'margin-top:8px' });
+  const tags = el('div', { class: 'chips', style: 'margin-top:var(--s2)' });
   if (item.genre) tags.appendChild(el('span', { class: 'tag', text: item.genre }));
   if (item.type === 'tv') tags.appendChild(el('span', { class: 'tag', text: 'Series' }));
   if (item.quality) tags.appendChild(el('span', { class: 'tag tag-accent', text: item.quality }));
@@ -305,6 +368,29 @@ function linkButton(label, iconName, href) {
   a.appendChild(el('span', { html: icon(iconName, 15) }).firstChild);
   a.appendChild(el('span', { text: label }));
   return a;
+}
+
+/* One place that decides what "owned" does, because there are two controls for
+   it 60px apart and they used to disagree: the button set it silently, the row
+   asked for the quality first. */
+function toggleOwned(item) {
+  if (item.owned) {
+    actions.setOwned(item.uid, false);
+    return;
+  }
+  openSheet({
+    title: 'Add to your collection',
+    message: 'What quality do you have?',
+    actions: ['4K', '1080p', '720p', 'Other'].map((q) => ({
+      label: q,
+      kind: q === '4K' ? 'primary' : 'secondary',
+      onClick: () => {
+        store.update(item.uid, { quality: q === 'Other' ? null : q });
+        store.lockFields(item.uid, ['quality']);
+        actions.setOwned(item.uid, true);
+      },
+    })),
+  });
 }
 
 function collectionRow(item) {
@@ -334,25 +420,7 @@ function collectionRow(item) {
       style: item.owned ? 'color:var(--sage)' : 'color:var(--ash)',
     }).firstChild
   );
-  row.addEventListener('click', () => {
-    if (item.owned) {
-      actions.setOwned(item.uid, false);
-    } else {
-      openSheet({
-        title: 'Add to your collection',
-        message: 'What quality do you have?',
-        actions: ['4K', '1080p', '720p', 'Other'].map((q) => ({
-          label: q,
-          kind: q === '4K' ? 'primary' : 'secondary',
-          onClick: () => {
-            store.update(item.uid, { quality: q === 'Other' ? null : q });
-            store.lockFields(item.uid, ['quality']);
-            actions.setOwned(item.uid, true);
-          },
-        })),
-      });
-    }
-  });
+  row.addEventListener('click', () => toggleOwned(item));
   box.appendChild(row);
   return box;
 }
@@ -374,7 +442,15 @@ function matchWarning(item) {
     type: 'button',
     text: 'Fix it',
     style: 'margin-top:10px',
-    onclick: () => onNavigate?.('settings', { focus: 'review' }),
+    onclick: () => {
+      /* navigate() does not close this overlay, and .detail is an opaque
+         full-screen layer — so the Settings screen swapped in underneath and
+         the tap appeared to do nothing at all. Clear the stack first, or
+         closeDetail pops back to the previously viewed film instead. */
+      historyStack.length = 0;
+      closeDetail();
+      onNavigate?.('settings', { focus: 'review' });
+    },
   });
   body.appendChild(fix);
   box.appendChild(body);

@@ -112,3 +112,62 @@ export function metaLine(item, { showType = false } = {}) {
   if (rt) bits.push(rt);
   return bits.join(' · ');
 }
+
+/* ── pasted list hygiene ──
+ * A list copied out of Notes, a blog post or a spreadsheet arrives carrying its
+ * bullets: "•\tThe Power". Nothing downstream strips them, so the bullet became
+ * part of the title — visible on every row, and baked into the backup. Cleaning
+ * happens here, in one pure function, so the paste form, the by-hand form and
+ * the repair pass on load all agree on what a marker is.
+ */
+
+/* Symbols that never open a real title, so no further evidence is needed.
+   The trailing space is optional: "•Title" is just as much a bullet. */
+const HARD_BULLET = /^[•·‣▪▫●◦⁃»›]+\s*/;
+/* Punctuation that could be a bullet or could be a title's own first character,
+   so a separating space is required: "- The Thing", never "-30-". */
+const SOFT_BULLET = /^[-*+–—]\s+/;
+/* Markdown task lists paste as "- [ ] Title"; the dash goes above, the box here. */
+const TASK_BOX = /^\[[ xX✓]?\]\s*/;
+/* "1." / "2)" / "03." — genuinely ambiguous, because a few real titles open
+   with a number and a dot. Only stripped when the surrounding lines agree. */
+const NUMBER_MARKER = /^\d{1,3}[.)]\s+/;
+
+/**
+ * One pasted line, minus its list marker and with its whitespace tidied.
+ * `numbered` opts in to stripping "1." style markers — see looksNumberedList.
+ */
+export function cleanTitleLine(line, { numbered = false } = {}) {
+  let s = String(line ?? '').replace(/\s+/g, ' ').trim();
+  /* Loop, because "- [ ] Title" carries two markers and "•• Title" carries a
+     doubled one. Three passes is far more than any real paste needs. */
+  for (let i = 0; i < 3; i++) {
+    const before = s;
+    s = s.replace(HARD_BULLET, '').replace(SOFT_BULLET, '').replace(TASK_BOX, '');
+    if (numbered) s = s.replace(NUMBER_MARKER, '');
+    s = s.trim();
+    if (s === before) break;
+  }
+  return s;
+}
+
+/**
+ * True when at least two lines open with a number marker — the evidence that
+ * makes stripping them safe. One line on its own is left alone, because a
+ * lone "9. Kompanie" is more likely a title than a list of one.
+ */
+export function looksNumberedList(lines) {
+  let n = 0;
+  for (const line of lines || []) {
+    if (NUMBER_MARKER.test(String(line ?? '').replace(/\s+/g, ' ').trim())) n += 1;
+    if (n >= 2) return true;
+  }
+  return false;
+}
+
+/** Clean a whole pasted block, deciding the numbered question once for all of it. */
+export function stripListMarkers(lines) {
+  const rows = Array.isArray(lines) ? lines : String(lines ?? '').split('\n');
+  const numbered = looksNumberedList(rows);
+  return rows.map((line) => cleanTitleLine(line, { numbered }));
+}
