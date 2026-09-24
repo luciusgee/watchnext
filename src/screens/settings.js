@@ -145,8 +145,13 @@ function render() {
   bodyEl.appendChild(backupGroup());
   refreshStorageHealth();
 
-  bodyEl.appendChild(groupLabel('Who watches here'));
-  bodyEl.appendChild(peopleGroup());
+  /* Gone: this is one shelf for two people who watch together, so separate
+     watch histories were a question nobody here needed asked. Only shown if
+     names were added before it went, so they can still be taken out. */
+  if (store.people().length) {
+    bodyEl.appendChild(groupLabel('Who watches here'));
+    bodyEl.appendChild(peopleGroup());
+  }
 
   bodyEl.appendChild(groupLabel('What to suggest'));
   bodyEl.appendChild(tasteGroup());
@@ -1515,7 +1520,7 @@ function deviceGroup() {
     el('div', {
       class: 'group-item-s',
       text: can
-        ? 'A light tap when you press the main buttons and pick from the pills.'
+        ? 'A light tap every time you press a button.'
         : 'Needs an iPhone on iOS 18 or later.',
     })
   );

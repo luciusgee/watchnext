@@ -54,6 +54,7 @@ const SHELL = [
   './src/sync.js',
   './src/merge.js',
   './src/haptics.js',
+  './src/swipeback.js',
   './src/providers/index.js',
   './src/providers/shared.js',
   './src/providers/omdb.js',

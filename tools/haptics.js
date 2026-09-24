@@ -88,7 +88,7 @@ function check(name, cond, detail = '') {
   const SKIP = '#screen-discover [data-action="skip"]';
   const shape = await page.evaluate((s) => {
     const host = document.querySelector(s);
-    const label = host.lastElementChild;
+    const label = host.querySelector(':scope > .haptic');
     const sw = label?.querySelector('input');
     const a = host.getBoundingClientRect();
     const b = label.getBoundingClientRect();
@@ -176,22 +176,77 @@ function check(name, cond, detail = '') {
     host.disabled = true;
     const r = host.getBoundingClientRect();
     const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-    const out = { display: getComputedStyle(host.lastElementChild).display, hitLabel: hit?.classList.contains('haptic') };
+    const out = { display: getComputedStyle(host.querySelector(':scope > .haptic')).display, hitLabel: hit?.classList.contains('haptic') };
     host.disabled = false;
     return out;
   });
   check('a disabled control drops its label, so the tap does nothing', disabled.display === 'none' && !disabled.hitLabel, JSON.stringify(disabled));
 
-  const submit = await page.evaluate(async () => {
-    const f = document.createElement('form');
-    f.innerHTML = '<button type="submit" data-haptic>Go</button><button data-haptic>Default</button>';
-    document.body.appendChild(f);
-    await new Promise((r) => setTimeout(r, 0));
-    const n = f.querySelectorAll('.haptic').length;
-    f.remove();
-    return n;
+  /* Every button, not a chosen few. */
+  const coverage = await page.evaluate(() => {
+    const hosts = [...document.querySelectorAll('button, a[href]:not([download])')].filter(
+      (b) => !b.parentElement.closest('.haptic, button, a[href]')
+    );
+    const bare = hosts.filter((b) => !b.querySelector(':scope > .haptic'));
+    return { hosts: hosts.length, bare: bare.map((b) => b.outerHTML.slice(0, 80)) };
   });
-  check('never on a submit button, which the label would stop submitting', submit === 0, String(submit));
+  check('every button and link in the app carries a label', coverage.hosts > 30 && coverage.bare.length === 0, JSON.stringify(coverage));
+  const caption = await page.evaluate(() => {
+    const b = document.querySelector('#screen-tonight .btn');
+    return b.firstElementChild?.classList.contains('haptic') && !b.lastElementChild?.classList.contains('haptic');
+  });
+  check('it goes in first, so code changing a caption through lastElementChild still finds the caption', caption);
+
+  /* The label takes the click's default action, so a submit button has to be
+     submitted by hand — once. */
+  await page.tap('[data-tab="tonight"]');
+  await page.waitForTimeout(300);
+  await page.evaluate(() => document.querySelector('#screen-tonight [data-nav="add"]').click());
+  await page.waitForTimeout(400);
+  await page.locator('#screen-add .seg button', { hasText: 'By hand' }).tap();
+  await page.waitForTimeout(300);
+  const countBefore = await page.evaluate(() => window.__test.count());
+  await page.fill('#add-title', 'Haptic Submit Film');
+  await page.evaluate(() => document.activeElement?.blur());
+  await reset();
+  await page.tap('#screen-add button[type="submit"]');
+  await page.waitForTimeout(400);
+  const countAfter = await page.evaluate(() => window.__test.count());
+  check('a submit button ticks', (await ticks()).length === 1, JSON.stringify(await ticks()));
+  check('and submits its form exactly once', countAfter === countBefore + 1, `${countBefore} → ${countAfter}`);
+  await reset();
+  await page.tap('#screen-add button[type="submit"]');
+  await page.waitForTimeout(300);
+  check('and an empty one is still refused, not submitted blank', (await page.evaluate(() => window.__test.count())) === countAfter);
+
+  /* And a link has to be followed by hand — once. */
+  const opened = await page.evaluate(async () => {
+    const calls = [];
+    const real = window.open;
+    window.open = (...a) => { calls.push(a[0]); return null; };
+    const a = document.createElement('a');
+    a.href = 'https://example.com/trailer';
+    a.target = '_blank';
+    a.textContent = 'Trailer';
+    a.style.cssText = 'position:fixed;top:200px;left:100px;padding:20px;z-index:5000;background:#333';
+    document.body.appendChild(a);
+    await new Promise((r) => setTimeout(r, 0));
+    const r = a.getBoundingClientRect();
+    window.__linkBox = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    window.__openCalls = calls;
+    window.__restoreOpen = () => { window.open = real; a.remove(); };
+    return !!a.querySelector(':scope > .haptic');
+  });
+  const box = await page.evaluate(() => window.__linkBox);
+  const popups = [];
+  page.context().on('page', (p) => popups.push(p.url()));
+  await reset();
+  await page.touchscreen.tap(box.x, box.y);
+  await page.waitForTimeout(400);
+  const linkCalls = await page.evaluate(() => { const c = window.__openCalls.slice(); window.__restoreOpen(); return c; });
+  check('a link carries a label too', opened);
+  check('and ticks', (await ticks()).length === 1, JSON.stringify(await ticks()));
+  check('and opens once', linkCalls.length + popups.length === 1, JSON.stringify({ linkCalls, popups }));
 
   check('the switch’s click, input and change never reach anything else', (await page.evaluate(() => window.__leaks)) === 0, String(await page.evaluate(() => window.__leaks)));
 

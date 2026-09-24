@@ -12,6 +12,7 @@ import { syncViewport, blockZoom, measureShortfall, applyHomeIndicatorFloor } fr
 import { icon } from './icons.js';
 import * as haptics from './haptics.js';
 import { el, toast } from './ui.js';
+import { initSwipeBack } from './swipeback.js';
 
 import { initDetail, closeDetail, isDetailOpen } from './screens/detail.js';
 import { initTonight, showTonight } from './screens/tonight.js';
@@ -59,7 +60,7 @@ const scrollMemo = new Map();
 const scroller = (id) => document.getElementById(`screen-${id}`)?.querySelector('.scroll');
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-function navigate(id, params = {}, { back = false } = {}) {
+function navigate(id, params = {}, { back = false, swiped = false } = {}) {
   if (!document.getElementById(`screen-${id}`)) return;
 
   /* Tapping the tab you are already on is the platform's scroll-to-top, not a
@@ -83,7 +84,9 @@ function navigate(id, params = {}, { back = false } = {}) {
 
   const target = document.getElementById(`screen-${id}`);
   target.classList.remove('is-push', 'is-pop');
-  if (id !== from && document.body.classList.contains('is-ready')) {
+  /* Not after a swipe back: the finger already moved the screens, and a
+     slide on top of that played the arrival twice. */
+  if (id !== from && document.body.classList.contains('is-ready') && !swiped) {
     if (PUSHED.has(id) && !back) target.classList.add('is-push');
     else if (back || PUSHED.has(from)) target.classList.add('is-pop');
     /* A direction class must not outlive its slide: anything that restarts
@@ -163,11 +166,31 @@ function buildTabBar() {
 }
 
 /** Back from a pushed screen, to wherever it was entered from. */
-function goBack() {
+function goBack({ swiped = false } = {}) {
   const to = backStack.pop() || 'tonight';
   /* Returning to the deck resumes the hand rather than dealing a fresh one —
      "connect a key" from the pick sheet used to cost the whole session. */
-  navigate(to, to === 'pick' ? { resume: true } : {}, { back: true });
+  navigate(to, to === 'pick' ? { resume: true } : {}, { back: true, swiped });
+}
+
+/* What a swipe from the left edge goes back from: a film's details if they
+   are open, otherwise a screen you went into. Tabs are roots — nothing to go
+   back to. */
+function swipeTarget() {
+  if (isDetailOpen()) {
+    return { layer: document.getElementById('detail'), onBack: () => closeDetail({ swiped: true }) };
+  }
+  if (!PUSHED.has(current)) return null;
+  const to = backStack[backStack.length - 1] || 'tonight';
+  return {
+    layer: document.getElementById(`screen-${current}`),
+    under: document.getElementById(`screen-${to}`),
+    reveal: () => {
+      const sc = scroller(to);
+      if (sc) sc.scrollTop = scrollMemo.get(to) || 0;
+    },
+    onBack: () => goBack({ swiped: true }),
+  };
 }
 
 function wireChrome() {
@@ -187,6 +210,7 @@ async function boot() {
 
   document.getElementById('app').appendChild(buildTabBar());
   wireChrome();
+  initSwipeBack(swipeTarget);
 
   initDetail({ navigate });
   initTonight({ navigate });

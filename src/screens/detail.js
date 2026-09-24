@@ -97,7 +97,7 @@ export function openDetail(uid, { push = true } = {}) {
   requestAnimationFrame(() => root.focus());
 }
 
-export function closeDetail() {
+export function closeDetail({ swiped = false } = {}) {
   if (historyStack.length) {
     const prev = historyStack.pop();
     if (store.byUid(prev)) {
@@ -108,8 +108,11 @@ export function closeDetail() {
   /* The open was animated and the close was not, so the film vanished on the
      frame you tapped. The reduced-motion block clamps the duration to 0.001ms,
      so animationend still fires straight away for anyone who has it on. */
-  root.classList.add('is-closing');
-  root.addEventListener('animationend', () => root.classList.remove('is-closing'), { once: true });
+  /* After a swipe the finger has already carried it off screen. */
+  if (!swiped) {
+    root.classList.add('is-closing');
+    root.addEventListener('animationend', () => root.classList.remove('is-closing'), { once: true });
+  }
   root.classList.remove('is-open');
   root.setAttribute('aria-hidden', 'true');
   document.getElementById('app').setAttribute('aria-hidden', 'false');

@@ -369,6 +369,26 @@ body.is-ready #boot {
     opacity: 0;
   }
 }
+/* Swipe back (swipeback.js): the screen being swiped rides above the one it
+   returns to, which is shown in place underneath without joining the layout. */
+.screen.is-swiping {
+  position: relative;
+  z-index: 1;
+  animation: none;
+}
+.screen.is-under {
+  display: flex;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 0;
+  pointer-events: none;
+  animation: none;
+}
+.detail.is-swiping {
+  animation: none;
+}
 @keyframes screenPush {
   from {
     opacity: 0;
@@ -398,8 +418,14 @@ body.is-ready #boot {
   display: flex;
   align-items: center;
   gap: var(--s2);
+  /* Centred by eye, not by box. Below a notch or Dynamic Island the safe
+     area runs well past the clock, so a row centred between the safe-area
+     edge and the hairline sat visibly low in the dark band. Lift it by a
+     share of the inset — nothing on a phone without one. */
+  --bar-lift: clamp(0px, calc((var(--st) - 20px) * 0.25), 8px);
   padding: var(--s3) var(--s4);
-  padding-top: calc(var(--st) + var(--s3));
+  padding-top: calc(var(--st) + var(--s3) - var(--bar-lift));
+  padding-bottom: calc(var(--s3) + var(--bar-lift));
   background: var(--ink);
   border-bottom: 1px solid var(--hairline);
   flex: none;
@@ -1300,6 +1326,9 @@ label.group-item {
 }
 .haptic {
   position: absolute;
+  /* Above anything else positioned inside the control — a badge, an icon
+     nudged into place — so every part of its face is a tap on the label. */
+  z-index: 1;
   /* Out over the control's hairline border: inset 0 stops at the padding
      edge, and a tap on the outermost pixel reached the control untouched. */
   inset: -1px;
