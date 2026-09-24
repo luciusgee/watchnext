@@ -196,7 +196,14 @@ export function friendlyError(e) {
   if (/Failed to fetch|NetworkError|Load failed/i.test(e?.message || '')) {
     return 'Could not reach Anthropic. Check your connection.';
   }
-  return e?.message || 'Something went wrong.';
+  /* Anything else with a status is the API's own wording — "Request failed
+     (400)", or a paragraph about billing — and it used to reach the thread
+     verbatim. Only messages this module wrote itself pass through. */
+  if (e?.status === 400 && /credit balance/i.test(e?.message || '')) {
+    return 'Your Anthropic account is out of credit. Top it up at console.anthropic.com.';
+  }
+  if (e?.status) return 'Claude could not answer just now. Try again in a moment.';
+  return e?.message || 'Something went wrong. Try again in a moment.';
 }
 
 /* ── choosing from the shelf ── */

@@ -71,6 +71,7 @@ const DEVICES = [
   { w: 430, h: 932, r: 3, id: 'iphone-15-pro-max' },
   { w: 402, h: 874, r: 3, id: 'iphone-16-pro' },
   { w: 440, h: 956, r: 3, id: 'iphone-16-pro-max' },
+  { w: 420, h: 912, r: 3, id: 'iphone-air' },
 ];
 
 (async () => {
@@ -147,5 +148,23 @@ const DEVICES = [
     fs.writeFileSync(indexPath, html);
   }
 
-  console.log(`icons + ${DEVICES.length} launch images; index.html links rewritten`);
+  /* The same drawing, in the page. iOS removes the launch image the moment the
+     web view has painted anything, and the shell is still fading in then — so
+     the logo used to vanish to flat ink before the app appeared. This block
+     sits exactly where the launch image drew it (same flex centring, same
+     vmin/vw sizes) and cross-fades out as the shell fades in. */
+  const BOOT_START = '<!-- boot:start -->';
+  const BOOT_END = '<!-- boot:end -->';
+  html = fs.readFileSync(indexPath, 'utf8');
+  const boot =
+    `${BOOT_START}\n<div id="boot" aria-hidden="true"><div class="boot-glow"></div>` +
+    `<svg class="boot-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${mark()}</svg>` +
+    `<div class="boot-word">Watch<i>.</i>Next</div></div>\n${BOOT_END}`;
+  const b0 = html.indexOf(BOOT_START);
+  const b1 = html.indexOf(BOOT_END);
+  if (b0 >= 0 && b1 > b0) html = html.slice(0, b0) + boot + html.slice(b1 + BOOT_END.length);
+  else html = html.replace('<body>\n', `<body>\n${boot}\n`);
+  fs.writeFileSync(indexPath, html);
+
+  console.log(`icons + ${DEVICES.length} launch images; index.html links and boot mark rewritten`);
 })();

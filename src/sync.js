@@ -43,15 +43,35 @@ let pollTimer = null;
 let running = false;
 let started = false;
 
-let state = { phase: 'off', at: null, message: '' };
+let state = { phase: 'off', at: null, message: '', lastOk: null };
+/* When a sync last actually succeeded, kept across failures so an offline
+   message can still say how fresh the shelf is. */
+let lastOk = null;
 const watchers = new Set();
 
 /* ── configuration ── */
 
+/**
+ * "owner/name" from whatever was pasted. Copying the address bar on GitHub
+ * gives https://github.com/owner/name — the natural thing to paste — and it
+ * was rejected with "Use the owner/repo form."
+ */
+export function normaliseRepo(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//i, '')
+    .replace(/^git@github\.com:/i, '')
+    .replace(/\.git$/i, '')
+    .replace(/\/+$/, '')
+    .split('/')
+    .slice(0, 2)
+    .join('/');
+}
+
 export function config() {
   const s = store.settings().sync || {};
   return {
-    repo: (s.repo || '').trim(),
+    repo: normaliseRepo(s.repo),
     token: (s.token || '').trim(),
     path: (s.path || 'library.json').trim(),
     enabled: Boolean(s.enabled),
@@ -73,7 +93,8 @@ export function watch(fn) {
 }
 
 function setStatus(phase, message = '') {
-  state = { phase, at: Date.now(), message };
+  if (phase === 'idle') lastOk = Date.now();
+  state = { phase, at: Date.now(), message, lastOk };
   for (const fn of watchers) {
     try {
       fn(status());
@@ -170,7 +191,9 @@ async function failure(res) {
     ? 'GitHub rate limit reached — it will catch up shortly.'
     : 'That token is not allowed to write to this repo.';
   else if (res.status === 404) err.friendly = 'Repo not found, or the token cannot see it.';
-  else err.friendly = detail;
+  /* Never GitHub's raw text: "HTTP 502" in red on the Settings screen says
+     nothing a person can act on. */
+  else err.friendly = res.status >= 500 ? 'GitHub is having trouble. Sync will retry.' : 'Sync hit a problem and will retry.';
   return err;
 }
 
@@ -215,7 +238,12 @@ export async function syncNow({ note = 'Update library' } = {}) {
     setStatus('error', 'Kept colliding with the other device. It will retry.');
     return false;
   } catch (err) {
-    setStatus('error', err.friendly || err.message || 'Sync failed');
+    /* Offline is a state, not an error. iOS words a failed fetch "Load failed",
+       and that raw string used to replace "Last synced" in red every time the
+       app was opened without signal. */
+    const offline = navigator.onLine === false || err instanceof TypeError;
+    if (offline) setStatus('offline', 'Offline — changes will sync when you’re back online.');
+    else setStatus('error', err.friendly || err.message || 'Sync failed');
     return false;
   } finally {
     running = false;
@@ -246,7 +274,7 @@ export function start() {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
         poll();
-        syncNow({ note: 'Update library' });
+        if (navigator.onLine !== false) syncNow({ note: 'Update library' });
       } else {
         clearInterval(pollTimer);
         pollTimer = null;
@@ -299,6 +327,6 @@ export async function check() {
     }
     return { ok: true };
   } catch {
-    return { ok: false, message: 'Could not reach GitHub.' };
+    return { ok: false, message: 'Could not reach GitHub. Check your connection.' };
   }
 }

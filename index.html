@@ -44,10 +44,14 @@
 <link rel="apple-touch-startup-image" media="(device-width:430px) and (device-height:932px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" href="assets/splash/iphone-15-pro-max.png">
 <link rel="apple-touch-startup-image" media="(device-width:402px) and (device-height:874px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" href="assets/splash/iphone-16-pro.png">
 <link rel="apple-touch-startup-image" media="(device-width:440px) and (device-height:956px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" href="assets/splash/iphone-16-pro-max.png">
+<link rel="apple-touch-startup-image" media="(device-width:420px) and (device-height:912px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" href="assets/splash/iphone-air.png">
 <link rel="manifest" href="app.webmanifest">
 <link rel="stylesheet" href="styles/app.css">
 </head>
 <body>
+<!-- boot:start -->
+<div id="boot" aria-hidden="true"><div class="boot-glow"></div><svg class="boot-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect x="57.0" y="371.0" width="398.0" height="14.0" rx="7.0" fill="#4a423a"/><rect x="77.0" y="170.0" width="70.0" height="196.0" rx="15.0" fill="#4c453d"/><rect x="173.0" y="170.0" width="70.0" height="196.0" rx="15.0" fill="#5e564c"/><rect x="269.0" y="98.0" width="70.0" height="196.0" rx="15.0" fill="#e8a33d"/><rect x="365.0" y="170.0" width="70.0" height="196.0" rx="15.0" fill="#5e564c"/></svg><div class="boot-word">Watch<i>.</i>Next</div></div>
+<!-- boot:end -->
 
 <div id="app">
 
@@ -122,14 +126,14 @@
   <!-- ─────────────  LIBRARY  ───────────── -->
   <main id="screen-library" class="screen" aria-label="Library">
     <header class="topbar">
-      <button class="iconbtn" type="button" data-action="sort" data-icon="sliders" aria-label="Sort"></button>
+      <button class="iconbtn" type="button" data-action="sort" data-icon="sort" aria-label="Sort"></button>
       <h1 class="topbar-title">Library</h1>
       <button class="iconbtn" type="button" data-action="view" aria-label="Change view"></button>
     </header>
 
     <div class="searchbar">
       <span data-icon="search" data-icon-size="18"></span>
-      <input id="library-search" type="search" placeholder="Search your library" aria-label="Search your library" autocomplete="off" spellcheck="false">
+      <input id="library-search" type="search" enterkeyhint="search" placeholder="Search your library" aria-label="Search your library" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
     </div>
 
     <div style="display:flex;align-items:center;gap:12px;padding:0 16px 12px;flex:none">
@@ -150,9 +154,11 @@
   <!-- ─────────────  ASK  ───────────── -->
   <main id="screen-ask" class="screen" aria-label="Ask">
     <header class="topbar">
-      <span class="iconbtn" aria-hidden="true"></span>
-      <h1 class="topbar-title">Ask</h1>
+      <!-- Top-left, where Tonight keeps it. On the right it sat where Tonight
+           keeps "Add titles", and the thumb went to the wrong corner. -->
       <button class="iconbtn" type="button" data-nav="settings" data-icon="settings" aria-label="Settings"></button>
+      <h1 class="topbar-title">Ask</h1>
+      <span class="iconbtn" aria-hidden="true"></span>
     </header>
 
     <div class="chat" data-region="thread" role="log" aria-live="polite" aria-label="Conversation"></div>

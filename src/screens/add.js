@@ -217,7 +217,7 @@ function searchForm() {
     go.disabled = true;
     ownedRow.disabled = true;
     [...typeSeg.children].forEach((b) => (b.disabled = true));
-    say(`Searching needs a ${provider.label} key. Add one in Settings, or use "By hand" — that works with no key at all.`);
+    say(`Searching needs a ${provider.label} key. Add one in Settings, or use “By hand” — that works with no key at all.`);
     wrap.appendChild(
       el('div', { style: 'margin-top:12px' },
         button('Open Settings', { kind: 'secondary', size: 'sm', onClick: () => navigate('settings') }))

@@ -23,6 +23,9 @@ import {
 } from '../format.js';
 import { similarTo } from '../recommend.js';
 import { openMatchPicker } from './match.js';
+/* A cycle (tonight imports this module too), and a safe one: neither uses the
+   other at load time, only when something is rendered. */
+import { cardFor } from './tonight.js';
 
 let root = null;
 let currentUid = null;
@@ -82,7 +85,7 @@ export function openDetail(uid, { push = true } = {}) {
   root.classList.add('is-open');
   root.setAttribute('aria-hidden', 'false');
   document.getElementById('app').setAttribute('aria-hidden', 'true');
-  root.querySelector('.detail-body').scrollTop = 0;
+  root.scrollTop = 0;
   if (wasOpen) {
     for (const n of root.querySelectorAll('.detail-hero, .detail-body')) {
       n.classList.add('detail-swap');
@@ -138,12 +141,15 @@ function render(item) {
   /* Every mutation emits 'item' and re-renders this overlay from scratch, so
      scrolling down to "More like this" and tapping anything threw you back to
      the hero. openDetail resets this to 0 afterwards for a genuine open. */
-  const keepY = root.querySelector('.detail-body')?.scrollTop || 0;
+  const keepY = root.scrollTop || 0;
   clear(root);
 
   root.appendChild(hero(item));
 
-  const body = el('div', { class: 'scroll detail-body' });
+  /* The whole overlay scrolls as one surface, hero included. A pinned hero
+     took ~350px of an 844px screen and everything below scrolled up into its
+     bottom edge, cut straight through the middle of the glyphs. */
+  const body = el('div', { class: 'detail-body' });
   root.appendChild(body);
 
   /* Watch state is carried by the action button below, so the old status
@@ -164,7 +170,7 @@ function render(item) {
     body.appendChild(
       el('p', {
         class: 'detail-overview',
-        style: 'color:var(--faint)',
+        style: 'color:var(--ash)',
         text: 'No description yet — this title has not been looked up.',
       })
     );
@@ -247,7 +253,8 @@ function render(item) {
     el(
       'div',
       { style: 'margin-top:var(--s3)' },
-      button('Wrong film? Pick another', {
+      /* Series get this row too. */
+      button(item.type === 'tv' ? 'Wrong series? Pick another' : 'Wrong film? Pick another', {
         kind: 'quiet',
         block: true,
         onClick: () =>
@@ -268,10 +275,14 @@ function render(item) {
   if (similar.length) {
     const sec = el('div', { class: 'section', style: 'margin:0 calc(var(--s4) * -1)' });
     sec.appendChild(
-      el('div', { class: 'section-head' }, el('div', { class: 'eyebrow', text: 'More like this' }))
+      el('div', { class: 'section-head' }, el('h2', { class: 'eyebrow', text: 'More like this' }))
     );
-    const rail = el('div', { class: 'rail' });
-    for (const s of similar) rail.appendChild(miniCard(s));
+    /* The same card as every rail on Tonight — year and runtime, the watched
+       tick — rather than a one-off with the year alone. */
+    const rail = el('div', { class: 'rail', role: 'list' });
+    for (const s of similar) {
+      rail.appendChild(el('div', { role: 'listitem', style: 'display:contents' }, cardFor(s)));
+    }
     sec.appendChild(rail);
     body.appendChild(sec);
   }
@@ -299,7 +310,7 @@ function render(item) {
     )
   );
 
-  if (keepY) body.scrollTop = keepY;
+  if (keepY) root.scrollTop = keepY;
 }
 
 function hero(item) {
@@ -419,7 +430,8 @@ function collectionRow(item) {
   row.appendChild(
     el('span', {
       html: icon(item.owned ? 'check' : 'plus', 18),
-      style: item.owned ? 'color:var(--sage)' : 'color:var(--ash)',
+      /* Amber, as the "I own this" button above it is. Sage is watched. */
+      style: item.owned ? 'color:var(--amber)' : 'color:var(--ash)',
     }).firstChild
   );
   row.addEventListener('click', () => toggleOwned(item));
@@ -435,7 +447,7 @@ function matchWarning(item) {
     el('div', {
       text:
         item.meta.status === 'review'
-          ? 'We found more than one film with this name and could not tell which is yours.'
+          ? 'More than one title has this name, and we could not tell which is yours.'
           : 'We could not find this title in the film database.',
     })
   );
@@ -459,14 +471,6 @@ function matchWarning(item) {
   return box;
 }
 
-function miniCard(item) {
-  const card = el('button', { class: 'card', type: 'button' });
-  card.appendChild(poster(item, { width: 108 }));
-  card.appendChild(el('div', { class: 'card-t', text: item.title }));
-  card.appendChild(el('div', { class: 'card-s', text: item.year ? String(item.year) : '' }));
-  card.addEventListener('click', () => openDetail(item.uid));
-  return card;
-}
 
 /** Guard a URL before it goes into a CSS url() — quotes/parens would break out. */
 function cssUrl(u) {

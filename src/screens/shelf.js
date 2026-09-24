@@ -74,24 +74,33 @@ function leave() {
  */
 let summaryEl = null;
 let addAllBtn = null;
-let have = null;
+
+/* The same test the app uses for duplicates: title and year together. By
+   title alone, their Dune (1984) showed "In your library" beside your Dune
+   (2021), and could not be added. */
+const inMine = (film) => !!store.findDuplicate(film.title, film.year, film.type);
 
 function render() {
   clear(bodyEl);
 
   const mine = store.items();
 
+  /* One heading, so someone navigating by headings reaches the page's subject
+     rather than only the wordmark. */
   bodyEl.appendChild(
-    el('div', { class: 'big-figure' }, [
-      el('div', { class: 'big-figure-n', text: String(shelf.length) }),
-      el('div', { class: 'big-figure-l', text: shelf.length === 1 ? 'film on their shelf' : 'films on their shelf' }),
+    el('h2', { class: 'big-figure', style: 'font-weight:400' }, [
+      el('span', { class: 'big-figure-n', style: 'display:block', text: String(shelf.length) }),
+      el('span', {
+        class: 'big-figure-l',
+        style: 'display:block',
+        text: shelf.length === 1 ? 'film on their shelf' : 'films on their shelf',
+      }),
     ])
   );
 
   /* The set operation, computed entirely on this device. This is the thing
      people mean when they ask for a shared list — what have they got that I
      have not — and it needs no shared state at all. */
-  have = new Set(mine.map((i) => store.normaliseTitle(i.title)));
   summaryEl = el('div', {
     role: 'status',
     style: 'padding:var(--s2) var(--s4) 0;text-align:center;font-size:var(--t-sub);color:var(--ash)',
@@ -123,7 +132,7 @@ function render() {
   );
 }
 
-const missing = () => shelf.filter((f) => !have.has(store.normaliseTitle(f.title)));
+const missing = () => shelf.filter((f) => !inMine(f));
 
 /* One voice — it is talking to you — and the same sentence whatever the
    counts, so nothing is inserted above the list as they change. */
@@ -145,7 +154,7 @@ function inLibrary() {
 }
 
 function rowFor(film) {
-  const already = have.has(store.normaliseTitle(film.title));
+  const already = inMine(film);
   const row = el('div', { class: 'row', style: 'cursor:default' });
 
   row.appendChild(poster({ title: film.title, poster: null }, { width: 44 }));
@@ -168,6 +177,8 @@ function rowFor(film) {
     const add = button('Add', {
       kind: 'secondary',
       size: 'sm',
+      /* Named for its film: a column of identical "Add" buttons told a
+         VoiceOver user nothing about which one they were on. */
       onClick: () => {
         const { item, duplicate } = addItem({
           title: film.title,
@@ -177,7 +188,6 @@ function rowFor(film) {
         });
         store.saveNow();
         toast(duplicate ? `${item.title} is already in your library` : `Added ${item.title}`);
-        have.add(store.normaliseTitle(film.title));
         const note = inLibrary();
         note.setAttribute('tabindex', '-1');
         add.replaceWith(note);
@@ -185,6 +195,7 @@ function rowFor(film) {
         refreshSummary();
       },
     });
+    add.setAttribute('aria-label', `Add ${film.title}`);
     end.appendChild(add);
   }
   row.appendChild(end);

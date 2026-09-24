@@ -131,13 +131,15 @@ function render() {
   bodyEl.appendChild(groupLabel('Connections'));
   bodyEl.appendChild(connectionsGroup());
 
-  bodyEl.appendChild(groupLabel('Library data'));
+  /* Named for what they hold. "Library data" and "Your data" were a pair of
+     near-identical headings over unrelated things. */
+  bodyEl.appendChild(groupLabel('Posters & details'));
   bodyEl.appendChild(dataGroup());
 
   bodyEl.appendChild(groupLabel('Sync'));
   bodyEl.appendChild(syncGroup());
 
-  bodyEl.appendChild(groupLabel('Your data'));
+  bodyEl.appendChild(groupLabel('Backup'));
   bodyEl.appendChild(backupGroup());
   refreshStorageHealth();
 
@@ -150,7 +152,7 @@ function render() {
   bodyEl.appendChild(groupLabel('Recent activity'));
   bodyEl.appendChild(activityGroup());
 
-  bodyEl.appendChild(groupLabel('Danger zone'));
+  bodyEl.appendChild(groupLabel('Reset'));
   bodyEl.appendChild(dangerGroup());
 
   bodyEl.appendChild(aboutBlock());
@@ -180,12 +182,12 @@ function connectionsGroup() {
   /* Metadata source */
   const active = getProvider(s.provider);
   const box = el('div', { class: 'group-pad' });
-  box.appendChild(el('div', { class: 'group-item-t', text: 'Film database', style: 'margin-bottom:var(--s1)' }));
+  box.appendChild(el('h3', { class: 'group-item-t', text: 'Film database', style: 'margin-bottom:var(--s1)' }));
   box.appendChild(
     el('div', {
       class: 'group-item-s',
       style: 'margin-bottom:var(--s3)',
-      text: 'Where posters, runtimes and descriptions come from. TMDB is the better maintained of the two and the only one whose terms allow a paid app; OMDb is kept for anyone already using it.',
+      text: 'Where posters, runtimes and descriptions come from. Use TMDB; OMDb is here for older setups.',
     })
   );
 
@@ -304,7 +306,7 @@ function connectionsGroup() {
 
   /* Anthropic */
   const ai = el('div', { class: 'group-pad', style: 'border-top:1px solid var(--hairline)' });
-  ai.appendChild(el('div', { class: 'group-item-t', text: 'Assisted picks', style: 'margin-bottom:var(--s1)' }));
+  ai.appendChild(el('h3', { class: 'group-item-t', text: 'Assisted picks', style: 'margin-bottom:var(--s1)' }));
   ai.appendChild(
     el('div', {
       class: 'group-item-s',
@@ -394,7 +396,7 @@ function syncGroup() {
   const cfg = sync.config();
 
   const box = el('div', { class: 'group-pad' });
-  box.appendChild(el('div', { class: 'group-item-t', text: 'Share a library', style: 'margin-bottom:var(--s1)' }));
+  box.appendChild(el('h3', { class: 'group-item-t', text: 'Share a library', style: 'margin-bottom:var(--s1)' }));
   box.appendChild(
     el('div', {
       class: 'group-item-s',
@@ -478,8 +480,10 @@ function syncGroup() {
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     busy(save, 'Checking…', async () => {
+      const tidy = sync.normaliseRepo(repo.value);
+      repo.value = tidy;
       store.updateSettings({
-        sync: { ...cfg, repo: repo.value.trim(), token: token.value.trim(), enabled: true },
+        sync: { ...cfg, repo: tidy, token: token.value.trim(), enabled: true },
       });
       const result = await sync.check();
       if (!result.ok) {
@@ -526,13 +530,14 @@ function syncGroup() {
   if (cfg.enabled) {
     const live = statusLine();
     const paint = (st) => {
+      const since = st.lastOk ? ` Last synced ${relativeTime(st.lastOk)}.` : '';
       live.textContent =
         st.phase === 'syncing'
           ? 'Syncing…'
-          : st.phase === 'error'
-            ? st.message
-            : st.at
-              ? `Last synced ${relativeTime(st.at)}`
+          : st.phase === 'error' || st.phase === 'offline'
+            ? `${st.message}${since}`
+            : st.lastOk
+              ? `Last synced ${relativeTime(st.lastOk)}`
               : 'Waiting for the first sync.';
       live.style.color = st.phase === 'error' ? 'var(--ember)' : 'var(--ash)';
     };
@@ -607,15 +612,18 @@ function dataGroup() {
       onClick: () => (sweepController ? stopSweep() : runSweep({ force: false })),
     });
     controls.appendChild(checkBtn);
-  } else if (!summary.review) {
+  } else if (!summary.review && !summary.unmatched) {
     /* A status, said as one — not a bordered button that toasts "Nothing
        needs looking up" when pressed. */
     progressText.style.color = 'var(--sage)';
     progressText.textContent = 'Everything is up to date.';
   }
-  if (summary.review) {
+  /* "Not found" titles belong in the queue too: they can be searched for by
+     hand there. A queue made only of those used to have no button at all. */
+  const toFix = summary.review + summary.unmatched;
+  if (toFix) {
     controls.appendChild(
-      button(`Review ${summary.review}`, {
+      button(`Review ${toFix}`, {
         kind: 'secondary',
         iconName: 'warning',
         onClick: openReviewQueue,
@@ -779,6 +787,16 @@ async function runSweep(opts, { restart = false } = {}) {
     render();
     return;
   }
+  if (result.error?.code === 'network' || result.error?.code === 'rate') {
+    toast(
+      result.error.code === 'network'
+        ? `Lost the connection after ${plural(result.matched, 'title')} — nothing else was changed. Try again when you’re back online.`
+        : `${provider.label} asked us to slow down after ${plural(result.matched, 'title')}. Try again in a minute.`,
+      { duration: 6000 }
+    );
+    render();
+    return;
+  }
 
   const bits = [`${result.matched} matched`];
   if (result.review) bits.push(`${result.review} need checking`);
@@ -902,7 +920,10 @@ function tasteGroup() {
 
   /* Genres, drawn from what is actually in the library rather than a fixed
      list — a mute for a genre you do not own is noise. */
-  const genres = store.genresInUse().slice(0, 14);
+  /* Every genre, and always anything muted: a genre muted while it was
+     common could fall off a top-14 list, taking the only control that
+     unmutes it with it. */
+  const genres = [...new Set([...prefs.genres, ...store.genresInUse()])];
   if (genres.length) {
     box.appendChild(el('div', { class: 'eyebrow', style: 'margin:var(--s2) 0', text: 'Genres' }));
     const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:var(--s2);margin-bottom:var(--s4)' });
@@ -1068,7 +1089,9 @@ function openReviewQueue() {
     el(
       'div',
       { class: 'sheet-actions is-pinned' },
-      button('Done', { kind: 'primary', block: true, onClick: close })
+      /* Secondary, as the match picker's Done is: closing is not the call to
+         action in either. */
+      button('Done', { kind: 'secondary', block: true, onClick: close })
     )
   );
   show();
@@ -1210,7 +1233,14 @@ async function refreshStorageHealth() {
   if (slot.isConnected) paintHealth(slot, h);
 }
 
-const size = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB` : `${(n / 1048576).toFixed(1)} MB`);
+/* A real 228-title library is under 50KB, which toFixed(1) in MB printed as
+   "0.0 MB" — "nothing is saved", in the card meant to reassure. */
+const size = (n) =>
+  n >= 1073741824
+    ? `${(n / 1073741824).toFixed(1)} GB`
+    : n >= 1048576
+      ? `${(n / 1048576).toFixed(1)} MB`
+      : `${Math.max(1, Math.round(n / 1024))} KB`;
 
 function paintHealth(slot, h) {
   clear(slot);
@@ -1243,10 +1273,10 @@ function paintHealth(slot, h) {
     slot.appendChild(el('div', { style: 'margin-top:var(--s3)' }, ask));
   }
 
+  /* The browser's quota means nothing to the reader and changes from phone
+     to phone; how much room the library takes is the part worth saying. */
   if (h.usage) {
-    slot.appendChild(
-      line(h.quota ? `Using ${size(h.usage)} of about ${size(h.quota)} available.` : `Using ${size(h.usage)}.`)
-    );
+    slot.appendChild(line(`Your library takes up ${size(h.usage)} on this phone.`));
     slot.lastChild.style.marginTop = 'var(--s2)';
   }
 
@@ -1254,12 +1284,17 @@ function paintHealth(slot, h) {
      was the one case this said nothing at all about — a silent absence reads as
      "fine" rather than "you have no copy of this anywhere". It was painted in
      the grey kept for decoration whenever the nudge was off. */
-  const warn = h.nudge || !h.lastBackupAt;
+  /* With sync on, the repo is the copy outside this phone. Saying "nothing
+     outside this device holds your library" beside a working sync was false. */
+  const synced = sync.config().enabled && sync.status().phase !== 'error';
+  const warn = !synced && (h.nudge || !h.lastBackupAt);
   const last = line(
-    h.lastBackupAt
-      ? `Last export ${relativeTime(h.lastBackupAt)}.${h.nudge ? ' Worth doing another.' : ''}`
-      : 'You have never exported a copy. Nothing outside this device holds your library.',
-    warn ? 'amber' : 'ash'
+    synced
+      ? 'Synced to your GitHub repo — every change is kept there too.'
+      : h.lastBackupAt
+        ? `Last export ${relativeTime(h.lastBackupAt)}.${h.nudge ? ' Worth doing another.' : ''}`
+        : 'You have never exported a copy. Nothing outside this device holds your library.',
+    synced ? 'sage' : warn ? 'amber' : 'ash'
   );
   last.style.marginTop = 'var(--s2)';
   last.style.fontWeight = warn ? '600' : '400';
@@ -1382,17 +1417,18 @@ function activityGroup() {
     );
     row.appendChild(body);
     if (entry.prev) {
-      row.appendChild(
-        button('Undo', {
-          kind: 'quiet',
-          size: 'sm',
-          onClick: () => {
-            store.undoActivity(entry.id);
-            store.emit('item');
-            toast('Undone');
-          },
-        })
-      );
+      const undo = button('Undo', {
+        kind: 'quiet',
+        size: 'sm',
+        onClick: () => {
+          store.undoActivity(entry.id);
+          store.emit('item');
+          toast('Undone');
+        },
+      });
+      /* Twelve buttons called "Undo" are indistinguishable by ear. */
+      undo.setAttribute('aria-label', `Undo ${(labels[entry.kind] || entry.kind).toLowerCase()}: ${entry.title}`);
+      row.appendChild(undo);
     }
     g.appendChild(row);
   }
@@ -1476,7 +1512,7 @@ function aboutBlock() {
       'padding:var(--s6) var(--s4) var(--s8);text-align:center;font-size:var(--t-meta);color:var(--ash);line-height:1.6',
   });
   box.appendChild(
-    el('div', { text: `Watch Next · ${plural(s.total, 'title')}, ${s.owned} in your collection` })
+    el('div', { text: `Watch Next · ${plural(s.total, 'title')}, ${s.owned} owned` })
   );
   box.appendChild(
     el('div', {

@@ -19,6 +19,7 @@ import * as store from '../store.js';
 import * as meta from '../metadata.js';
 import { getProvider } from '../providers/index.js';
 import { el, clear, poster, button, toast, openPanel } from '../ui.js';
+import { metaLine } from '../format.js';
 
 /** "Alien 1979" / "Alien (1979)" → { title: 'Alien', year: 1979 } */
 function parseQuery(text) {
@@ -46,7 +47,7 @@ export function openMatchPicker(item, { onDone } = {}) {
   /* It used to be inserted already open and removed outright, so it cut in
      over the detail overlay with a full scrim and vanished in one frame. */
   const { panel, close, show: showPanel } = openPanel({
-    label: 'Choose the right film',
+    label: item.type === 'tv' ? 'Choose the right series' : 'Choose the right film',
     className: 'has-pinned',
     /* --kb: it opens with its search field focused. */
     style: 'max-height:calc(88vh - var(--kb, 0px));overflow-y:auto',
@@ -54,7 +55,9 @@ export function openMatchPicker(item, { onDone } = {}) {
   });
 
   panel.appendChild(el('div', { class: 'sheet-grip' }));
-  panel.appendChild(el('div', { class: 'sheet-title', text: 'Choose the right film' }));
+  panel.appendChild(
+    el('div', { class: 'sheet-title', text: item.type === 'tv' ? 'Choose the right series' : 'Choose the right film' })
+  );
 
   /* What is attached right now, so there is something to compare against —
      otherwise you are picking from a list with no idea what you are replacing. */
@@ -72,7 +75,9 @@ export function openMatchPicker(item, { onDone } = {}) {
   curBody.appendChild(
     el('div', {
       style: 'font-size:var(--t-meta);color:var(--ash)',
-      text: [item.year, item.imdbId || 'no IMDb id'].filter(Boolean).join(' · '),
+      /* What a person can judge a match by — not a database id, or the
+         developer string "no IMDb id". */
+      text: metaLine(item, { showType: true }) || 'No details yet',
     })
   );
   current.appendChild(curBody);
@@ -220,18 +225,30 @@ export function openMatchPicker(item, { onDone } = {}) {
     if (results.querySelector('.result-row')) setBusy(true);
     else skeleton();
     try {
-      const found = await provider.search(
-        { title: q.title, year: q.year, type: item.type },
-        {
-          key,
-          budget: new meta.RequestBudget(provider.dailyLimit, provider.id),
-          signal: controller.signal,
-        }
-      );
-      show((found || []).slice(0, 10));
+      const ctx = {
+        key,
+        budget: new meta.RequestBudget(provider.dailyLimit, provider.id),
+        signal: controller.signal,
+      };
+      let found = (await provider.search({ title: q.title, year: q.year, type: item.type }, ctx)) || [];
+      /* The picker pre-fills "Alien 1979" precisely so the right remake can be
+         found, and then used a search that takes no year: Dune (2021) came
+         back above Dune (1984). The general search stays, so a title stored
+         with the wrong type can still be fixed; a typed year adds the precise
+         results in front, and near-year matches sort first. */
+      if (q.year && provider.searchPrecise) {
+        const precise = (await provider.searchPrecise({ title: q.title, year: q.year, type: item.type }, ctx)) || [];
+        const seen = new Set(found.map((c) => c.sourceId));
+        found = [...precise.filter((c) => !seen.has(c.sourceId)), ...found];
+      }
+      const near = (c) => (q.year && c.year && Math.abs(c.year - q.year) <= 1 ? 0 : 1);
+      show([...found].sort((a, b) => near(a) - near(b)).slice(0, 10));
     } catch (err) {
       if (err?.name === 'AbortError') return;
-      say(err?.message || 'That search failed.', 'var(--ember)');
+      say(
+        err?.code === 'network' ? 'No connection — try again when you’re back online.' : 'That search didn’t work — try again in a moment.',
+        'var(--ember)'
+      );
     }
   }
 

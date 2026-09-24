@@ -110,7 +110,11 @@ export function scoreItem(item, profile, ctx) {
      once meant to find. */
   if (item.owned) {
     score += 18;
-    why.push('you already have this');
+    /* Said once. For an owned film nobody has played, the reason below says
+       it better — and the two together used to fill both reason slots with
+       the same fact. With "Only what I own" on, owning it is not a reason at
+       all; it is the filter. */
+    if (item.watched && !ctx.ownedOnly) why.push('you already have this');
   }
 
   /* Quality you actually hold. Nobody else ranks on this — trackers store
@@ -135,7 +139,7 @@ export function scoreItem(item, profile, ctx) {
      A purchase date would make the age version honest; there isn't one yet. */
   if (item.owned && !item.watched) {
     score += 6;
-    why.push('you own it and have not watched it');
+    why.push(ctx.ownedOnly ? 'never played' : 'you own it and have not watched it');
   }
 
   /* Re-watches need to earn their place: only genuinely loved films, and
@@ -148,7 +152,10 @@ export function scoreItem(item, profile, ctx) {
     if (item.rating >= 7.5) {
       score += 6;
       why.length = 0;
-      why.push(`you loved this ${Math.round(yearsSince)} years ago`);
+      /* "Loved" was a claim about you made from a database rating, and
+         "1 years ago" was the plural it produced. */
+      const y = Math.round(yearsSince);
+      why.push(y === 1 ? 'last watched a year ago' : `last watched ${y} years ago`);
     } else {
       return null;
     }
@@ -157,7 +164,9 @@ export function scoreItem(item, profile, ctx) {
   /* Effort fit — late at night, a 3-hour epic is the wrong answer. */
   if (item.runtime && ctx.hour !== null) {
     const late = ctx.hour >= 22 || ctx.hour < 2;
-    if (late && item.runtime <= 105) {
+    /* Not for a series: its runtime is one episode, and "short enough for
+       tonight" said of a five-season show is not true in any useful sense. */
+    if (late && item.runtime <= 105 && item.type !== 'tv') {
       score += 6;
       why.push('short enough for tonight');
     } else if (late && item.runtime >= 150) {

@@ -221,7 +221,7 @@ export async function requestJson(url, { budget, signal, headers, providerName, 
       res = await fetch(url, { signal, headers });
     } catch (e) {
       if (e.name === 'AbortError') throw e;
-      throw providerError(`Could not reach ${providerName}.`, 'network');
+      throw providerError(`Could not reach ${providerName}. Check your connection.`, 'network');
     }
     if (budget) budget.spend();
 
@@ -240,8 +240,16 @@ export async function requestJson(url, { budget, signal, headers, providerName, 
     }
     if (res.status === 404) return null;
     if (!res.ok) {
-      throw providerError(`${providerName} returned ${res.status}.`, 'http', { status: res.status });
+      throw providerError(`${providerName} is having trouble right now. Try again shortly.`, 'http', {
+        status: res.status,
+      });
     }
-    return res.json();
+    /* A captive portal or a CDN error page answers with HTML; Safari words
+       the failed parse "The string did not match the expected pattern." */
+    try {
+      return await res.json();
+    } catch {
+      throw providerError(`${providerName} sent back something unexpected. Try again shortly.`, 'http');
+    }
   }
 }

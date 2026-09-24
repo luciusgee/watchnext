@@ -156,6 +156,25 @@ body {
      makes the same screen render at two different type sizes. */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* An app, not a document: a long press on a label, a heading or a button
+     caption used to start selecting it. Text worth copying opts back in. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+input,
+textarea,
+.msg,
+.detail-overview,
+.sheet-msg,
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* A long press on any poster brought up iOS's image preview and share menu —
+   on the deck, in the middle of a swipe. */
+img {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
 }
 
 button,
@@ -224,6 +243,59 @@ img {
 
 body.is-ready #app {
   opacity: 1;
+}
+/* The launch image, carried across. tools/make-art.js writes this block into
+   index.html with the same drawing and the same centring the launch images
+   use, so when iOS removes its image the logo is already there underneath —
+   and it fades out as the shell fades in, instead of the logo vanishing to
+   flat ink first. */
+#boot {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transition: opacity var(--med) var(--ease);
+  animation: bootFailsafe 0s 2.5s forwards;
+}
+body.is-ready #boot {
+  opacity: 0;
+}
+@keyframes bootFailsafe {
+  to {
+    opacity: 0;
+  }
+}
+.boot-glow {
+  position: fixed;
+  left: 50%;
+  top: 46%;
+  width: 160vw;
+  height: 160vw;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, #100e0b 0%, #100e0b 22%, #0f0d0a 22%, #0f0d0a 38%, #0e0c0a 38%,
+      #0e0c0a 52%, #0d0b09 52%, #0d0b09 66%, #0b0a09 66%);
+}
+.boot-mark {
+  position: relative;
+  width: 34vmin;
+  height: 34vmin;
+  margin-bottom: calc(34vmin * 0.3);
+}
+.boot-word {
+  position: relative;
+  font-size: 4.8vw;
+  font-weight: 620;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bone);
+}
+.boot-word i {
+  color: var(--amber);
+  font-style: normal;
 }
 /* A boot that never settles — an IndexedDB open that hangs — must not hold the
    shell invisible for good. main.js adds is-ready however boot ends; this is
@@ -482,6 +554,8 @@ body.is-typing .tabbar {
   text-align: center;
   color: var(--ash);
   font-size: var(--t-sub);
+  /* A pasted link quoted back in "No matches" made the page scroll sideways. */
+  overflow-wrap: anywhere;
 }
 .empty-title {
   font-size: var(--t-head);
@@ -887,6 +961,10 @@ body.is-typing .tabbar {
   transition: background var(--fast) var(--ease), color var(--fast) var(--ease),
     opacity var(--fast) var(--ease);
 }
+.seg button:not([aria-pressed='true']):active {
+  background: var(--raised);
+  color: var(--silver);
+}
 .seg button[aria-pressed='true'] {
   background: var(--raised);
   color: var(--bone);
@@ -1070,7 +1148,7 @@ body.is-typing .tabbar {
 }
 .input::placeholder,
 .textarea::placeholder {
-  color: var(--faint);
+  color: var(--ash);
 }
 .input:focus,
 .textarea:focus,
@@ -1125,7 +1203,7 @@ body.is-typing .tabbar {
 }
 
 .searchbar input::placeholder {
-  color: var(--faint);
+  color: var(--ash);
 }
 /* Any search field in the app, not only the library's — the Add screen's is
    a plain .input[type=search] and was rendering Safari's stock grey × inside a
@@ -1323,14 +1401,21 @@ body.is-typing .toast {
 .detail.is-open ~ .toast {
   bottom: calc(max(var(--sb), var(--sb-floor, 0px)) + var(--s5));
 }
-/* An open sheet owns the bottom of the screen, so a toast raised over one
-   drops in from the top rather than covering its buttons. */
-body:has(.sheet.is-open) .toast {
+/* When the bottom of the screen is taken — an open sheet, or a deck's answer
+   buttons — the toast drops in from the top. ui.js decides this once, when
+   the toast is raised, so it finishes where it started. */
+.toast.at-top {
   top: calc(var(--st) + var(--s3));
-  bottom: auto;
+  /* !important because every bottom-anchored rule — over the detail overlay,
+     above the keyboard — would otherwise pin the other edge too and stretch
+     the toast between them. */
+  bottom: auto !important;
   transform: translate(-50%, -12px);
 }
-body:has(.sheet.is-open) .toast.is-open {
+.toast.at-top.below-bar {
+  top: calc(var(--st) + 76px);
+}
+.toast.at-top.is-open {
   transform: translate(-50%, 0);
 }
 .toast-action {
@@ -1377,6 +1462,10 @@ body:has(.sheet.is-open) .toast.is-open {
   position: fixed;
   left: 0;
   right: 0;
+  /* The same home-indicator floor as the tab bar, the toast and the detail
+     body; --sb alone reads 0 in this app, so a sheet's last button ended
+     20px above the edge with the indicator drawn in that gap. */
+  --sheet-floor: max(var(--sb), var(--sb-floor, 0px));
   /* Sheets are appended to <body>, not to #app, so they miss the keyboard
      compensation #app gets. A sheet that autofocuses a field — the pick
      sheet — otherwise opens with its buttons already behind the keyboard. */
@@ -1384,7 +1473,7 @@ body:has(.sheet.is-open) .toast.is-open {
   background: var(--overlay);
   border-top: 1px solid var(--hairline-strong);
   border-radius: var(--r-xl) var(--r-xl) 0 0;
-  padding: var(--s5) var(--s4) calc(var(--sb) + var(--s5));
+  padding: var(--s5) var(--s4) calc(var(--sheet-floor) + var(--s5));
   transform: translateY(100%);
   /* visibility, so a closed sheet is really closed: the shared one is never
      removed, and its last "Yes, reset" stayed reachable by Tab and VoiceOver
@@ -1408,11 +1497,23 @@ body:has(.sheet.is-open) .toast.is-open {
   transition: transform 360ms var(--ease-sheet), bottom var(--med) var(--ease), visibility 0s;
 }
 .sheet-grip {
-  width: 34px;
+  /* A real target for the drag, drawn as the usual 34×4 pill. */
+  position: relative;
+  width: 72px;
+  height: 24px;
+  margin: -18px auto var(--s2);
+  touch-action: none;
+  cursor: grab;
+}
+.sheet-grip::before {
+  content: '';
+  position: absolute;
+  left: 19px;
+  right: 19px;
+  top: 10px;
   height: 4px;
   border-radius: 2px;
   background: var(--hairline-strong);
-  margin: -8px auto var(--s4);
 }
 .sheet-title {
   font-size: var(--t-head);
@@ -1472,9 +1573,14 @@ body:has(.sheet.is-open) .toast.is-open {
   bottom: 0;
   z-index: 1;
   margin: 0 calc(var(--s4) * -1);
-  padding: var(--s3) var(--s4) calc(var(--sb) + var(--s5));
+  padding: var(--s3) var(--s4) calc(var(--sheet-floor) + var(--s5));
   background: var(--overlay);
   box-shadow: 0 -14px 22px -14px rgba(0, 0, 0, 0.85);
+}
+/* With the keyboard up a sheet sits on the keyboard, not the indicator. */
+body.is-typing .sheet:not(.has-pinned),
+body.is-typing .sheet-actions.is-pinned {
+  padding-bottom: var(--s5);
 }
 
 /* ============================================================
@@ -1488,6 +1594,31 @@ body:has(.sheet.is-open) .toast.is-open {
   display: none;
   flex-direction: column;
   z-index: 800;
+  /* One scrolling surface; only the close button stays put. */
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.detail::-webkit-scrollbar {
+  display: none;
+}
+.detail > * {
+  flex: none;
+}
+/* Scrolled content passes under the status bar and the close button, so the
+   top edge fades to ink. Sticky, with a negative margin so it takes no room;
+   at rest it sits over the hero's own veil and changes nothing. */
+.detail::before {
+  content: '';
+  position: sticky;
+  top: 0;
+  flex: none;
+  height: calc(var(--st) + 64px);
+  margin-bottom: calc((var(--st) + 64px) * -1);
+  background: linear-gradient(to bottom, var(--ink) 30%, rgba(11, 10, 9, 0));
+  pointer-events: none;
+  z-index: 1;
 }
 .detail.is-open {
   display: flex;
@@ -1608,7 +1739,7 @@ body:has(.sheet.is-open) .toast.is-open {
   overflow-wrap: anywhere;
 }
 .detail-back {
-  position: absolute;
+  position: fixed;
   top: calc(var(--st) + var(--s2));
   left: var(--s2);
   z-index: 2;
@@ -1745,13 +1876,18 @@ body:has(.sheet.is-open) .toast.is-open {
   flex: 1 1 0;
   min-height: 90px;
 }
-/* The card carries its own title, so a posterless card needs only the
-   initials, centred. At 340px wide the container query switched on the
-   fallback's own title too, and the huge initials ran straight through it. */
-.deck-card .poster-fb-t {
+/* Wherever a caption sits beside the tile — a deck card, a rail or grid card,
+   the Tonight hero, the detail hero — a posterless tile needs only its
+   initials, centred. At 96px and up the fallback turned on its own title, so
+   every title without art was printed twice, 30px apart. */
+.deck-card .poster-fb-t,
+.card .poster-fb-t,
+.detail-hero .poster-fb-t {
   display: none;
 }
-.deck-card .poster-fb::before {
+.deck-card .poster-fb::before,
+.card .poster-fb::before,
+.detail-hero .poster-fb::before {
   inset: 0;
   display: grid;
   place-items: center;
@@ -1962,11 +2098,27 @@ body.is-typing .select-bar {
   text-align: center;
   font-size: var(--t-sub);
   color: var(--ash);
+  /* A long brief plus Claude's note squeezed the card below until its text
+     was clipped. Two lines each; the brief is the user's own words, and the
+     note is repeated on every card that needs it. */
   /* No text-transform. It used to lowercase this line, which was invisible
      while the line only ever said "tense · horror · on your shelf" — summary()
      builds those in lowercase itself. It now also carries the words somebody
      typed and a sentence Claude wrote, and "something like blade runner" is
      not what anybody asked for. */
+}
+.pick-meta > span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* The sweep's status line re-wrapped for every title it looked up, so the
+   buttons under it jumped up and down the whole way through. */
+[data-region='sweep-status'] {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .deck-controls {
@@ -2041,17 +2193,7 @@ body.is-typing .select-bar {
   font-weight: 550;
   color: var(--ash);
 }
-/* On Discover the bottom strip is the two answer buttons, and a toast there
-   put its Undo right over ✓ — a quick second "Seen it" undid the first. Drop
-   it in under the progress row instead, where nothing is tappable. */
-body:has(#screen-discover.is-active) .toast {
-  top: calc(var(--st) + 76px);
-  bottom: auto;
-  transform: translate(-50%, -12px);
-}
-body:has(#screen-discover.is-active) .toast.is-open {
-  transform: translate(-50%, 0);
-}
+
 
 /* ============================================================
    ask (AI)
@@ -2108,6 +2250,11 @@ body:has(#screen-discover.is-active) .toast.is-open {
   overflow-wrap: anywhere;
   white-space: pre-line;
 }
+/* A failure, not an answer. */
+.msg-error {
+  border-color: rgba(224, 106, 78, 0.35);
+  color: var(--silver);
+}
 /* A structured pick in the thread. */
 .pick-card {
   max-width: 100%;
@@ -2118,12 +2265,18 @@ body:has(#screen-discover.is-active) .toast.is-open {
 .pick-head {
   display: flex;
   gap: var(--s3);
+  width: 100%;
   padding: var(--s4);
+  text-align: left;
   cursor: pointer;
   transition: background var(--fast) var(--ease);
 }
 .pick-head:active {
   background: var(--raised);
+}
+/* The card clips its children to its rounded corners. */
+.pick-head:focus-visible {
+  outline-offset: -2px;
 }
 .pick-reason {
   padding: 0 var(--s4) var(--s4);
@@ -2213,7 +2366,7 @@ body:has(#screen-discover.is-active) .toast.is-open {
 }
 
 .composer textarea::placeholder {
-  color: var(--faint);
+  color: var(--ash);
 }
 .composer .send {
   width: 44px;

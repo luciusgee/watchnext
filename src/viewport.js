@@ -60,17 +60,20 @@ export function safeAreaInsets() {
  * the home indicator — and then draws the pill over the bottom of the web view
  * anyway, straight across the tab labels.
  *
- * Applied only where there is something to clear. A screen taller than the
- * viewport in a home-screen web app means iOS is holding back space for its
- * own furniture; a phone with a physical home button reports the two as equal
- * and gets no padding it does not need. The max() in the stylesheet means a
- * platform that does report a real bottom inset uses that instead, rather than
- * stacking the two.
+ * Applied only where there is something to clear, judged from the screen's
+ * shape: every Face ID iPhone is taller than 2:1, every home-button iPhone is
+ * 16:9. Comparing the screen to the viewport used to stand in for this, but
+ * iOS 26 shortens a home-screen app's viewport by the status bar on every
+ * phone — so an iPhone SE, with no indicator at all, got 20px of dead space
+ * under its tab bar. The max() in the stylesheet means a platform that does
+ * report a real bottom inset uses that instead, rather than stacking the two.
  */
 export function applyHomeIndicatorFloor() {
   const standalone =
     window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-  const hasFurniture = screen.height > window.innerHeight;
+  const long = Math.max(screen.width, screen.height);
+  const short = Math.min(screen.width, screen.height) || 1;
+  const hasFurniture = long / short > 2;
   /* Enough to clear the pill (~5pt tall, ~8pt up) with room to breathe, without
      reserving the full 34pt inset for a bar that does not need it. */
   const floor = standalone && hasFurniture ? '20px' : '0px';
@@ -292,6 +295,11 @@ function initViewportHeal(isEditing, afterHeal) {
     app.style.display = 'none';
     void app.offsetHeight; // force a synchronous reflow while it is gone
     app.style.display = '';
+    /* Coming back from display:none restarts every CSS animation under #app —
+       the screen's fade, a push slide, the hero's entrance — so closing the
+       keyboard on Settings slid the whole screen in again. Jump them to the
+       end; the heal is meant to be invisible. */
+    app.getAnimations?.({ subtree: true }).forEach((a) => a.finish());
 
     scrollers.forEach((s, i) => {
       s.scrollTop = tops[i];

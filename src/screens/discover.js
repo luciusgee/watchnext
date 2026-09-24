@@ -117,7 +117,17 @@ function render() {
 
   if (!left) {
     controls.hidden = true;
-    progress.hidden = true;
+    /* The payoff of sorting a whole library: the bar lands at full and the
+       count says so, rather than both vanishing in the frame the last card
+       goes. */
+    if (all) {
+      progress.hidden = false;
+      progress.querySelector('[data-region="bar"]').style.width = '100%';
+      progress.querySelector('[data-region="done"]').textContent = `All ${all} sorted`;
+      progress.querySelector('[data-region="left"]').textContent = '';
+    } else {
+      progress.hidden = true;
+    }
     deckEl.appendChild(emptyFor());
     /* The button that had focus has just been hidden; hand focus to whatever
        the empty state offers instead of dropping it on <body>. */

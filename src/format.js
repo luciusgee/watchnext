@@ -46,21 +46,22 @@ export function plural(n, one, many) {
   return `${n} ${n === 1 ? one : many || one + 's'}`;
 }
 
-/** Initials for the poster fallback: "The Dark Knight" -> "DK" */
+/** Initials for the poster fallback: "The Dark Knight" -> "DK".
+    Leading punctuation is skipped, so "(500) Days of Summer" is "5D" and
+    "[REC]" is "RE" rather than "(D" and "[R"; letters are matched as Unicode
+    so a non-Latin title keeps its own script instead of becoming "?". */
 export function initials(title) {
   const words = String(title || '')
+    .replace(/^[^\p{L}\p{N}]+/u, '')
     .replace(/^(the|a|an)\s+/i, '')
     .split(/[\s:–—-]+/)
-    .filter((w) => /[a-z0-9]/i.test(w));
+    .map((w) => w.replace(/^[^\p{L}\p{N}]+/u, ''))
+    .filter((w) => /[\p{L}\p{N}]/u.test(w));
   if (!words.length) return '?';
-  if (words.length === 1) {
-    const w = words[0];
-    return (w.length > 1 ? w.slice(0, 2) : w).toUpperCase();
-  }
-  return (words[0][0] + words[1][0]).toUpperCase();
+  if (words.length === 1) return [...words[0]].slice(0, 2).join('').toUpperCase();
+  return ([...words[0]][0] + [...words[1]][0]).toUpperCase();
 }
 
-/** Deterministic hue from a title, so a film's fallback tile is always the same. */
 export function titleHue(title) {
   let h = 0;
   const s = String(title || '');

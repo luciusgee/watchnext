@@ -98,7 +98,9 @@ const MOODS = [
 
 const DECADES = [
   ['2020', '2020s'], ['2010', '2010s'], ['2000', '2000s'],
-  ['1990', '90s'], ['1980', '80s'], ['1970', '70s'], ['pre1970', 'Older'],
+  /* Four digits throughout, as Stats labels them. The row used to switch from
+     "2000s" to "90s" part-way along. */
+  ['1990', '1990s'], ['1980', '1980s'], ['1970', '1970s'], ['pre1970', 'Before 1970'],
 ];
 
 const LENGTHS = [[90, 'Under 90 min'], [120, 'Under 2 hours'], [null, 'Any length']];
@@ -356,7 +358,7 @@ function render() {
   if (note) {
     metaEl.appendChild(
       el('span', {
-        style: 'display:block;margin-top:6px;color:var(--silver)',
+        style: 'margin-top:6px;color:var(--silver)',
         text: note,
       })
     );
@@ -574,6 +576,9 @@ function decide(direction) {
    decide they want something else, not two taps into a screen they have to
    know exists. */
 
+/* A brief typed before there was a key to send it with. */
+let draftBrief = '';
+
 export function openPickSheet() {
   /* --kb so a tall sheet is not pushed off the top when the keyboard, which
      this sheet summons, takes the bottom of the screen. */
@@ -600,6 +605,8 @@ export function openPickSheet() {
     rows: '2',
     placeholder: 'Horror in the vein of Ari Aster…',
     'aria-label': 'Describe what you fancy',
+    /* textContent is a textarea's initial value; a value attribute is ignored. */
+    text: draftBrief,
     style: 'resize:none;line-height:1.45;min-height:64px',
   });
   panel.appendChild(input);
@@ -628,16 +635,21 @@ export function openPickSheet() {
 
   const ask = () => {
     const text = input.value.trim();
+    /* The key first: the button says "Connect a key to ask", and with an
+       empty box it answered "Say what you fancy first" instead. What was
+       typed is kept for when they come back with a key. */
+    if (!ai.hasKey()) {
+      draftBrief = text;
+      close();
+      navigate('settings', { focus: 'ai' });
+      return;
+    }
     if (!text) {
       toast('Say what you fancy first');
       input.focus();
       return;
     }
-    if (!ai.hasKey()) {
-      close();
-      navigate('settings', { focus: 'ai' });
-      return;
-    }
+    draftBrief = '';
     close();
     relaxed = 0;
     /* Started before the navigation, not after: everything in dealFromBrief up
@@ -709,7 +721,9 @@ export function openPickSheet() {
 
   panel.appendChild(facet('Mood', MOODS.map((m) => [m.id, m.label]), 'mood'));
 
-  const genres = store.genresInUse().slice(0, 12);
+  /* Every genre in use. The rows wrap; at 12 a big library could filter by
+     Western in Library and not choose it here. */
+  const genres = store.genresInUse();
   if (genres.length) panel.appendChild(facet('Genre', genres.map((g) => [g, g]), 'genre'));
 
   panel.appendChild(facet('Decade', DECADES, 'decade'));

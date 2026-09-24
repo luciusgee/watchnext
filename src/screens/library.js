@@ -70,9 +70,19 @@ export function initLibrary({ navigate: nav }) {
     clearTimeout(debounce);
     debounce = setTimeout(() => {
       state.queryRaw = search.value.trim();
-      state.query = state.queryRaw.toLowerCase();
+      state.query = fold(state.queryRaw);
       render();
     }, 140);
+  });
+
+  /* The keyboard's "search" key. Results are already live, so all it has to do
+     is put the keyboard away — it did nothing, and the tab bar stayed hidden
+     under a keyboard that would not leave. */
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      search.blur();
+    }
   });
 
   root.querySelector('[data-action="filter"]').addEventListener('click', openFilters);
@@ -106,10 +116,23 @@ export function showLibrary(params = {}) {
     root.querySelector('#library-search').value = '';
   }
   if (params.filter === 'owned') state.quality = 'owned';
-  render();
+  /* Rebuilt to the depth that was showing, so the scroll offset main.js
+     restores has rows under it. A 40-row rebuild clamped a return from row
+     300 to about row 30. A new filter still starts from the top. */
+  render({ keep: !params.filter });
 }
 
 /* ── filtering ── */
+
+/* Accents and ampersands folded, as the iPhone keyboard types without them:
+   "amelie" found nothing in a library with Amélie in it, and "fast and furious"
+   missed Fast & Furious. */
+const fold = (s) =>
+  String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, 'and')
+    .toLowerCase();
 
 function compute() {
   let list = store.items();
@@ -118,13 +141,16 @@ function compute() {
     const q = state.query;
     list = list.filter(
       (i) =>
-        i.title.toLowerCase().includes(q) ||
-        (i.genre && i.genre.toLowerCase().includes(q)) ||
+        fold(i.title).includes(q) ||
+        (i.genre && fold(i.genre).includes(q)) ||
         (i.year && String(i.year).includes(q))
     );
   }
   if (state.type !== 'all') list = list.filter((i) => i.type === state.type);
-  if (state.genre) list = list.filter((i) => i.genre === state.genre);
+  /* Any of a title's genres, as the picker matches — Alien is displayed as
+     Horror, and the Sci-Fi filter used to leave it out while the picker's
+     Sci-Fi put it in. */
+  if (state.genre) list = list.filter((i) => i.genre === state.genre || (i.genres || []).includes(state.genre));
   if (state.quality === 'owned') list = list.filter((i) => i.owned);
   else if (state.quality) list = list.filter((i) => i.quality === state.quality);
   if (state.status === 'watched') list = list.filter((i) => i.watched);

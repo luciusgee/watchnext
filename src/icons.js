@@ -10,8 +10,11 @@ const P = {
     '<path d="M4 11.2 12 4.5l8 6.7"/><path d="M6.2 9.6V19a1 1 0 0 0 1 1h9.6a1 1 0 0 0 1-1V9.6"/><path d="M10.4 20v-5.1h3.2V20"/>',
   discover:
     '<rect x="3.4" y="5.2" width="12.2" height="15.4" rx="2.2"/><path d="M17.6 7.4l2.1.75a1.9 1.9 0 0 1 1.13 2.42l-3.1 8.6"/>',
+  /* The leaning third book is closed and inside the 24-unit box. It was an
+     open stroke ending on the edge, clipped flat, so at tab size it read as
+     "00\" rather than a shelf. */
   library:
-    '<rect x="3.2" y="4.4" width="4.6" height="15.2" rx="1.4"/><rect x="9.6" y="4.4" width="4.6" height="15.2" rx="1.4"/><path d="M16.8 6.3l2.6-.72a1.3 1.3 0 0 1 1.6.9l3 11.3"/>',
+    '<rect x="2.6" y="4.4" width="4.4" height="15.2" rx="1.4"/><rect x="8.6" y="4.4" width="4.4" height="15.2" rx="1.4"/><path d="M14.6 6.1l3.1-.83a1.2 1.2 0 0 1 1.47.85l3.3 12.3a1.2 1.2 0 0 1-.85 1.47l-3.1.83a1.2 1.2 0 0 1-1.47-.85L13.75 7.57a1.2 1.2 0 0 1 .85-1.47z"/>',
   ask:
     '<path d="M12 3.6l1.9 4.9 4.9 1.9-4.9 1.9L12 17.2l-1.9-4.9-4.9-1.9 4.9-1.9z"/><path d="M18.4 15.4l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
 
@@ -58,6 +61,10 @@ const P = {
   film: '<rect x="3.2" y="4.4" width="17.6" height="15.2" rx="2"/><path d="M7.6 4.4v15.2"/><path d="M16.4 4.4v15.2"/><path d="M3.2 12h17.6"/><path d="M3.2 8.2h4.4"/><path d="M3.2 15.8h4.4"/><path d="M16.4 8.2h4.4"/><path d="M16.4 15.8h4.4"/>',
   shuffle:
     '<path d="M17.6 4.8 20.8 8l-3.2 3.2"/><path d="M17.6 12.8 20.8 16l-3.2 3.2"/><path d="M3.2 8h3.4a4 4 0 0 1 3.3 1.8l4 6.4a4 4 0 0 0 3.3 1.8h3.6"/><path d="M3.2 16h3.4a4 4 0 0 0 3.3-1.8l.7-1.1"/><path d="M14.2 9.9l.4-.7A4 4 0 0 1 17.9 7.4h2.9"/>',
+  /* Sort: two opposed arrows. The Library used the sliders glyph for sort,
+     directly above a Filter pill, so the screen had two filter-looking
+     controls and nothing that looked like sorting. */
+  sort: '<path d="M7.6 19.4V4.6"/><path d="M4.2 8 7.6 4.6 11 8"/><path d="M16.4 4.6v14.8"/><path d="M13 16l3.4 3.4 3.4-3.4"/>',
   sliders:
     '<path d="M4.4 7.4h9.2"/><path d="M17.6 7.4h2"/><path d="M4.4 16.6h2.4"/><path d="M10.8 16.6h8.8"/><circle cx="15.6" cy="7.4" r="2.1"/><circle cx="8.8" cy="16.6" r="2.1"/>',
   send: '<path d="M20.4 3.6 3.8 10.2a.6.6 0 0 0 .05 1.12l6.5 2.3 2.3 6.5a.6.6 0 0 0 1.12.05z"/><path d="M20.4 3.6 10.35 13.62"/>',

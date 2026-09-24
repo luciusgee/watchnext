@@ -426,15 +426,16 @@ async function measure(page) {
    */
   console.log('\n─── a short viewport is reported, never overrun ───');
 
-  const ios26 = async ({ screenH = 932, viewportH = 873, top = 59, bottom = 34, standalone = true } = {}) => {
+  const ios26 = async ({ screenH = 932, screenW = null, viewportH = 873, top = 59, bottom = 34, standalone = true } = {}) => {
     const c = await browser.newContext({ ...devices['iPhone 13 Pro'] });
     await c.route('**://image.tmdb.org/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
     await c.route('**://m.media-amazon.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
     const p = await c.newPage();
     await p.addInitScript(
-      ([sh, vh, t, b, sa]) => {
+      ([sh, sw, vh, t, b, sa]) => {
         if (sa) Object.defineProperty(navigator, 'standalone', { get: () => true, configurable: true });
         Object.defineProperty(window.screen, 'height', { get: () => sh, configurable: true });
+        if (sw) Object.defineProperty(window.screen, 'width', { get: () => sw, configurable: true });
         Object.defineProperty(window, 'innerHeight', { get: () => vh, configurable: true });
         /* Count blank-and-reflow attempts the same way standaloneCtx does. This
            was missing, so `flips` read 0 whether or not the heal ran and the
@@ -459,7 +460,7 @@ async function measure(page) {
           }).observe(app, { attributes: true, attributeFilter: ['style'], attributeOldValue: true });
         });
       },
-      [screenH, viewportH, top, bottom, standalone]
+      [screenH, screenW, viewportH, top, bottom, standalone]
     );
     await p.goto(URL, { waitUntil: 'networkidle' });
     await p.waitForSelector('body.is-ready');
@@ -622,7 +623,12 @@ async function measure(page) {
   for (const [label, opts, expected] of [
     ['a home-screen app on a phone with a home indicator', { bottom: 0 }, 20],
     ['in the browser, where the bar is not the bottom of the screen', { bottom: 0, standalone: false }, 0],
-    ['a phone with no furniture to clear', { bottom: 0, screenH: 873 }, 0],
+    /* A home-button phone: 16:9, no indicator. The iOS 26 standalone
+       viewport comes up 20pt short on these too — the status bar — which the
+       old "screen taller than viewport" test mistook for an indicator and
+       padded for. The screen's shape is the signal that does not move. */
+    ['a phone with a home button', { bottom: 0, screenW: 375, screenH: 667, viewportH: 667 }, 0],
+    ['a home-button phone whose viewport iOS shortens', { bottom: 0, screenW: 375, screenH: 667, viewportH: 647 }, 0],
   ]) {
     const { c, p } = await ios26(opts);
     const m = await p.evaluate(() => {

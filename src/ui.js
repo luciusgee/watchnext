@@ -126,6 +126,17 @@ export function toast(message, { action = null, onAction = null, duration = 3200
       })
     );
   }
+  /* Where it appears is decided once, now, rather than by live state — a
+     toast raised over a sheet used to jump ~600px to the bottom when the sheet
+     closed, and one raised on Discover followed you to the next tab. It drops
+     in from the top when the bottom of the screen is taken: by an open sheet,
+     or by a deck's answer buttons (where its Undo landed on ✓). */
+  const sheetOpen = !!document.querySelector('.sheet.is-open');
+  const deck = !!document.querySelector('#screen-discover.is-active, #screen-pick.is-active');
+  const overlay = !!document.querySelector('.detail.is-open');
+  node.classList.toggle('at-top', sheetOpen || (deck && !overlay));
+  node.classList.toggle('below-bar', !sheetOpen && deck && !overlay);
+  if (!node.classList.contains('is-open')) void node.offsetWidth;
   node.classList.add('is-open');
   toastTimer = setTimeout(hideToast, duration);
 }
@@ -208,6 +219,44 @@ function onSheetKey(e) {
  * The caller fills `panel`, then calls `show()`. `close()` animates out,
  * restores focus to whatever opened it, and removes both nodes afterwards.
  */
+/**
+ * Pull the sheet down by its grabber to dismiss it.
+ *
+ * Every sheet draws the iOS drag handle, and on iOS that handle always means
+ * "pull down to close" — here it did nothing at all. Follows the finger, and
+ * closes on a long enough pull or a quick flick; otherwise eases back.
+ */
+function dragToDismiss(panel, close) {
+  const grip = panel.querySelector('.sheet-grip');
+  if (!grip || grip.dataset.drag) return;
+  grip.dataset.drag = '1';
+  let y0 = null;
+  let dy = 0;
+  let t0 = 0;
+  grip.addEventListener('pointerdown', (e) => {
+    y0 = e.clientY;
+    t0 = performance.now();
+    dy = 0;
+    grip.setPointerCapture(e.pointerId);
+    panel.style.transition = 'none';
+  });
+  grip.addEventListener('pointermove', (e) => {
+    if (y0 === null) return;
+    dy = Math.max(0, e.clientY - y0);
+    panel.style.transform = `translateY(${dy}px)`;
+  });
+  const end = () => {
+    if (y0 === null) return;
+    const v = dy / Math.max(1, performance.now() - t0);
+    y0 = null;
+    panel.style.transition = '';
+    panel.style.transform = '';
+    if (dy > 90 || v > 0.5) close();
+  };
+  grip.addEventListener('pointerup', end);
+  grip.addEventListener('pointercancel', end);
+}
+
 export function openPanel({ label, className = '', style = '', onClose = null } = {}) {
   const lastFocus = document.activeElement;
   const scrim = el('div', { class: 'scrim' });
@@ -262,6 +311,7 @@ export function openPanel({ label, className = '', style = '', onClose = null } 
     document.body.appendChild(scrim);
     document.body.appendChild(panel);
     reveal(scrim, panel);
+    dragToDismiss(panel, close);
   };
   return { scrim, panel, close, show, isClosing: () => closing };
 }
@@ -321,6 +371,7 @@ export function openSheet(opts) {
   sheet.appendChild(box);
 
   reveal(scrim, sheet);
+  dragToDismiss(sheet, closeSheet);
   document.addEventListener('keydown', onSheetKey);
   /* The sheet, not its first button. Focusing the button painted a focus ring
      on the current sort for someone who had only tapped, and made the first

@@ -118,8 +118,8 @@ export const tmdb = {
   id: 'tmdb',
   label: 'TMDB',
   keyLabel: 'TMDB API key or read access token',
-  keyHint: 'Free at themoviedb.org — Settings → API. Either the v3 key or the v4 token works.',
-  keyPlaceholder: 'API key or eyJhbGciOi…',
+  keyHint: 'Free from themoviedb.org → Settings → API. Either the short key or the long token works.',
+  keyPlaceholder: 'Paste your TMDB key',
   /* TMDB removed its published hard daily cap; keep a generous ceiling purely
      as a runaway guard rather than as a quota. */
   dailyLimit: 20000,
@@ -232,7 +232,12 @@ export const tmdb = {
       await call('/configuration', {}, { key, signal });
       return { ok: true };
     } catch (err) {
-      if (err.code === 'network') return { ok: null, message: 'Could not reach TMDB — check your connection.' };
+      if (err.code === 'network') return { ok: null, message: 'Could not reach TMDB. Check your connection.' };
+      /* Only a rejection means a bad key. A 503 or an HTML error page used to
+         be saved as the key's verdict and shown in red on every later visit. */
+      if (err.code !== 'auth') {
+        return { ok: null, message: 'TMDB didn’t answer properly just now. Your key is saved — try again in a minute.' };
+      }
       return { ok: false, message: err.message };
     }
   },

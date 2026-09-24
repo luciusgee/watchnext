@@ -30,7 +30,9 @@ export function setWatched(uid, watched, { silent = false } = {}) {
     store.emit('item');
     if (!silent) {
       const who = store.people().find((p) => p.id === person)?.name || 'you';
-      toast(watched ? `${item.title} — watched by ${who}` : `Unmarked for ${who}`, {
+      /* Always the film's name — "Unmarked for Luke" with an Undo beside it
+         never said which film it was about. */
+      toast(watched ? `Marked ${item.title} as watched by ${who}` : `Marked ${item.title} unwatched for ${who}`, {
         action: 'Undo',
         onAction: () => {
           store.update(uid, prev);
@@ -74,7 +76,7 @@ export function setOwned(uid, owned) {
   const next = store.update(uid, { owned });
   store.logActivity(owned ? 'owned' : 'unowned', item, prev);
   store.emit('item');
-  toast(owned ? `${item.title} marked as in your collection` : `${item.title} removed from your collection`);
+  toast(owned ? `Marked ${item.title} as owned` : `Marked ${item.title} as not owned`);
   return next;
 }
 

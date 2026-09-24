@@ -44,6 +44,7 @@ const SHOW = {
 };
 
 let current = 'tonight';
+let lastTab = 'tonight';
 
 /* Screens you go into rather than across to. They slide in from the right, get
    a Back that returns to wherever you were, and remember nothing of their own
@@ -68,6 +69,7 @@ function navigate(id, params = {}, { back = false } = {}) {
   }
 
   const from = current;
+  const had = document.activeElement;
   const prev = scroller(from);
   if (prev) scrollMemo.set(from, prev.scrollTop);
   if (!back && id !== from) {
@@ -83,6 +85,9 @@ function navigate(id, params = {}, { back = false } = {}) {
   if (id !== from && document.body.classList.contains('is-ready')) {
     if (PUSHED.has(id) && !back) target.classList.add('is-push');
     else if (back || PUSHED.has(from)) target.classList.add('is-pop');
+    /* A direction class must not outlive its slide: anything that restarts
+       animations later (the viewport heal does) would replay it. */
+    target.addEventListener('animationend', () => target.classList.remove('is-push', 'is-pop'), { once: true });
   }
 
   for (const screen of document.querySelectorAll('.screen')) {
@@ -91,9 +96,12 @@ function navigate(id, params = {}, { back = false } = {}) {
   current = id;
 
   /* The tab bar stays visible on Settings and Add — the old version stranded
-     you on Add with only a back arrow. */
+     you on Add with only a back arrow. On a screen you went into, the tab you
+     came from stays lit: with none highlighted, the bar stopped saying where
+     you were. */
+  if (TABS.some((t) => t.id === id)) lastTab = id;
   for (const btn of document.querySelectorAll('[data-tab]')) {
-    const active = btn.dataset.tab === id;
+    const active = btn.dataset.tab === lastTab;
     btn.setAttribute('aria-current', active ? 'page' : 'false');
   }
 
@@ -109,6 +117,25 @@ function navigate(id, params = {}, { back = false } = {}) {
      screen — still far better than always starting again at the top. */
   const sc = scroller(id);
   if (sc) sc.scrollTop = !PUSHED.has(id) || back ? scrollMemo.get(id) || 0 : 0;
+
+  /* The control that was focused — a gear, a plus, a Back — has just gone
+     display:none with its screen, which dropped keyboard focus on <body> and
+     left VoiceOver's cursor on nothing. Land on the new screen's heading
+     instead. A tab-bar tap keeps focus on the tab, which is still there. */
+  if (had && had !== document.body && !target.contains(had) && !had.closest('.tabbar')) {
+    const h = target.querySelector('h1');
+    if (h) {
+      h.tabIndex = -1;
+      h.focus({ preventScroll: true });
+    }
+  }
+
+  /* Leaving a shared shelf by any route drops its fragment. Only the shelf's
+     own button used to, so after tapping a tab a reload — or sharing the page
+     — reopened someone else's list. */
+  if (from === 'shelf' && id !== 'shelf' && isSharedShelf(location.hash)) {
+    history.replaceState(null, '', location.pathname + location.search);
+  }
 
   /* Never overwrite a shared-shelf fragment with a screen name — the fragment
      IS the shelf, and rewriting it loses the list the user just opened. */
@@ -281,16 +308,27 @@ function registerServiceWorker() {
 
   async function start() {
     try {
+      /* Read before registering: on a first install there is no controller,
+         and the new worker claiming the page is not an update. */
+      const hadController = !!navigator.serviceWorker.controller;
       const reg = await navigator.serviceWorker.register('./sw.js');
 
       /* When a new version takes over, reload once so the running page is not
-         a mix of old modules and new ones. The guard stops a reload loop if
-         the worker changes again during that reload. */
+         a mix of old modules and new ones — but never on the first install,
+         where the page is already the current build (that reloaded the app a
+         second or two after its very first launch), and never under the
+         user's thumb. The shell is fetched network-first, so the page running
+         now is almost always the new code already; the reload waits until the
+         app is next put away, where nobody sees it. */
       let reloading = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (reloading) return;
-        reloading = true;
-        location.reload();
+        if (reloading || !hadController) return;
+        const reloadWhenHidden = () => {
+          if (document.visibilityState !== 'hidden' || reloading) return;
+          reloading = true;
+          location.reload();
+        };
+        document.addEventListener('visibilitychange', reloadWhenHidden);
       });
 
       /* A worker already waiting means a deploy landed while the app was open.
@@ -435,7 +473,13 @@ function exposeTestHooks() {
 const start = () =>
   boot()
     .catch((e) => console.error('[boot] failed', e))
-    .finally(() => document.body.classList.add('is-ready'));
+    .finally(() => {
+      document.body.classList.add('is-ready');
+      /* The launch mark has done its job once it has faded. */
+      const mark = document.getElementById('boot');
+      mark?.addEventListener('transitionend', () => mark.remove(), { once: true });
+      setTimeout(() => mark?.remove(), 1000);
+    });
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', start);

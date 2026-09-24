@@ -54,26 +54,48 @@ function render() {
 
   const { decades, genres } = store.breakdown();
 
-  /* The pile first, because it is the point. */
+  /* The pile first, because it is the point — when there is one. For someone
+     who owns nothing yet, or has watched everything they own, the hero of the
+     screen was a 56px amber "0". */
+  const unwatched = s.total - s.watched;
   bodyEl.appendChild(
-    headline(
-      String(s.pile),
-      s.pile === 1 ? 'film you own and have never watched' : 'films you own and have never watched',
-      /* "about", as the card says: titles with no runtime add nothing. */
-      s.hoursUnwatched ? `about ${plural(s.hoursUnwatched, 'hour')} of it` : null
-    )
+    s.pile
+      ? headline(
+          String(s.pile),
+          s.pile === 1 ? 'film you own and have never watched' : 'films you own and have never watched',
+          /* "about", as the card says: titles with no runtime add nothing. */
+          s.hoursUnwatched ? `about ${plural(s.hoursUnwatched, 'hour')} of it` : null
+        )
+      : s.owned
+        ? headline('All', `${plural(s.owned, 'film')} you own, watched`, 'Nothing on the pile.')
+        : headline(String(unwatched), unwatched === 1 ? 'film you haven’t seen yet' : 'films you haven’t seen yet', null)
   );
 
   bodyEl.appendChild(
     grid([
       [s.total, 'titles'],
-      [s.owned, 'on your shelf'],
+      /* "Shelf" is the whole library everywhere else — this page is titled
+         "Your shelf" — so the owned subset is called what it is. */
+      [s.owned, 'owned'],
       [s.watched, 'watched'],
       [`${s.pctWatched}%`, 'of the way through'],
       [s.hoursWatched, 'hours watched'],
       [s.fourK, 'in 4K'],
     ])
   );
+
+  /* Hours come only from titles with a known length, and the bars only from
+     titles with a year or genre. On a half-looked-up library that is a subset
+     shown as the whole — so say what the numbers cover. */
+  const everything = store.items();
+  const timed = everything.filter((i) => i.runtime).length;
+  if (timed < everything.length) {
+    bodyEl.appendChild(
+      note(`Hours count the ${timed} of ${everything.length} titles with a known length. Look up the rest in Settings.`)
+    );
+  }
+  const dated = everything.filter((i) => i.year).length;
+  const typed = everything.filter((i) => i.genre).length;
 
   const longest = store
     .items()
@@ -85,8 +107,9 @@ function render() {
     );
   }
 
-  if (decades.length > 1) bodyEl.appendChild(bars('By decade', decades));
-  if (genres.length > 1) bodyEl.appendChild(bars('By genre', genres.slice(0, 8)));
+  const of = (n) => (n < everything.length ? ` · ${n} of ${everything.length}` : '');
+  if (decades.length > 1) bodyEl.appendChild(bars(`By decade${of(dated)}`, decades));
+  if (genres.length > 1) bodyEl.appendChild(bars(`By genre${of(typed)}`, genres.slice(0, 8)));
 
   /* Share */
   const actions = el('div', { style: 'padding:24px 16px 8px;display:flex;gap:8px;flex-wrap:wrap' });
@@ -229,13 +252,21 @@ async function shareCard(s) {
      this-year line joins in only once the dates actually span a year. */
   line('My shelf', { size: 96, weight: 650, y: 268 });
 
-  line(String(s.pile), { size: 210, weight: 680, colour: amber, y: 520 });
-  line(s.pile === 1 ? 'film I own and have never watched' : 'films I own and have never watched', {
+  /* The same three cases as the screen: a card headed by a 210px "0" is not
+     one anybody sends. */
+  const unwatched = s.total - s.watched;
+  const [big, caption] = s.pile
+    ? [String(s.pile), s.pile === 1 ? 'film I own and have never watched' : 'films I own and have never watched']
+    : s.owned
+      ? ['All', `${s.owned === 1 ? 'the film' : `${s.owned} films`} I own, watched`]
+      : [String(unwatched), unwatched === 1 ? 'film I haven’t seen yet' : 'films I haven’t seen yet'];
+  line(big, { size: 210, weight: 680, colour: amber, y: 520 });
+  line(caption, {
     size: 38,
     colour: bone,
     y: 590,
   });
-  if (s.hoursUnwatched) {
+  if (s.pile && s.hoursUnwatched) {
     line(`about ${s.hoursUnwatched} hours of it`, { size: 34, colour: ash, y: 654 });
   }
 

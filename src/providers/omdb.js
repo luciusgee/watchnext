@@ -99,7 +99,7 @@ export const omdb = {
   label: 'OMDb',
   keyLabel: 'OMDb API key',
   keyHint: 'Free at omdbapi.com — takes a minute and is yours alone.',
-  keyPlaceholder: 'e.g. 1a2b3c4d',
+  keyPlaceholder: 'Paste your OMDb key',
   dailyLimit: 950, // free tier is 1000; leave headroom
   /* OMDb hotlinks IMDb's media CDN rather than hosting artwork itself. */
   attribution: { text: 'Film data from OMDb', url: 'https://www.omdbapi.com/' },
@@ -242,9 +242,12 @@ export const omdb = {
     } catch (err) {
       /* A dead network is not a bad key — do not tell someone to go and get a
          new one because their train went into a tunnel. */
-      if (err.code === 'network') return { ok: null, message: 'Could not reach OMDb — check your connection.' };
+      if (err.code === 'network') return { ok: null, message: 'Could not reach OMDb. Check your connection.' };
       if (err.code === 'budget') {
         return { ok: true, message: 'Key works, but it has already hit today’s limit. It resets tomorrow.' };
+      }
+      if (err.code !== 'auth') {
+        return { ok: null, message: 'OMDb didn’t answer properly just now. Your key is saved — try again in a minute.' };
       }
       return { ok: false, message: err.message };
     }

@@ -10,11 +10,12 @@ import * as store from '../store.js';
 import * as actions from '../actions.js';
 import { el, clear, poster, posterBadge, button, iconButton, emptyState } from '../ui.js';
 import { icon } from '../icons.js';
-import { runtime, commitment, relativeTime, rating, plural } from '../format.js';
+import { runtime, commitment, relativeTime, rating, plural, fallbackColors } from '../format.js';
 import { tonightPick, alternates } from '../recommend.js';
 import { openDetail } from './detail.js';
 import { openPickSheet } from './pick.js';
 import { shouldNudgeBackup, markBackedUp } from '../durability.js';
+import * as sync from '../sync.js';
 import { seedLibrary } from '../seed.js';
 import { toast } from '../ui.js';
 
@@ -56,7 +57,7 @@ export function render() {
       emptyState({
         iconName: 'library',
         title: 'Your library is empty',
-        message: 'Add the films and shows you own, and this screen will tell you what to watch.',
+        message: 'Add the films and series you own, and this screen will tell you what to watch.',
         action: { label: 'Add titles', onClick: () => navigate('add') },
       })
     );
@@ -77,7 +78,7 @@ export function render() {
           kind: 'quiet',
           onClick: () => {
             const n = store.loadSample(seedLibrary);
-            toast(n ? `Added ${n} titles to try. Remove any you do not want.` : 'Nothing to add');
+            toast(n ? `Added ${n} titles to try. Remove any you don’t want.` : 'Nothing to add');
             /* loadSample emits 'item'; the subscriber above renders. */
           },
         })
@@ -108,7 +109,7 @@ export function render() {
         iconName: 'check',
         title: 'Nothing left to suggest',
         message: ownedOnly
-          ? 'Everything you own is watched. Turn off the collection filter to see the rest.'
+          ? 'You’ve watched everything you own. The button below brings in the rest.'
           : 'You’ve watched everything. Genuinely impressive.',
         action: ownedOnly
           ? {
@@ -211,11 +212,17 @@ function heroBlock(pick) {
   const item = pick.item;
   const wrap = el('section', { class: 'hero', 'aria-labelledby': 'tonight-title' });
 
-  if (item.poster) {
-    wrap.appendChild(
-      el('div', { class: 'hero-bg', style: `background-image:url("${cssUrl(item.poster)}")` })
-    );
-  }
+  /* Always a wash — its detail screen gets one without a poster, and a
+     posterless pick sat on flat black here. */
+  const fb = fallbackColors(item.title);
+  wrap.appendChild(
+    el('div', {
+      class: 'hero-bg',
+      style: item.poster
+        ? `background-image:url("${cssUrl(item.poster)}")`
+        : `background-image:linear-gradient(160deg, ${fb.a}, ${fb.b});filter:none;opacity:0.5`,
+    })
+  );
   wrap.appendChild(el('div', { class: 'hero-veil' }));
 
   const inner = el('div', { class: 'hero-in' });
@@ -357,6 +364,9 @@ function snoozedUntil() {
 }
 
 function backupNudge() {
+  /* With sync on, every change is already a commit in the repo, and "no copy
+     anywhere else" was false — and alarming — on both phones. */
+  if (sync.config().enabled && sync.status().phase !== 'error') return null;
   if (!shouldNudgeBackup(store.stats())) return null;
   if (Date.now() < snoozedUntil()) return null;
 
@@ -417,6 +427,7 @@ function exportNow() {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   markBackedUp();
+  toast('Exported');
 }
 
 function rail(title, items, onSeeAll) {

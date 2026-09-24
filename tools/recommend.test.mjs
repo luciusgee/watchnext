@@ -110,7 +110,7 @@ console.log('\n─── what outranks what ───');
   const notOwned = scoreItem(film({ owned: false }), flat, ctx());
   check('something you own beats an identical film you do not',
     owned.score > notOwned.score, `${owned.score} vs ${notOwned.score}`);
-  check('and it says why', owned.why.includes('you already have this'), owned.why.join(' · '));
+  check('and it says why', owned.why.some((w) => /own it|already have|never played/.test(w)), owned.why.join(' · '));
 
   const better = scoreItem(film({ rating: 8.5 }), flat, ctx());
   const worse = scoreItem(film({ rating: 5.5 }), flat, ctx());
@@ -170,7 +170,7 @@ console.log('\n─── a re-watch has to earn its place ───');
     film({ watched: true, watchedAt: Date.now() - 4 * YEAR, rating: 8.5 }), flat, ctx());
   check('a film you loved four years ago is fair game', lovedLongAgo !== null);
   check('and the reason replaces the others rather than stacking',
-    lovedLongAgo.why.length === 1 && /you loved this/.test(lovedLongAgo.why[0]),
+    lovedLongAgo.why.length === 1 && /last watched 4 years ago/.test(lovedLongAgo.why[0]),
     lovedLongAgo.why.join(' · '));
 
   const mediocre = scoreItem(

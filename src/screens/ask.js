@@ -242,19 +242,12 @@ function addPick(pick, item) {
      were left, the reason clipped away. */
   const card = el('div', { class: 'msg msg-bot pick-card' });
 
-  const head = el('div', {
+  /* A real button with no aria-label, so VoiceOver reads what it shows — the
+     year, the runtime, "You have this in 4K" — rather than "Open Heat". */
+  const head = el('button', {
     class: 'pick-head',
-    role: 'button',
-    tabindex: '0',
-    'aria-label': `Open ${item.title}`,
-  });
-  const open = () => openDetail(item.uid);
-  head.addEventListener('click', open);
-  head.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      open();
-    }
+    type: 'button',
+    onclick: () => openDetail(item.uid),
   });
 
   head.appendChild(poster(item, { width: 64 }));
@@ -289,6 +282,12 @@ async function send(text) {
   }
 
   addMessage('user', text);
+  return ask(text);
+}
+
+/* The call itself, without echoing the question — so "Try again" does not add
+   the user's bubble a second time. */
+async function ask(text) {
   pending = true;
   syncSend();
   const typing = addTyping();
@@ -297,7 +296,17 @@ async function send(text) {
     const candidates = pickCandidates();
     if (!candidates.length) {
       typing.remove();
-      addMessage('bot', 'There is nothing unwatched left that matches those constraints. Try relaxing one.');
+      /* Something true, and something on screen to act on. "Try relaxing one"
+         was the answer to everything in a library with nothing owned, where
+         the one constraint in force had no chip to turn it off. */
+      addMessage(
+        'bot',
+        !store.items().length
+          ? 'Your library is empty — add a few films and I’ll pick from those.'
+          : constraints.minutes
+            ? 'Nothing unwatched fits that time. Try taking the time limit off.'
+            : 'You’ve watched everything that matches. Try turning off “Only what I own”.'
+      );
       return;
     }
 
@@ -321,7 +330,22 @@ async function send(text) {
     listEl.children[first]?.scrollIntoView({ block: 'start', behavior: reduceMotion() ? 'auto' : 'smooth' });
   } catch (err) {
     typing.remove();
-    addMessage('bot', ai.friendlyError(err));
+    /* Not in the voice of an answer: an error in the same bubble as a reply
+       read as Claude saying it. And the question had already been cleared from
+       the box, so recovering meant retyping it. */
+    const node = addMessage('bot', ai.friendlyError(err));
+    node.classList.add('msg-error');
+    const retry = el('button', {
+      class: 'btn btn-quiet btn-sm',
+      type: 'button',
+      text: 'Try again',
+      style: 'margin-top:var(--s2)',
+      onclick: () => {
+        node.remove();
+        ask(text);
+      },
+    });
+    node.appendChild(el('div', {}, retry));
   } finally {
     pending = false;
     syncSend();
@@ -330,11 +354,20 @@ async function send(text) {
 
 /** Rank locally, then send only the shortlist. */
 function pickCandidates() {
-  const ranked = rank(store.items(), {
-    ownedOnly: constraints.ownedOnly,
+  const items = store.items();
+  /* "Only what I own" can only mean something when something is owned — its
+     chip is not even shown otherwise. And the same things the rest of the app
+     honours: what you told it to stop suggesting, and whose evening it is. It
+     used to recommend muted films and ignore the viewer. */
+  const anyOwned = items.some((i) => i.owned);
+  const person = store.viewer();
+  const ranked = rank(items, {
+    ownedOnly: constraints.ownedOnly && anyOwned,
     allowRewatch: false,
     maxRuntime: constraints.minutes,
     limit: MAX_CANDIDATES,
+    muted: store.tastePrefs(),
+    viewerSeen: person ? new Set(items.filter((i) => store.seenBy(i, person)).map((i) => i.uid)) : null,
   });
   return ranked.map((r) => r.item);
 }

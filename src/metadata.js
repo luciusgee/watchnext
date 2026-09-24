@@ -355,8 +355,12 @@ export async function sweep(list, { provider, key, budget, signal, onProgress, d
         break;
       }
       /* Budget and auth failures affect every subsequent call, so stop rather
-         than burning through the list marking everything unmatched. */
-      if (err.code === 'budget' || err.code === 'auth') {
+         than burning through the list marking everything unmatched. The same
+         goes for the network and rate limits: a sweep run on a train that
+         lost signal used to mark the whole rest of the library "not found",
+         turning a verified shelf into hundreds of warnings. Nothing after the
+         failure is touched. */
+      if (err.code === 'budget' || err.code === 'auth' || err.code === 'network' || err.code === 'rate') {
         out.stopped = true;
         out.error = err;
         break;
