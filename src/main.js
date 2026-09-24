@@ -10,6 +10,7 @@ import { requestPersistence } from './durability.js';
 import { start as startSync } from './sync.js';
 import { syncViewport, blockZoom, measureShortfall, applyHomeIndicatorFloor } from './viewport.js';
 import { icon } from './icons.js';
+import * as haptics from './haptics.js';
 import { el, toast } from './ui.js';
 
 import { initDetail, closeDetail, isDetailOpen } from './screens/detail.js';
@@ -182,6 +183,7 @@ async function boot() {
   /* No seed argument: a new install starts empty and the sample is offered from
      the empty state instead. See store.init(). */
   await store.init();
+  haptics.start();
 
   document.getElementById('app').appendChild(buildTabBar());
   wireChrome();

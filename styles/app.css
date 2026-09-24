@@ -1276,8 +1276,6 @@ body.is-typing .tabbar {
 .group-pad {
   padding: var(--s4);
 }
-/* Helper and status copy under a control. One style, where Settings had a dozen
-   hand-typed copies at four line-heights and three top margins. */
 /* The platform's own switch — on an iPhone, the iOS switch. The base reset
    strips background and border from every input, which a native control must
    keep. */
@@ -1293,6 +1291,45 @@ body.is-typing .tabbar {
 label.group-item {
   cursor: pointer;
 }
+
+/* The haptic overlay (haptics.js): a transparent label over the control's
+   whole face, wrapping a switch too small and faint to see. The switch keeps
+   its native appearance — without it iOS plays nothing. */
+:where([data-haptic]) {
+  position: relative;
+}
+.haptic {
+  position: absolute;
+  /* Out over the control's hairline border: inset 0 stops at the padding
+     edge, and a tap on the outermost pixel reached the control untouched. */
+  inset: -1px;
+  margin: 0;
+  border-radius: inherit;
+  cursor: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.haptic-switch {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+  appearance: auto;
+  background: revert;
+  border: revert;
+}
+/* Off in Settings, or a control that cannot be pressed: no label, so the tap
+   reaches the control itself — and a disabled one does nothing, as it should. */
+.no-haptics .haptic,
+:disabled > .haptic,
+[aria-disabled='true'] > .haptic {
+  display: none;
+}
+/* Helper and status copy under a control. One style, where Settings had a dozen
+   hand-typed copies at four line-heights and three top margins. */
 .group-hint {
   font-size: var(--t-meta);
   line-height: 1.5;

@@ -8,7 +8,6 @@
  */
 
 import { icon } from './icons.js';
-import * as haptics from './haptics.js';
 import { initials, fallbackColors, escapeHtml } from './format.js';
 
 /* ── element helper ── */
@@ -119,9 +118,9 @@ export function toast(message, { action = null, onAction = null, duration = 3200
       el('button', {
         class: 'toast-action',
         type: 'button',
+        'data-haptic': true,
         text: action,
         onclick: () => {
-          haptics.selection();
           hideToast();
           onAction();
         },
@@ -253,10 +252,7 @@ function dragToDismiss(panel, close) {
     y0 = null;
     panel.style.transition = '';
     panel.style.transform = '';
-    if (dy > 90 || v > 0.5) {
-      haptics.selection();
-      close();
-    }
+    if (dy > 90 || v > 0.5) close();
   };
   grip.addEventListener('pointerup', end);
   grip.addEventListener('pointercancel', end);
@@ -355,6 +351,7 @@ export function openSheet(opts) {
       el('button', {
         class: `btn btn-block btn-${a.kind || 'secondary'}`,
         type: 'button',
+        'data-haptic': a.haptic || null,
         text: a.label,
         /* The "this one is on" treatment says so to VoiceOver as well. */
         'aria-pressed': a.kind === 'on-amber' ? 'true' : null,
@@ -399,17 +396,7 @@ export function confirmDestructive({ title, message, confirmLabel, onConfirm }) 
   openSheet({
     title,
     message,
-    actions: [
-      {
-        label: confirmLabel,
-        kind: 'danger',
-        /* The heavier tap is for the thing that cannot be taken back lightly. */
-        onClick: () => {
-          haptics.impact();
-          onConfirm?.();
-        },
-      },
-    ],
+    actions: [{ label: confirmLabel, kind: 'danger', haptic: true, onClick: onConfirm }],
   });
 }
 
@@ -441,6 +428,7 @@ export function emptyState({ iconName = 'film', title, message, action = null })
         el('button', {
           class: 'btn btn-secondary',
           type: 'button',
+          'data-haptic': action.haptic || null,
           text: action.label,
           onclick: action.onClick,
         })
@@ -466,7 +454,7 @@ export function iconButton(name, label, onClick, { size = 21, cls = '' } = {}) {
 /** Button with a leading icon. */
 export function button(
   label,
-  { kind = 'secondary', iconName = null, onClick, block = false, size = null, type = 'button' } = {}
+  { kind = 'secondary', iconName = null, onClick, block = false, size = null, type = 'button', haptic = false } = {}
 ) {
   /* `type` is opt-in because a button built by this helper and dropped into a
      <form> defaults to type=button and does nothing — which is exactly how the
@@ -474,6 +462,8 @@ export function button(
   const b = el('button', {
     class: `btn btn-${kind}${block ? ' btn-block' : ''}${size === 'sm' ? ' btn-sm' : ''}`,
     type,
+    /* A tick on tap, iPhone only — see haptics.js. */
+    'data-haptic': haptic || null,
     onclick: onClick,
   });
   if (iconName) b.appendChild(el('span', { html: icon(iconName, size === 'sm' ? 15 : 17) }).firstChild);
@@ -497,6 +487,7 @@ export function checkRow(label, checked, onChange) {
   const b = el('button', {
     class: 'checkrow',
     type: 'button',
+    'data-haptic': true,
     'aria-pressed': String(!!checked),
   });
   const box = el('span', { class: 'checkbox' });
@@ -506,7 +497,6 @@ export function checkRow(label, checked, onChange) {
   b.addEventListener('click', () => {
     const next = b.getAttribute('aria-pressed') !== 'true';
     b.setAttribute('aria-pressed', String(next));
-    haptics.selection();
     onChange?.(next);
   });
   return b;

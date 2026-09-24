@@ -15,7 +15,6 @@ import * as store from '../store.js';
 import { decodeShelf } from '../share.js';
 import { el, clear, button, toast, poster, emptyState } from '../ui.js';
 import { plural } from '../format.js';
-import * as haptics from '../haptics.js';
 import { addItem } from '../actions.js';
 
 let root = null;
@@ -110,7 +109,12 @@ function render() {
 
   /* The primary action at full size: on the page that works as this app's
      store listing it was the smaller of the two buttons. */
-  addAllBtn = button('Add all', { kind: 'primary', iconName: 'plus', onClick: () => addAll(missing()) });
+  addAllBtn = button('Add all', {
+    kind: 'primary',
+    iconName: 'plus',
+    haptic: true,
+    onClick: () => addAll(missing()),
+  });
   bodyEl.appendChild(el('div', { style: 'padding:var(--s4) var(--s4) 0;display:flex;justify-content:center' }, addAllBtn));
 
   const list = el('div', { class: 'lib-list', style: 'margin-top:var(--s5)' });
@@ -178,6 +182,7 @@ function rowFor(film) {
     const add = button('Add', {
       kind: 'secondary',
       size: 'sm',
+      haptic: true,
       /* Named for its film: a column of identical "Add" buttons told a
          VoiceOver user nothing about which one they were on. */
       onClick: () => {
@@ -188,7 +193,6 @@ function rowFor(film) {
           locked: ['title'],
         });
         store.saveNow();
-        if (!duplicate) haptics.success();
         toast(duplicate ? `${item.title} is already in your library` : `Added ${item.title}`);
         const note = inLibrary();
         note.setAttribute('tabindex', '-1');
@@ -217,7 +221,6 @@ function addAll(films) {
   }
   store.saveNow();
   store.emit('item');
-  if (added) haptics.success();
   toast(added ? `Added ${plural(added, 'title')}. Look up their details from Settings.` : 'Nothing new to add');
   render();
 }

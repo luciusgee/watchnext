@@ -18,7 +18,6 @@ import { el, clear, poster, emptyState, button, toast } from '../ui.js';
 import { icon } from '../icons.js';
 import { runtime, rating } from '../format.js';
 import { openDetail } from './detail.js';
-import * as haptics from '../haptics.js';
 
 
 let root = null;
@@ -219,8 +218,8 @@ function emptyFor() {
     message: `Start again to go back through the ${unwatched} you haven’t seen.`,
     action: {
       label: 'Start again',
+      haptic: true,
       onClick: () => {
-        haptics.success();
         actions.resetDiscover();
         queue = [];
         refill();

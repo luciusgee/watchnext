@@ -1,11 +1,17 @@
 /*
  * Haptics.
  *
- * A headless browser cannot feel anything, so what is tested is the part that
- * can be wrong in code: the right kind plays at the right moment, nothing plays
- * when the setting is off, and the iPhone technique — clicking a hidden label
- * wrapped round a native switch — is built so it cannot take focus from a text
- * field or pop the keyboard.
+ * A headless browser cannot feel anything, and Chromium has no switch control,
+ * so the page is told it is Safari on iOS 18+ (the switch attribute exists)
+ * and what is tested is the part that can be wrong in code:
+ *
+ *   - a tap on a marked control lands on the overlay label, and the label
+ *     hands a TRUSTED click to its switch — since iOS 26.5 that is the only
+ *     click the switch will tick for;
+ *   - the control's own handler still runs exactly once per tap;
+ *   - the switch's click, input and change never reach anything else;
+ *   - disabled controls and the Settings switch being off leave taps alone;
+ *   - nothing is built where the switch does not exist.
  */
 const { chromium, devices } = require('/opt/node22/lib/node_modules/playwright');
 
@@ -21,96 +27,186 @@ function check(name, cond, detail = '') {
 (async () => {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--no-sandbox'] });
   const block = /image\.tmdb\.org|m\.media-amazon\.com|api\.themoviedb\.org|omdbapi\.com|api\.anthropic\.com|api\.github\.com/;
+  const errors = [];
 
-  /* ── Android: navigator.vibrate, recorded ── */
-  const ctx = await browser.newContext({ ...devices['Pixel 7'] });
+  const ctx = await browser.newContext({ ...devices['iPhone 13 Pro'] });
   await ctx.route(block, (r) => r.abort());
   await ctx.addInitScript(() => {
-    window.__buzz = [];
-    navigator.vibrate = (p) => { window.__buzz.push(p); return true; };
+    /* What Safari on iOS 18+ looks like to feature detection. */
+    Object.defineProperty(HTMLInputElement.prototype, 'switch', {
+      configurable: true,
+      get() { return this.hasAttribute('switch'); },
+      set(v) { this.toggleAttribute('switch', !!v); },
+    });
+    /* Every click that reaches an overlay switch is a tick on a real phone —
+       if it is trusted. Capture phase, so the switch's own stopPropagation
+       does not hide it from the count. */
+    window.__ticks = [];
+    window.__leaks = 0;
+    /* Counted where haptics.js stops the switch's click rather than by a
+       listener on the document: a control whose handler re-renders it has
+       taken the switch out of the page by the time the label passes the click
+       on, so the click never travels through the document at all. WebKit
+       still plays the tick for it — the haptic does not need the switch to be
+       on screen. */
+    const stop = Event.prototype.stopPropagation;
+    Event.prototype.stopPropagation = function () {
+      if (this.type === 'click' && this.target?.classList?.contains('haptic-switch')) window.__ticks.push(this.isTrusted);
+      return stop.call(this);
+    };
+    for (const type of ['click', 'input', 'change']) {
+      document.addEventListener(type, (e) => {
+        if (e.target?.classList?.contains('haptic-switch')) window.__leaks++;
+      });
+    }
   });
   const page = await ctx.newPage();
-  const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(APP_URL, { waitUntil: 'networkidle' });
   await page.waitForSelector('body.is-ready');
   await page.evaluate(() => window.__test.loadSample());
   await page.waitForTimeout(400);
-  const buzz = () => page.evaluate(() => window.__buzz.slice());
-  const reset = () => page.evaluate(() => { window.__buzz = []; });
 
-  console.log('\n─── the right feel at the right moment ───');
-  await page.click('[data-tab="discover"]');
+  const ticks = () => page.evaluate(() => window.__ticks.slice());
+  const reset = () => page.evaluate(() => { window.__ticks = []; });
+  /* Count the clicks the control itself receives, from now on. */
+  const countHost = (selector) => page.evaluate((s) => {
+    const host = document.querySelector(s);
+    window.__hostClicks = 0;
+    /* One counter at a time: the deck buttons are the same elements all run. */
+    window.__counted?.el.removeEventListener('click', window.__counted.fn);
+    const fn = () => window.__hostClicks++;
+    host?.addEventListener('click', fn);
+    window.__counted = host ? { el: host, fn } : null;
+    return !!host;
+  }, selector);
+  const hostClicks = () => page.evaluate(() => window.__hostClicks);
+
+  console.log('\n─── a tap on the control is a tap on the switch ───');
+  await page.tap('[data-tab="discover"]');
   await page.waitForTimeout(500);
-  await reset();
-  await page.click('#screen-discover [data-action="skip"]');
-  await page.waitForTimeout(350);
-  check('a swipe decision lands with a firm tap', JSON.stringify(await buzz()) === '[14]', JSON.stringify(await buzz()));
+  const SKIP = '#screen-discover [data-action="skip"]';
+  const shape = await page.evaluate((s) => {
+    const host = document.querySelector(s);
+    const label = host.lastElementChild;
+    const sw = label?.querySelector('input');
+    const a = host.getBoundingClientRect();
+    const b = label.getBoundingClientRect();
+    const hit = document.elementFromPoint(a.x + a.width / 2, a.y + a.height / 2);
+    const cs = getComputedStyle(sw);
+    return {
+      isLabel: label?.tagName === 'LABEL' && label.classList.contains('haptic'),
+      hidden: label?.getAttribute('aria-hidden'),
+      sw: sw?.type === 'checkbox' && sw.hasAttribute('switch'),
+      tabindex: sw?.hasAttribute('tabindex'),
+      /* Out to the border edge, with at most a pixel to spare. */
+      covers: b.x <= a.x && b.y <= a.y && b.right >= a.right && b.bottom >= a.bottom && b.width - a.width <= 2 && b.height - a.height <= 2,
+      hitLabel: hit === label,
+      opacity: cs.opacity,
+      appearance: cs.appearance,
+    };
+  }, SKIP);
+  check('a marked control gets a label over its whole face', shape.isLabel && shape.covers && shape.hitLabel, JSON.stringify(shape));
+  check('wrapping a native switch with no tabindex', shape.sw && !shape.tabindex, JSON.stringify(shape));
+  check('invisible, but keeping its native appearance', shape.opacity === '0' && shape.appearance !== 'none', JSON.stringify(shape));
+  check('and hidden from VoiceOver', shape.hidden === 'true');
 
+  const before = await page.evaluate(() => document.querySelector('#screen-discover .deck-card:last-child')?.textContent);
+  await countHost(SKIP);
   await reset();
-  await page.evaluate(() => [...document.querySelectorAll('.toast-action')].find((b) => /Undo/.test(b.textContent))?.click());
-  await page.waitForTimeout(300);
-  check('Undo plays the light tick', JSON.stringify(await buzz()) === '[8]', JSON.stringify(await buzz()));
-
-  await page.click('[data-tab="tonight"]');
-  await page.waitForTimeout(500);
-  await reset();
-  await page.evaluate(() => [...document.querySelectorAll('#screen-tonight .hero button')].find((b) => /Seen it/.test(b.textContent))?.click());
-  await page.waitForTimeout(300);
-  check('marking something watched plays success', JSON.stringify(await buzz()) === JSON.stringify([[12, 70, 18]]), JSON.stringify(await buzz()));
-
-  await reset();
-  await page.evaluate(() => document.querySelector('#screen-tonight .hero-scope button')?.click());
-  await page.waitForTimeout(200);
-  check('a toggle plays the light tick', JSON.stringify(await buzz()) === '[8]', JSON.stringify(await buzz()));
-
-  await page.evaluate(() => document.querySelector('#screen-tonight [data-nav="add"]').click());
+  await page.tap(SKIP);
   await page.waitForTimeout(400);
-  await page.evaluate(() => [...document.querySelectorAll('#screen-add .seg button')].find((b) => b.textContent === 'By hand').click());
-  await page.waitForTimeout(200);
-  await reset();
-  await page.click('#screen-add button[type="submit"]');
-  await page.waitForTimeout(200);
-  check('a refused form plays error', JSON.stringify(await buzz()).includes('[28,60,28,60,28]'), JSON.stringify(await buzz()));
-  await reset();
-  await page.fill('#add-title', 'Haptic Test Film');
-  await page.click('#screen-add button[type="submit"]');
-  await page.waitForTimeout(200);
-  check('adding by hand plays success', JSON.stringify(await buzz()) === JSON.stringify([[12, 70, 18]]), JSON.stringify(await buzz()));
+  const t1 = await ticks();
+  check('a tap on a deck button reaches the switch as a trusted click', t1.length === 1 && t1[0] === true, JSON.stringify(t1));
+  check('and the button’s own handler runs once', (await hostClicks()) === 1, String(await hostClicks()));
+  const after = await page.evaluate(() => document.querySelector('#screen-discover .deck-card:last-child')?.textContent);
+  check('and the card is decided', before && after && before !== after);
 
-  /* The by-hand form refocuses its title field, and a focused field hides the
-     tab bar on a phone. */
-  await page.evaluate(() => document.activeElement?.blur());
-  await page.waitForTimeout(300);
+  await page.waitForSelector('.toast.is-open .toast-action');
+  await countHost('.toast-action');
+  await reset();
+  await page.tap('.toast-action');
+  await page.waitForTimeout(400);
+  check('Undo ticks', (await ticks()).length === 1, JSON.stringify(await ticks()));
+  check('and undoes once', (await hostClicks()) === 1);
+  const back = await page.evaluate(() => document.querySelector('#screen-discover .deck-card:last-child')?.textContent);
+  check('and the card comes back', back === before);
 
-  /* The deck tick as a card crosses the line where letting go decides —
-     once per crossing, not once per pixel. */
-  await page.click('[data-tab="discover"]');
+  /* A pill that ran its handler twice would switch on and straight back off. */
+  await page.tap('[data-tab="library"]');
+  await page.waitForTimeout(400);
+  await page.tap('#screen-library [data-action="filter"]');
   await page.waitForTimeout(500);
+  const PILL = '.pill[data-haptic][data-value]:not([data-value="all"])';
+  const pillBefore = await page.evaluate((s) => document.querySelector(s)?.getAttribute('aria-pressed'), PILL);
   await reset();
-  const box = await page.evaluate(() => {
-    const c = document.querySelector('#screen-discover .deck-card:last-child').getBoundingClientRect();
-    return { x: c.x + c.width / 2, y: c.y + c.height / 2 };
+  await page.tap(PILL);
+  await page.waitForTimeout(300);
+  const pillAfter = await page.evaluate((s) => document.querySelector(s)?.getAttribute('aria-pressed'), PILL);
+  check('a filter pill ticks', (await ticks()).length === 1, JSON.stringify(await ticks()));
+  check('and switches on, not on and back off', pillBefore === 'false' && pillAfter === 'true', `${pillBefore} → ${pillAfter}`);
+  await page.evaluate(() => window.__test.clearFilters?.());
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+
+  await page.tap('[data-tab="tonight"]');
+  await page.waitForTimeout(500);
+  const seenUid = await page.evaluate(() => {
+    const items = window.__test.items();
+    const title = document.querySelector('#screen-tonight .hero h1, #screen-tonight .hero h2')?.textContent;
+    return items.find((i) => i.title === title)?.uid || null;
   });
-  await page.mouse.move(box.x, box.y);
-  await page.mouse.down();
-  for (let i = 1; i <= 12; i++) await page.mouse.move(box.x + i * 10, box.y, { steps: 1 });
-  const midDrag = await buzz();
-  await page.mouse.move(box.x + 20, box.y, { steps: 3 });
-  await page.mouse.up();
+  await reset();
+  await page.locator('#screen-tonight .hero button', { hasText: 'Seen it' }).tap();
   await page.waitForTimeout(400);
-  check('dragging past the decision line ticks once', JSON.stringify(midDrag) === '[8]', JSON.stringify(midDrag));
-  check('and pulling back and letting go decides nothing', JSON.stringify(await buzz()) === '[8]', JSON.stringify(await buzz()));
+  check('Seen it ticks', (await ticks()).length === 1, JSON.stringify(await ticks()));
+  if (seenUid) check('and marks it watched', await page.evaluate((u) => window.__test.byUid(u)?.watched === true, seenUid));
+
+  /* A caption set with textContent takes the label with it. */
+  const rearmed = await page.evaluate(async () => {
+    const host = document.querySelector('#screen-tonight [data-haptic]');
+    host.textContent = host.textContent;
+    await new Promise((r) => setTimeout(r, 0));
+    return !!host.querySelector(':scope > .haptic');
+  });
+  check('a control whose caption is replaced gets its label back', rearmed);
+
+  const disabled = await page.evaluate(() => {
+    const host = document.querySelector('#screen-tonight [data-haptic]');
+    host.disabled = true;
+    const r = host.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    const out = { display: getComputedStyle(host.lastElementChild).display, hitLabel: hit?.classList.contains('haptic') };
+    host.disabled = false;
+    return out;
+  });
+  check('a disabled control drops its label, so the tap does nothing', disabled.display === 'none' && !disabled.hitLabel, JSON.stringify(disabled));
+
+  const submit = await page.evaluate(async () => {
+    const f = document.createElement('form');
+    f.innerHTML = '<button type="submit" data-haptic>Go</button><button data-haptic>Default</button>';
+    document.body.appendChild(f);
+    await new Promise((r) => setTimeout(r, 0));
+    const n = f.querySelectorAll('.haptic').length;
+    f.remove();
+    return n;
+  });
+  check('never on a submit button, which the label would stop submitting', submit === 0, String(submit));
+
+  check('the switch’s click, input and change never reach anything else', (await page.evaluate(() => window.__leaks)) === 0, String(await page.evaluate(() => window.__leaks)));
 
   console.log('\n─── off means off ───');
-  await page.evaluate(() => document.querySelector('.screen.is-active [data-nav="settings"]')?.click() || document.querySelector('[data-nav="settings"]').click());
+  await page.tap('[data-tab="settings"]').catch(() => {});
+  if (!(await page.evaluate(() => !!document.getElementById('haptics-switch')))) {
+    await page.evaluate(() => document.querySelector('[data-nav="settings"]')?.click());
+  }
   await page.waitForTimeout(500);
   const sw = await page.evaluate(() => {
     const s = document.getElementById('haptics-switch');
     return s ? { checked: s.checked, disabled: s.disabled, native: s.hasAttribute('switch') } : null;
   });
   check('Settings has a Haptics switch, on by default', sw && sw.checked && !sw.disabled && sw.native, JSON.stringify(sw));
-  await page.click('label[for="haptics-switch"]');
+  await page.tap('label[for="haptics-switch"]');
   await page.waitForTimeout(200);
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('wn.state.v3')).settings.haptics);
   check('turning it off is saved', stored === false, String(stored));
@@ -119,82 +215,44 @@ function check(name, cond, detail = '') {
   const barShown = await page.evaluate(() => !document.body.classList.contains('is-typing') &&
     document.querySelector('.tabbar').getClientRects().length > 0);
   check('and tapping the switch leaves the tab bar where it is', barShown);
-  await page.click('[data-tab="discover"]');
+  await page.tap('[data-tab="discover"]');
   await page.waitForTimeout(500);
+  await countHost(SKIP);
   await reset();
-  await page.click('#screen-discover [data-action="skip"]');
-  await page.waitForTimeout(350);
-  check('and nothing plays after that', (await buzz()).length === 0, JSON.stringify(await buzz()));
+  await page.tap(SKIP);
+  await page.waitForTimeout(400);
+  check('and nothing ticks after that', (await ticks()).length === 0, JSON.stringify(await ticks()));
+  check('while the button still works', (await hostClicks()) === 1, String(await hostClicks()));
   const synced = await page.evaluate(async () => {
     const st = await import('./src/store.js');
     return 'haptics' in (st.syncSnapshot().settings || {});
   });
   check('and it is not synced to the other phone', synced === false);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('body.is-ready');
+  check('and it is still off after a reload', await page.evaluate(() => document.documentElement.classList.contains('no-haptics')));
   await ctx.close();
 
-  /* ── iPhone: no vibrate, a native switch to click ── */
-  console.log('\n─── the iPhone technique ───');
-  const ios = await browser.newContext({ ...devices['iPhone 13 Pro'] });
-  await ios.route(block, (r) => r.abort());
-  await ios.addInitScript(() => {
-    /* What Safari on iOS 18+ looks like to feature detection. */
-    delete Navigator.prototype.vibrate;
-    Object.defineProperty(HTMLInputElement.prototype, 'switch', {
-      configurable: true,
-      get() { return this.hasAttribute('switch'); },
-      set(v) { this.toggleAttribute('switch', !!v); },
-    });
-    window.__ticks = 0;
-    const click = HTMLElement.prototype.click;
-    HTMLElement.prototype.click = function () {
-      if (this.tagName === 'LABEL' && this.querySelector('input[switch]')) window.__ticks++;
-      return click.call(this);
-    };
-  });
-  const p2 = await ios.newPage();
-  p2.on('pageerror', (e) => errors.push(e.message));
-  await p2.goto(APP_URL, { waitUntil: 'networkidle' });
-  await p2.waitForSelector('body.is-ready');
-  await p2.evaluate(() => window.__test.loadSample());
-  await p2.waitForTimeout(400);
-  await p2.click('[data-tab="discover"]');
-  await p2.waitForTimeout(500);
-  await p2.evaluate(() => { window.__ticks = 0; });
-  await p2.click('#screen-discover [data-action="skip"]');
-  await p2.waitForTimeout(350);
-  check('a decision clicks the hidden switch', (await p2.evaluate(() => window.__ticks)) === 1, String(await p2.evaluate(() => window.__ticks)));
-  const where = await p2.evaluate(() => {
-    const l = document.querySelector('head > label');
-    const i = l?.querySelector('input');
-    return l ? { inHead: true, hidden: l.getAttribute('aria-hidden'), type: i?.type, sw: i?.hasAttribute('switch'), count: document.querySelectorAll('input[switch]').length } : null;
-  });
-  check('it is one reusable switch, parked in <head>', where && where.inHead && where.type === 'checkbox' && where.sw && where.count === 1, JSON.stringify(where));
-  check('and hidden from VoiceOver', where?.hidden === 'true');
-
-  /* The one thing it must never do: take focus from a text field, which on a
-     phone would drop the keyboard mid-sentence. */
-  await p2.click('[data-tab="ask"]');
-  await p2.waitForTimeout(300);
-  await p2.evaluate(async () => {
-    const st = await import('./src/store.js');
-    st.updateSettings({ aiKey: 'sk-ant-test' });
-  });
-  await p2.click('[data-tab="library"]');
-  await p2.waitForTimeout(300);
-  await p2.focus('#library-search');
-  const kept = await p2.evaluate(async () => {
-    const h = await import('./src/haptics.js');
-    h.selection();
-    h.success();
-    await new Promise((r) => setTimeout(r, 300));
-    return document.activeElement?.id;
-  });
-  check('a tick while typing leaves focus in the field', kept === 'library-search', String(kept));
+  console.log('\n─── nothing where there is no switch ───');
+  for (const [name, device] of [['a desktop', devices['Desktop Chrome']], ['an iPhone before iOS 18', devices['iPhone 13 Pro']]]) {
+    const c = await browser.newContext({ ...device });
+    await c.route(block, (r) => r.abort());
+    const p = await c.newPage();
+    p.on('pageerror', (e) => errors.push(e.message));
+    await p.goto(APP_URL, { waitUntil: 'networkidle' });
+    await p.waitForSelector('body.is-ready');
+    await p.evaluate(() => window.__test.loadSample());
+    await p.waitForTimeout(300);
+    await p.click('[data-tab="discover"]');
+    await p.waitForTimeout(400);
+    const n = await p.evaluate(() => document.querySelectorAll('.haptic').length);
+    check(`${name} gets no overlays`, n === 0, String(n));
+    await c.close();
+  }
 
   console.log('\n─── no errors ───');
   check('no JavaScript errors', errors.length === 0, errors.join(' | '));
 
-  await ios.close();
   await browser.close();
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) { console.log('\nFailures:'); failures.forEach((f) => console.log('  - ' + f)); process.exit(1); }

@@ -25,6 +25,17 @@ function check(name, cond, detail = '') {
 (async () => {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--no-sandbox'] });
   const ctx = await browser.newContext({ ...devices['iPhone 13 Pro'] });
+  /* The people this is for are on iPhones with iOS 18 or later, where the
+     switch control exists and every marked control carries a haptic overlay
+     (haptics.js). Chromium has no switch; this makes the page believe it
+     does, so the whole run goes through the overlays the way their taps do. */
+  await ctx.addInitScript(() => {
+    Object.defineProperty(HTMLInputElement.prototype, 'switch', {
+      configurable: true,
+      get() { return this.hasAttribute('switch'); },
+      set(v) { this.toggleAttribute('switch', !!v); },
+    });
+  });
   await ctx.route('**://m.media-amazon.com/**', (route) => {
     let h = 0; const u = route.request().url();
     for (let i = 0; i < u.length; i++) h = (h * 31 + u.charCodeAt(i)) >>> 0;

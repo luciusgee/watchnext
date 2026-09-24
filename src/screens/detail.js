@@ -26,7 +26,6 @@ import { openMatchPicker } from './match.js';
 /* A cycle (tonight imports this module too), and a safe one: neither uses the
    other at load time, only when something is rendered. */
 import { cardFor } from './tonight.js';
-import * as haptics from '../haptics.js';
 
 let root = null;
 let currentUid = null;
@@ -183,6 +182,7 @@ function render(item) {
     button(item.watched ? 'Watched' : 'Mark watched', {
       kind: item.watched ? 'on' : 'secondary',
       iconName: item.watched ? 'check' : 'eye',
+      haptic: true,
       onClick: () => actions.setWatched(item.uid, !item.watched),
     })
   );
@@ -192,6 +192,7 @@ function render(item) {
       /* Swaps like its neighbour does. A tick beside "Watched" and a hard
          drive beside "I own this" stopped reading as a matched pair. */
       iconName: item.owned ? 'check' : 'drive',
+      haptic: true,
       /* Same handler as the collection row 60px below it, which used to ask
          for the quality where this one silently did not. */
       onClick: () => toggleOwned(item),
@@ -226,8 +227,8 @@ function render(item) {
         button(muted ? 'Suggest this again' : 'Stop suggesting this', {
           kind: 'quiet',
           block: true,
+          haptic: true,
           onClick: () => {
-            haptics.selection();
             store.setTaste('never', item.uid, !muted);
             store.saveNow();
             /* emit('item') re-renders this overlay through the subscriber. */
@@ -399,6 +400,7 @@ function toggleOwned(item) {
     actions: ['4K', '1080p', '720p', 'Other'].map((q) => ({
       label: q,
       kind: q === '4K' ? 'primary' : 'secondary',
+      haptic: true,
       onClick: () => {
         store.update(item.uid, { quality: q === 'Other' ? null : q });
         store.lockFields(item.uid, ['quality']);
@@ -414,7 +416,7 @@ function collectionRow(item) {
     style: 'margin:0 0 24px',
   });
 
-  const row = el('button', { class: 'group-item', type: 'button' });
+  const row = el('button', { class: 'group-item', type: 'button', 'data-haptic': true });
   row.appendChild(el('span', { html: icon('drive', 20) }).firstChild);
   const body = el('div', { class: 'group-item-body' });
   body.appendChild(el('div', { class: 'group-item-t', text: 'In my collection' }));

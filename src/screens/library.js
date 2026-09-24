@@ -26,7 +26,6 @@ import { runtime, rating, metaLine } from '../format.js';
 import { openDetail } from './detail.js';
 import { encodeShelf, canShare, MAX_TITLES } from '../share.js';
 import { cardFor } from './tonight.js';
-import * as haptics from '../haptics.js';
 
 const CHUNK = 40;
 
@@ -285,7 +284,7 @@ function rowFor(item) {
   /* Long-press to start selecting. A checkbox on every row would be clutter for
      the 99% of visits that are "find one film"; a press-and-hold costs nothing
      until you want it, and is what the platform already teaches. */
-  attachLongPress(row, () => toggle(item.uid, { quiet: true }));
+  attachLongPress(row, () => toggle(item.uid));
 
   /* Always present, collapsed until selection starts, so the list eases across
      rather than jumping 32px in a frame. */
@@ -325,7 +324,6 @@ function rowFor(item) {
 /* ── controls ── */
 
 function toggleView() {
-  haptics.selection();
   state.view = state.view === 'grid' ? 'list' : 'grid';
   store.updateSettings({ libraryView: state.view });
   render();
@@ -357,8 +355,8 @@ function openSort() {
          the button to press. */
       label,
       kind: state.sort === key ? 'on-amber' : 'secondary',
+      haptic: true,
       onClick: () => {
-        if (state.sort !== key) haptics.selection();
         state.sort = key;
         render();
       },
@@ -391,11 +389,11 @@ function openFilters() {
         el('button', {
           class: 'pill',
           type: 'button',
+          'data-haptic': true,
           'data-value': value,
           'aria-pressed': String(read() === value),
           text,
           onclick: () => {
-            haptics.selection();
             write(read() === value && value !== 'all' ? null : value);
             for (const p of wrap.children) {
               p.setAttribute('aria-pressed', String(read() === p.dataset.value));
@@ -495,12 +493,9 @@ function openFilters() {
    is otherwise five hundred trips through the detail screen — which is why it
    does not get done, and why the format data on a big library is patchy. */
 
-function toggle(uid, { quiet = false } = {}) {
+function toggle(uid) {
   if (state.picked.has(uid)) state.picked.delete(uid);
   else state.picked.add(uid);
-  /* A tap in selection mode plays the light tick. The long press has already
-     played its own heavier one, so it asks for quiet. */
-  if (!quiet) haptics.selection();
   syncSelection();
 }
 
@@ -580,10 +575,9 @@ function attachLongPress(node, fn) {
       timer = null;
       node.classList.remove('is-holding');
       held = true;
-      /* The hold landing. It fires from a timer with the finger still down, so
-         on an iPhone whether it can be felt depends on the platform — see
-         haptics.js. */
-      haptics.impact();
+      /* No tick here: this fires from a timer with the finger still down, and
+         an iPhone only plays one for a tap — see haptics.js. The row sinking
+         and the selection ring appearing are the confirmation. */
       fn();
     }, 450);
   });
@@ -619,8 +613,14 @@ function selectionBar() {
     el('div', { class: 'select-count', 'aria-live': 'polite', text: `${n} selected` })
   );
 
-  const act = (label, iconName, onClick) => {
-    const b = el('button', { class: 'select-act', type: 'button', onclick: onClick, 'aria-label': label });
+  const act = (label, iconName, onClick, haptic = false) => {
+    const b = el('button', {
+      class: 'select-act',
+      type: 'button',
+      'data-haptic': haptic,
+      onclick: onClick,
+      'aria-label': label,
+    });
     b.appendChild(el('span', { html: icon(iconName, 18) }).firstChild);
     b.appendChild(el('span', { text: label }));
     return b;
@@ -628,7 +628,7 @@ function selectionBar() {
 
   if (canShare()) bar.appendChild(act('Send', 'upload', () => sendShelf()));
   bar.appendChild(act('Owned', 'drive', () => openBulkOwned()));
-  bar.appendChild(act('Watched', 'check', () => bulkWatched()));
+  bar.appendChild(act('Watched', 'check', () => bulkWatched(), true));
   bar.appendChild(act('Remove', 'trash', () => bulkRemove()));
   bar.appendChild(act('Done', 'close', clearPicked));
   return bar;
@@ -656,7 +656,6 @@ function applyBulk(patchFor, describe) {
   store.saveNow();
   store.emit('item');
 
-  haptics.success();
   toast(describe(before.length), {
     action: 'Undo',
     duration: 6000,
@@ -732,10 +731,10 @@ function openBulkOwned() {
     title: `Mark ${n} as owned`,
     message: 'And say what you own them in, if you like. This is the fastest way to fill in a format across a shelf.',
     actions: [
-      { label: 'Owned — 4K', kind: 'secondary', onClick: () => setOwnedBulk('4K') },
-      { label: 'Owned — 1080p', kind: 'secondary', onClick: () => setOwnedBulk('1080p') },
-      { label: 'Owned — no format', kind: 'secondary', onClick: () => setOwnedBulk(null) },
-      { label: 'Not owned', kind: 'quiet', onClick: () => setOwnedBulk(undefined, false) },
+      { label: 'Owned — 4K', kind: 'secondary', haptic: true, onClick: () => setOwnedBulk('4K') },
+      { label: 'Owned — 1080p', kind: 'secondary', haptic: true, onClick: () => setOwnedBulk('1080p') },
+      { label: 'Owned — no format', kind: 'secondary', haptic: true, onClick: () => setOwnedBulk(null) },
+      { label: 'Not owned', kind: 'quiet', haptic: true, onClick: () => setOwnedBulk(undefined, false) },
     ],
   });
 }

@@ -206,10 +206,10 @@ function connectionsGroup() {
     seg.appendChild(
       el('button', {
         type: 'button',
+        'data-haptic': true,
         'aria-pressed': String(p.id === active.id),
         text: p.label,
         onclick: () => {
-          if (p.id !== active.id) haptics.selection();
           store.updateSettings({ provider: p.id });
           render();
         },
@@ -296,11 +296,9 @@ function connectionsGroup() {
 
       if (result.ok) {
         paintStatus('ok', result.message || 'Connected — this key answered a test request.');
-        haptics.success();
         toast('Key saved and working');
         render();
       } else {
-        haptics.error();
         paintStatus('bad', result.message || 'This key was rejected.');
       }
     }),
@@ -378,10 +376,10 @@ function connectionsGroup() {
         el('button', {
           class: 'pill',
           type: 'button',
+          'data-haptic': true,
           'aria-pressed': String(active),
           text: m.label,
           onclick: () => {
-            if (!active) haptics.selection();
             store.updateSettings({ aiModel: m.id });
             render();
           },
@@ -894,7 +892,6 @@ function peopleGroup() {
     e.preventDefault();
     const person = store.addPerson(input.value);
     if (!person) return;
-    haptics.success();
     store.emit('item');
     toast(
       store.people().length === 1
@@ -948,10 +945,10 @@ function tasteGroup() {
           {
             class: off ? 'pill is-muted' : 'pill',
             type: 'button',
+            'data-haptic': true,
             'aria-pressed': String(off),
             'aria-label': off ? `${gname}, muted` : gname,
             onclick: () => {
-            haptics.selection();
             store.setTaste('genres', gname, !off);
             store.saveNow();
             store.emit('item');
@@ -1518,8 +1515,8 @@ function deviceGroup() {
     el('div', {
       class: 'group-item-s',
       text: can
-        ? 'A light tap when you swipe a card, make a choice or confirm something.'
-        : 'This browser can’t play haptics. On an iPhone they need iOS 18 or later.',
+        ? 'A light tap when you press the main buttons and pick from the pills.'
+        : 'Needs an iPhone on iOS 18 or later.',
     })
   );
   row.appendChild(body);
@@ -1534,9 +1531,7 @@ function deviceGroup() {
   sw.addEventListener('change', () => {
     store.updateSettings({ haptics: sw.checked });
     store.saveNow();
-    /* Turning them on should feel like something. The native switch ticks on
-       its own on iOS, so only Android needs one from here. */
-    if (sw.checked && typeof navigator.vibrate === 'function') haptics.selection();
+    haptics.refresh();
   });
   row.appendChild(sw);
   g.appendChild(row);

@@ -1,67 +1,47 @@
 /*
- * Haptics.
+ * Haptics, iPhone only.
  *
- * There is no haptics API on the web for iPhone. navigator.vibrate is Android
- * only — Safari has never shipped it, in a tab or on the home screen. What iOS
- * 18 and later do have is the native switch control, <input type=checkbox
- * switch>, which plays the system selection tick when it toggles. Clicking a
- * hidden label wrapped round one is the same toggle, so it plays the same
- * tick. It is one feel only — a light, crisp tap — so the stronger kinds below
- * are built from it rather than being different sensations.
+ * Safari has never had a vibration API. What iOS 18 and later do have is the
+ * native switch control, <input type=checkbox switch>, which plays the system
+ * selection tick when it is toggled — one feel, a light crisp tap.
  *
- * Android gets real patterns through navigator.vibrate.
+ * For a while a script could toggle a hidden one and borrow the tick from
+ * anywhere. iOS 26.5 closed that: the switch now only ticks for a trusted
+ * click, one that came from a real finger. So the finger has to land on it.
  *
- * Everything here is best-effort and silent on failure: a phone with System
- * Haptics switched off, a desktop, an older iOS — all simply feel nothing,
- * which is the right outcome. Nothing may ever throw out of this module into a
- * tap handler.
+ * What this does instead: any control marked `data-haptic` gets a transparent
+ * <label> laid over its whole face, wrapping a tiny invisible switch. A tap on
+ * the control is a tap on the label; the label passes that trusted click to
+ * its switch, which ticks. The label's own click still bubbles to the control,
+ * so the control's handler runs exactly as before — the switch's click is
+ * stopped before it can reach the control a second time.
+ *
+ * A label rather than the bare switch because a switch under the finger marks
+ * touchstart as handled, and a row of pills could no longer be scrolled by a
+ * drag that started on one.
+ *
+ * What this cannot do: a tick that is not a tap. A swipe landing, a drag
+ * crossing a threshold, a long press, an answer arriving from Claude — none
+ * of those is a click on anything, so none can be felt.
+ *
+ * Never on a submit button: the label takes the click's default action, so
+ * the form would not submit. arm() refuses them.
  */
 
 import * as store from './store.js';
 
-const canVibrate = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
-
-/* The switch attribute is reflected on HTMLInputElement where it is
-   supported (Safari 17.4+). Coarse pointer, so a Mac with Safari toggling a
-   hidden checkbox does not pretend to be a phone. */
+/* The switch attribute is reflected on HTMLInputElement where it exists
+   (Safari 17.4+). Coarse pointer, so a Mac running Safari does not grow
+   invisible labels over every button for a tick it cannot play. */
 const canTick =
-  !canVibrate &&
   typeof HTMLInputElement !== 'undefined' &&
   'switch' in HTMLInputElement.prototype &&
   typeof matchMedia === 'function' &&
   matchMedia('(pointer: coarse)').matches;
 
-let tickLabel = null;
-
-/* Built once and reused. It lives in <head>, where nothing renders and
-   nothing can take focus, so it cannot move focus or dismiss a keyboard that
-   is up for a text field. */
-function ensureTick() {
-  if (tickLabel?.isConnected) return tickLabel;
-  const label = document.createElement('label');
-  label.setAttribute('aria-hidden', 'true');
-  label.style.display = 'none';
-  const input = document.createElement('input');
-  input.type = 'checkbox';
-  input.setAttribute('switch', '');
-  input.tabIndex = -1;
-  label.appendChild(input);
-  document.head.appendChild(label);
-  tickLabel = label;
-  return label;
-}
-
-function tick() {
-  try {
-    ensureTick().click();
-  } catch {
-    /* best effort */
-  }
-}
-
-/** Is there anything on this device that can be felt? */
+/** Can this device play the tick at all? */
 export function supported() {
-  return canVibrate || canTick;
+  return canTick;
 }
 
 function enabled() {
@@ -72,44 +52,49 @@ function enabled() {
   }
 }
 
-function play(pattern, ticks) {
-  if (!enabled()) return;
-  if (canVibrate) {
-    try {
-      navigator.vibrate(pattern);
-    } catch {
-      /* best effort */
-    }
-    return;
-  }
-  if (!canTick) return;
-  tick();
-  /* Further ticks for the heavier kinds. Spaced far enough apart to be felt
-     as separate taps. */
-  for (let i = 1; i < ticks; i++) setTimeout(tick, i * 110);
+const stop = (e) => e.stopPropagation();
+
+function arm(host) {
+  if (host.querySelector(':scope > .haptic')) return;
+  if (host instanceof HTMLButtonElement && host.type === 'submit') return;
+  const label = document.createElement('label');
+  label.className = 'haptic';
+  label.setAttribute('aria-hidden', 'true');
+  const sw = document.createElement('input');
+  sw.type = 'checkbox';
+  sw.setAttribute('switch', '');
+  sw.className = 'haptic-switch';
+  /* No tabindex: in WebKit that makes the switch mouse-focusable, and a tap
+     would move focus off a text field and drop the keyboard. */
+  /* The label's click is the one the control should see. The switch's copy,
+     and the input and change it fires, belong to nobody — a form listening
+     for input would otherwise hear a field it does not have. */
+  sw.addEventListener('click', stop);
+  sw.addEventListener('input', stop);
+  sw.addEventListener('change', stop);
+  label.appendChild(sw);
+  host.appendChild(label);
 }
 
-/** Something was chosen: a segment, a pill, a filter, a switch. */
-export function selection() {
-  play(8, 1);
+/* Re-arming is needed as well as arming: a control whose caption is set with
+   textContent loses its children, the label with them. */
+function sweep() {
+  for (const host of document.querySelectorAll('[data-haptic]')) arm(host);
 }
 
-/** A decision landed: a card swiped away, a hold that started selecting. */
-export function impact() {
-  play(14, 1);
+let observer = null;
+
+/** Call once the settings are loaded. */
+export function start() {
+  if (!canTick || observer) return;
+  refresh();
+  sweep();
+  observer = new MutationObserver(sweep);
+  observer.observe(document.body, { childList: true, subtree: true });
 }
 
-/** It worked: a film added, marked watched, a hand dealt. */
-export function success() {
-  play([12, 70, 18], 2);
-}
-
-/** Look before you tap: a destructive confirm is about to be asked. */
-export function warning() {
-  play([20, 90, 20], 2);
-}
-
-/** That did not work: a form refused, an ask that failed. */
-export function error() {
-  play([28, 60, 28, 60, 28], 3);
+/** Apply the Settings switch. Off hides every label, so taps land on the
+    controls themselves exactly as they would without any of this. */
+export function refresh() {
+  document.documentElement.classList.toggle('no-haptics', !enabled());
 }

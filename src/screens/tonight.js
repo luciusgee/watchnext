@@ -16,7 +16,6 @@ import { openDetail } from './detail.js';
 import { openPickSheet } from './pick.js';
 import { shouldNudgeBackup, markBackedUp } from '../durability.js';
 import * as sync from '../sync.js';
-import * as haptics from '../haptics.js';
 import { seedLibrary } from '../seed.js';
 import { toast } from '../ui.js';
 
@@ -194,11 +193,11 @@ function viewerSwitch() {
       el('button', {
         class: 'pill',
         type: 'button',
+        'data-haptic': true,
         'aria-pressed': String(active),
         style: active ? 'border-color:var(--amber-line);color:var(--amber);background:var(--amber-dim)' : '',
         text: p.name,
         onclick: () => {
-          if (!active) haptics.selection();
           store.setViewer(p.id);
           store.saveNow();
           render();
@@ -275,6 +274,7 @@ function heroBlock(pick) {
       kind: 'secondary',
       iconName: 'check',
       size: 'sm',
+      haptic: true,
       onClick: () => {
         /* setWatched emits 'item'; the subscriber renders. Calling render()
            here as well rebuilt ~60 poster nodes and the blurred hero twice. */
@@ -297,9 +297,9 @@ function heroBlock(pick) {
     const scope = el('div', { class: 'hero-scope' });
     const toggle = el('button', {
       type: 'button',
+      'data-haptic': true,
       'aria-pressed': String(ownedOnly),
       onclick: () => {
-        haptics.selection();
         ownedOnly = !ownedOnly;
         render();
       },
