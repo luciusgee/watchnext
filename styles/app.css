@@ -1278,6 +1278,21 @@ body.is-typing .tabbar {
 }
 /* Helper and status copy under a control. One style, where Settings had a dozen
    hand-typed copies at four line-heights and three top margins. */
+/* The platform's own switch — on an iPhone, the iOS switch. The base reset
+   strips background and border from every input, which a native control must
+   keep. */
+.switch {
+  appearance: auto;
+  background: revert;
+  border: revert;
+  margin: 0;
+  flex: none;
+  accent-color: var(--amber);
+  cursor: pointer;
+}
+label.group-item {
+  cursor: pointer;
+}
 .group-hint {
   font-size: var(--t-meta);
   line-height: 1.5;

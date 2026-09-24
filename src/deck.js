@@ -15,6 +15,10 @@
 
 /* Past this, a drag is a decision. Either distance or speed will do — a quick
    flick never travels far. */
+/* Reads one setting (whether haptics are on) and writes nothing, so what is
+   said above about this module and saving still holds. */
+import * as haptics from './haptics.js';
+
 const DISTANCE = 96;
 const VELOCITY = 0.45; // px per ms
 
@@ -51,6 +55,9 @@ export function attachSwipe(card, { onRight, onLeft, blocked = () => false }) {
   let dy = 0;
   let dragging = false;
   let pointerId = null;
+  /* Which side of the decision line the card is on, so crossing it can be
+     felt: -1 past the left, 1 past the right, 0 in between. */
+  let side = 0;
 
   /* Optional: a deck without stamps simply gets no feedback overlay. */
   const stamps = {
@@ -71,6 +78,7 @@ export function attachSwipe(card, { onRight, onLeft, blocked = () => false }) {
     startX = e.clientX;
     startY = e.clientY;
     startT = performance.now();
+    side = 0;
     card.setPointerCapture(pointerId);
     card.style.transition = 'none';
   };
@@ -85,6 +93,13 @@ export function attachSwipe(card, { onRight, onLeft, blocked = () => false }) {
     card.style.transform = `translate(${dx}px, ${dy}px) rotate(${dx / 18}deg)`;
     paint(stamps.right, dx);
     paint(stamps.left, -dx);
+    /* A tick as the card crosses the line where letting go decides — the feel
+       of a native swipe action. Once per crossing, in either direction. */
+    const now = dx > DISTANCE ? 1 : dx < -DISTANCE ? -1 : 0;
+    if (now !== side) {
+      if (now !== 0) haptics.selection();
+      side = now;
+    }
   };
 
   const onUp = (e) => {
@@ -134,6 +149,9 @@ export function playDecision(deckEl, direction) {
   if (!card || !card.classList.contains('deck-card')) return false;
   const stamp = card.querySelector(`[data-stamp="${direction}"]`);
   if (stamp) stamp.style.opacity = '1';
+  /* Both routes land here — the swipe's pointerup and the button's click —
+     so the decision feels the same either way. */
+  haptics.impact();
   /* The card behind used to sit at scale(.94) until it was replaced wholesale
      by a full-size one, so the stack blinked a size up instead of the next
      card rising into the gap. */

@@ -20,6 +20,7 @@ import * as meta from '../metadata.js';
 import { getProvider } from '../providers/index.js';
 import { el, clear, button, toast, poster, checkRow } from '../ui.js';
 import { cleanTitleLine } from '../format.js';
+import * as haptics from '../haptics.js';
 import { icon } from '../icons.js';
 import { openDetail } from './detail.js';
 
@@ -59,6 +60,7 @@ function render() {
         'aria-pressed': String(mode === key),
         text: label,
         onclick: () => {
+          if (mode !== key) haptics.selection();
           mode = key;
           focusSearch = key === 'search';
           render();
@@ -174,6 +176,7 @@ function searchForm() {
         'aria-pressed': String(type === k),
         text,
         onclick: (e) => {
+          if (type !== k) haptics.selection();
           type = k;
           [...typeSeg.children].forEach((c) => c.setAttribute('aria-pressed', String(c === e.currentTarget)));
           if (input.value.trim()) run();
@@ -352,6 +355,7 @@ function searchForm() {
       return;
     }
 
+    haptics.success();
     toast(`Added ${item.title}`, { action: 'Open', onAction: () => openDetail(item.uid) });
 
     try {
@@ -480,6 +484,7 @@ function listForm() {
       }
       clear(result);
       if (!report.added.length && !report.duplicates.length) {
+        haptics.error();
         /* Forty unreadable lines deserve more than "Nothing to add". */
         const bad = report.invalid.length;
         toast(bad ? `Could not read ${bad} line${bad === 1 ? '' : 's'} — one title per line` : 'Nothing to add');
@@ -492,6 +497,7 @@ function listForm() {
       /* The report card says what happened; the toast only needs to confirm
          it, and never reads "0 added". */
       const n = report.added.length;
+      if (n) haptics.success();
       toast(n ? `${n} title${n === 1 ? '' : 's'} added` : 'Already in your library — nothing new added');
       /* Below a 150px textarea and a full-width button, the report started
          off-screen on a small phone. */
@@ -612,6 +618,7 @@ function singleForm() {
       title.style.borderColor = 'var(--ember)';
       title.addEventListener('input', () => (title.style.borderColor = ''), { once: true });
       title.focus();
+      haptics.error();
       toast('Give it a title first');
       return;
     }
@@ -632,6 +639,7 @@ function singleForm() {
       toast(`${item.title} is already in your library`, { action: 'Open', onAction: () => openDetail(item.uid) });
       return;
     }
+    haptics.success();
     toast(`Added ${item.title}`, { action: 'Open', onAction: () => openDetail(item.uid) });
     form.reset();
     title.focus();

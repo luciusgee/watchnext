@@ -53,6 +53,7 @@ const SHELL = [
   './src/ai.js',
   './src/sync.js',
   './src/merge.js',
+  './src/haptics.js',
   './src/providers/index.js',
   './src/providers/shared.js',
   './src/providers/omdb.js',

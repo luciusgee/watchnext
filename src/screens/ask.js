@@ -21,6 +21,7 @@ import { icon } from '../icons.js';
 import { runtime } from '../format.js';
 import { rank } from '../recommend.js';
 import { openDetail } from './detail.js';
+import * as haptics from '../haptics.js';
 
 const MAX_CANDIDATES = 40;
 
@@ -63,6 +64,7 @@ export function initAsk({ navigate: nav }) {
     input.value = '';
     input.style.height = '';
     syncSend();
+    haptics.selection();
     send(text);
   });
 
@@ -140,6 +142,7 @@ function renderConstraints() {
       text: 'Only what I own',
     });
     b.addEventListener('click', () => {
+      haptics.selection();
       constraints.ownedOnly = !constraints.ownedOnly;
       b.setAttribute('aria-pressed', String(constraints.ownedOnly));
     });
@@ -156,6 +159,7 @@ function renderConstraints() {
         text,
       });
       b.addEventListener('click', () => {
+        haptics.selection();
         constraints[key] = constraints[key] === value ? null : value;
         for (const sib of bar.querySelectorAll(`[data-key="${key}"]`)) sib.setAttribute('aria-pressed', 'false');
         b.setAttribute('aria-pressed', String(constraints[key] === value));
@@ -317,6 +321,7 @@ async function ask(text) {
        scrollHeight after each node landed the answer on the last line of the
        second pick's reason, past the film's title and the lead-in. */
     const first = listEl.childElementCount;
+    if (result.picks.length) haptics.success();
     if (result.message) addMessage('bot', result.message, { scroll: false });
     result.picks.forEach((p, i) => {
       const card = addPick(p, p.item);
@@ -334,6 +339,7 @@ async function ask(text) {
        read as Claude saying it. And the question had already been cleared from
        the box, so recovering meant retyping it. */
     const node = addMessage('bot', ai.friendlyError(err));
+    haptics.error();
     node.classList.add('msg-error');
     const retry = el('button', {
       class: 'btn btn-quiet btn-sm',

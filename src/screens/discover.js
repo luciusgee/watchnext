@@ -18,6 +18,7 @@ import { el, clear, poster, emptyState, button, toast } from '../ui.js';
 import { icon } from '../icons.js';
 import { runtime, rating } from '../format.js';
 import { openDetail } from './detail.js';
+import * as haptics from '../haptics.js';
 
 
 let root = null;
@@ -219,6 +220,7 @@ function emptyFor() {
     action: {
       label: 'Start again',
       onClick: () => {
+        haptics.success();
         actions.resetDiscover();
         queue = [];
         refill();

@@ -16,6 +16,7 @@ import { openDetail } from './detail.js';
 import { openPickSheet } from './pick.js';
 import { shouldNudgeBackup, markBackedUp } from '../durability.js';
 import * as sync from '../sync.js';
+import * as haptics from '../haptics.js';
 import { seedLibrary } from '../seed.js';
 import { toast } from '../ui.js';
 
@@ -197,6 +198,7 @@ function viewerSwitch() {
         style: active ? 'border-color:var(--amber-line);color:var(--amber);background:var(--amber-dim)' : '',
         text: p.name,
         onclick: () => {
+          if (!active) haptics.selection();
           store.setViewer(p.id);
           store.saveNow();
           render();
@@ -297,6 +299,7 @@ function heroBlock(pick) {
       type: 'button',
       'aria-pressed': String(ownedOnly),
       onclick: () => {
+        haptics.selection();
         ownedOnly = !ownedOnly;
         render();
       },

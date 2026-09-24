@@ -30,6 +30,7 @@ import { openMatchPicker } from './match.js';
 import { runtime, relativeTime, plural } from '../format.js';
 import { MODELS, currentModel } from '../ai.js';
 import * as sync from '../sync.js';
+import * as haptics from '../haptics.js';
 
 let root = null;
 let bodyEl = null;
@@ -50,7 +51,8 @@ let renderPending = false;
    and a full re-render then destroyed the field mid-token, dropped the
    keyboard and threw away what had been typed. */
 const editing = () =>
-  root.contains(document.activeElement) && document.activeElement.matches('input, textarea');
+  root.contains(document.activeElement) &&
+  document.activeElement.matches('input:not([type="checkbox"]):not([type="radio"]), textarea');
 
 export function initSettings({ navigate: nav }) {
   navigate = nav;
@@ -149,6 +151,9 @@ function render() {
   bodyEl.appendChild(groupLabel('What to suggest'));
   bodyEl.appendChild(tasteGroup());
 
+  bodyEl.appendChild(groupLabel('This phone'));
+  bodyEl.appendChild(deviceGroup());
+
   bodyEl.appendChild(groupLabel('Recent activity'));
   bodyEl.appendChild(activityGroup());
 
@@ -204,6 +209,7 @@ function connectionsGroup() {
         'aria-pressed': String(p.id === active.id),
         text: p.label,
         onclick: () => {
+          if (p.id !== active.id) haptics.selection();
           store.updateSettings({ provider: p.id });
           render();
         },
@@ -290,9 +296,11 @@ function connectionsGroup() {
 
       if (result.ok) {
         paintStatus('ok', result.message || 'Connected — this key answered a test request.');
+        haptics.success();
         toast('Key saved and working');
         render();
       } else {
+        haptics.error();
         paintStatus('bad', result.message || 'This key was rejected.');
       }
     }),
@@ -373,6 +381,7 @@ function connectionsGroup() {
           'aria-pressed': String(active),
           text: m.label,
           onclick: () => {
+            if (!active) haptics.selection();
             store.updateSettings({ aiModel: m.id });
             render();
           },
@@ -885,6 +894,7 @@ function peopleGroup() {
     e.preventDefault();
     const person = store.addPerson(input.value);
     if (!person) return;
+    haptics.success();
     store.emit('item');
     toast(
       store.people().length === 1
@@ -941,6 +951,7 @@ function tasteGroup() {
             'aria-pressed': String(off),
             'aria-label': off ? `${gname}, muted` : gname,
             onclick: () => {
+            haptics.selection();
             store.setTaste('genres', gname, !off);
             store.saveNow();
             store.emit('item');
@@ -1487,6 +1498,49 @@ function confirmReset(kind) {
       confirmLabel: spec[3],
       onConfirm: spec[2],
     });
+}
+
+/* ── this phone ──
+   Per device and never synced: one of you may like the taps and the other not. */
+
+function deviceGroup() {
+  const g = el('div', { class: 'group' });
+  const on = store.settings().haptics !== false;
+  const can = haptics.supported();
+
+  /* The platform's own switch, so on an iPhone it is the iOS switch, and
+     toggling it plays the system tick itself. */
+  const row = el('label', { class: 'group-item', for: 'haptics-switch' });
+  row.appendChild(el('span', { html: icon('sparkle', 20) }).firstChild);
+  const body = el('div', { class: 'group-item-body' });
+  body.appendChild(el('div', { class: 'group-item-t', text: 'Haptics' }));
+  body.appendChild(
+    el('div', {
+      class: 'group-item-s',
+      text: can
+        ? 'A light tap when you swipe a card, make a choice or confirm something.'
+        : 'This browser can’t play haptics. On an iPhone they need iOS 18 or later.',
+    })
+  );
+  row.appendChild(body);
+  const sw = el('input', {
+    id: 'haptics-switch',
+    class: 'switch',
+    type: 'checkbox',
+    switch: true,
+    checked: on && can,
+    disabled: !can,
+  });
+  sw.addEventListener('change', () => {
+    store.updateSettings({ haptics: sw.checked });
+    store.saveNow();
+    /* Turning them on should feel like something. The native switch ticks on
+       its own on iOS, so only Android needs one from here. */
+    if (sw.checked && typeof navigator.vibrate === 'function') haptics.selection();
+  });
+  row.appendChild(sw);
+  g.appendChild(row);
+  return g;
 }
 
 function settingsRow(iconName, title, sub, onClick, danger = false) {

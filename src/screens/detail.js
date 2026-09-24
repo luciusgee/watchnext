@@ -26,6 +26,7 @@ import { openMatchPicker } from './match.js';
 /* A cycle (tonight imports this module too), and a safe one: neither uses the
    other at load time, only when something is rendered. */
 import { cardFor } from './tonight.js';
+import * as haptics from '../haptics.js';
 
 let root = null;
 let currentUid = null;
@@ -226,6 +227,7 @@ function render(item) {
           kind: 'quiet',
           block: true,
           onClick: () => {
+            haptics.selection();
             store.setTaste('never', item.uid, !muted);
             store.saveNow();
             /* emit('item') re-renders this overlay through the subscriber. */

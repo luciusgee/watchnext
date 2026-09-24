@@ -173,10 +173,15 @@ export function syncViewport() {
      always there — so measuring the gap unconditionally shrinks the app by the
      height of the address bar and leaves a dead band under the tab bar. Only a
      focused text field can summon a keyboard, so that is the gate. */
+  /* Only fields that summon a keyboard. Any INPUT used to count, so tapping a
+     checkbox or a switch — the Haptics switch in Settings — hid the tab bar
+     for a keyboard that was never coming. */
+  const NO_KEYBOARD = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file', 'image', 'hidden']);
   const isEditing = () => {
     const node = document.activeElement;
     if (!node) return false;
-    return node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.isContentEditable;
+    if (node.tagName === 'INPUT') return !NO_KEYBOARD.has(node.type);
+    return node.tagName === 'TEXTAREA' || node.isContentEditable;
   };
 
   /* Below this, a shrink is browser chrome rather than a keyboard. No on-screen

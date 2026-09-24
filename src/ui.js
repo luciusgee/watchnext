@@ -8,6 +8,7 @@
  */
 
 import { icon } from './icons.js';
+import * as haptics from './haptics.js';
 import { initials, fallbackColors, escapeHtml } from './format.js';
 
 /* ── element helper ── */
@@ -120,6 +121,7 @@ export function toast(message, { action = null, onAction = null, duration = 3200
         type: 'button',
         text: action,
         onclick: () => {
+          haptics.selection();
           hideToast();
           onAction();
         },
@@ -251,7 +253,10 @@ function dragToDismiss(panel, close) {
     y0 = null;
     panel.style.transition = '';
     panel.style.transform = '';
-    if (dy > 90 || v > 0.5) close();
+    if (dy > 90 || v > 0.5) {
+      haptics.selection();
+      close();
+    }
   };
   grip.addEventListener('pointerup', end);
   grip.addEventListener('pointercancel', end);
@@ -394,7 +399,17 @@ export function confirmDestructive({ title, message, confirmLabel, onConfirm }) 
   openSheet({
     title,
     message,
-    actions: [{ label: confirmLabel, kind: 'danger', onClick: onConfirm }],
+    actions: [
+      {
+        label: confirmLabel,
+        kind: 'danger',
+        /* The heavier tap is for the thing that cannot be taken back lightly. */
+        onClick: () => {
+          haptics.impact();
+          onConfirm?.();
+        },
+      },
+    ],
   });
 }
 
@@ -491,6 +506,7 @@ export function checkRow(label, checked, onChange) {
   b.addEventListener('click', () => {
     const next = b.getAttribute('aria-pressed') !== 'true';
     b.setAttribute('aria-pressed', String(next));
+    haptics.selection();
     onChange?.(next);
   });
   return b;

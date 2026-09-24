@@ -6,6 +6,7 @@
 import * as store from './store.js';
 import { toast } from './ui.js';
 import { cleanTitleLine, stripListMarkers, plural } from './format.js';
+import * as haptics from './haptics.js';
 
 /** Snapshot only the fields an action touches, so undo is precise. */
 function snapshot(item, fields) {
@@ -29,6 +30,9 @@ export function setWatched(uid, watched, { silent = false } = {}) {
     store.logActivity(watched ? 'watched' : 'unwatched', item, prev);
     store.emit('item');
     if (!silent) {
+      /* Silent is Discover, which has already played its own swipe. */
+      if (watched) haptics.success();
+      else haptics.selection();
       const who = store.people().find((p) => p.id === person)?.name || 'you';
       /* Always the film's name — "Unmarked for Luke" with an Undo beside it
          never said which film it was about. */
@@ -58,6 +62,8 @@ export function setWatched(uid, watched, { silent = false } = {}) {
   store.emit('item');
 
   if (!silent) {
+    if (watched) haptics.success();
+    else haptics.selection();
     toast(watched ? `Marked ${item.title} as watched` : `Moved ${item.title} back to unwatched`, {
       action: 'Undo',
       onAction: () => {
@@ -76,6 +82,8 @@ export function setOwned(uid, owned) {
   const next = store.update(uid, { owned });
   store.logActivity(owned ? 'owned' : 'unowned', item, prev);
   store.emit('item');
+  if (owned) haptics.success();
+  else haptics.selection();
   toast(owned ? `Marked ${item.title} as owned` : `Marked ${item.title} as not owned`);
   return next;
 }

@@ -39,6 +39,7 @@ import { el, clear, poster, button, emptyState, toast, openPanel } from '../ui.j
 import { icon } from '../icons.js';
 import { runtime as fmtRuntime, rating as fmtRating } from '../format.js';
 import { attachSwipe, playDecision, FLING_MS } from '../deck.js';
+import * as haptics from '../haptics.js';
 import { openDetail } from './detail.js';
 
 let root = null;
@@ -284,6 +285,9 @@ async function dealFromBrief(text) {
     if (!shortlist.length && !note) {
       note = 'Claude could not find anything on your shelf for that.';
     }
+    /* The hand arriving. This lands after the network call, outside the tap,
+       so on an iPhone whether it is felt depends on the platform. */
+    if (shortlist.length) haptics.success();
     render();
   } catch (err) {
     if (token !== askToken) return;
@@ -291,6 +295,7 @@ async function dealFromBrief(text) {
        request would have produced before any of this existed, and say plainly
        why it is not the one that was asked for. */
     const why = ai.friendlyError(err);
+    haptics.error();
     toast(why);
     deal();
     /* deal() clears brief and note, so without putting the reason back the
@@ -625,6 +630,7 @@ export function openPickSheet() {
         style: 'font-weight:500;color:var(--ash)',
         text,
         onclick: () => {
+          haptics.selection();
           input.value = text;
           input.focus();
         },
@@ -645,11 +651,13 @@ export function openPickSheet() {
       return;
     }
     if (!text) {
+      haptics.error();
       toast('Say what you fancy first');
       input.focus();
       return;
     }
     draftBrief = '';
+    haptics.selection();
     close();
     relaxed = 0;
     /* Started before the navigation, not after: everything in dealFromBrief up
@@ -706,6 +714,7 @@ export function openPickSheet() {
           'aria-pressed': String(constraints[key] === value),
           text,
           onclick: (e) => {
+            haptics.selection();
             constraints[key] = constraints[key] === value ? null : value;
             /* One of a set, so clear the row and re-press the one that won. */
             for (const p of wrap.children) p.setAttribute('aria-pressed', 'false');
@@ -741,6 +750,7 @@ export function openPickSheet() {
       'aria-pressed': String(constraints[key]),
       text: label,
       onclick: (e) => {
+        haptics.selection();
         constraints[key] = !constraints[key];
         e.currentTarget.setAttribute('aria-pressed', String(constraints[key]));
         reopen();
@@ -768,6 +778,7 @@ export function openPickSheet() {
   const dealBtn = button('Deal me some', {
     kind: 'secondary',
     onClick: () => {
+      haptics.success();
       close();
       relaxed = 0;
       deal();
