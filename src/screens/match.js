@@ -138,7 +138,8 @@ export function openMatchPicker(item, { onDone } = {}) {
       meta: {
         v: meta.META_VERSION,
         status: 'matched',
-        at: Date.now(),
+        /* Dated when the details arrive — see the review queue. */
+        at: null,
         confidence: 1,
         source: 'user',
         sourceId: c.sourceId,
@@ -148,7 +149,7 @@ export function openMatchPicker(item, { onDone } = {}) {
     let filled = false;
     if (key) {
       try {
-        const full = await provider.details(c.sourceId, c.type, {
+        const full = await meta.recordFor(c, {
           provider,
           key,
           budget: new meta.RequestBudget(provider.dailyLimit, provider.id),
@@ -156,7 +157,7 @@ export function openMatchPicker(item, { onDone } = {}) {
         if (full) {
           /* Confidence 1: this is a deliberate human choice, so it should
              overwrite whatever the matcher guessed. */
-          const patch = meta.toPatch(store.byUid(item.uid), full, 1, provider.id);
+          const patch = meta.toPatch(store.byUid(item.uid), full, 1, provider.id, { chosen: true });
           /* toPatch stamps the provider as the source. Put the human back —
              otherwise the app forgets a person chose this, and the next sweep
              after the cache expires is free to pick the wrong film all over

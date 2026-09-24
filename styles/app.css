@@ -351,11 +351,16 @@ body.is-ready #boot {
 }
 .screen.is-active {
   display: flex;
-  /* Every tab switch used to be a hard cut, the one place in the app with no
-     motion at all. Tabs cross-fade; screens you go into slide in from the
-     right, and coming back slides the other way. Opacity-only between tabs so
-     the library's absolutely positioned selection bar never finds itself in a
-     transformed container mid-switch. */
+}
+/* Every tab switch used to be a hard cut, the one place in the app with no
+   motion at all. Tabs cross-fade; screens you go into slide in from the right,
+   and coming back slides the other way. Opacity-only between tabs so the
+   library's absolutely positioned selection bar never finds itself in a
+   transformed container mid-switch.
+   A class navigate() adds and animationend removes, not a property of being
+   active: anything that switched the animation off and on again — a swipe
+   back did — replayed the fade, and the screen blinked out and back. */
+.screen.is-active.is-fade {
   animation: screenFade 180ms var(--ease);
 }
 .screen.is-active.is-push {
@@ -370,11 +375,11 @@ body.is-ready #boot {
   }
 }
 /* Swipe back (swipeback.js): the screen being swiped rides above the one it
-   returns to, which is shown in place underneath without joining the layout. */
+   returns to, which is shown in place underneath without joining the layout.
+   No animation is switched off here — see .is-fade. */
 .screen.is-swiping {
   position: relative;
   z-index: 1;
-  animation: none;
 }
 .screen.is-under {
   display: flex;
@@ -383,11 +388,19 @@ body.is-ready #boot {
   left: 0;
   right: 0;
   z-index: 0;
-  pointer-events: none;
-  animation: none;
+  /* Takes touches: one landing here while a swipe settles lands the swipe
+     and carries on, on the screen it was going back to. */
 }
-.detail.is-swiping {
-  animation: none;
+/* What shows behind a film being swiped back to the film before it. */
+.detail-under {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 799;
+  background: var(--ink);
+}
+.detail-under.is-under {
+  display: block;
 }
 @keyframes screenPush {
   from {

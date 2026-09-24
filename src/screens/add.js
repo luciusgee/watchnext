@@ -365,7 +365,7 @@ function searchForm() {
       if (full && store.byUid(item.uid)) {
         const patch = meta.toPatch(store.byUid(item.uid), full, 1, provider.id);
         /* toPatch stamps the provider as the source; the human chose it. */
-        patch.meta = { ...patch.meta, source: 'user' };
+        patch.meta = { ...patch.meta, source: 'user', chosenAt: Date.now() };
         store.update(item.uid, patch);
         store.saveNow();
         store.emit('item');

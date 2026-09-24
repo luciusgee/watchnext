@@ -209,25 +209,42 @@ export function decide(query, candidates) {
  * @param {object} item      library item
  * @param {object} ctx       { provider, key, budget, signal }
  */
+/**
+ * The full record for a film already chosen, by whichever id this database
+ * can use.
+ *
+ * An id belongs to the database that produced it. Someone who switched from
+ * OMDb to TMDB holds OMDb ids ("tt…") — on matched titles, and on the
+ * candidates stored for the review queue — and TMDB's /movie/{id} cannot
+ * resolve them: picking one saved the choice and then silently fetched
+ * nothing, so the wrong poster stayed. The IMDb id is the same film on both.
+ */
+export async function recordFor(choice, ctx) {
+  const { provider } = ctx;
+  const sid = choice?.sourceId == null ? '' : String(choice.sourceId);
+  const fits = provider.id === 'omdb' ? /^tt\d+$/.test(sid) : /^\d+$/.test(sid);
+  if (sid && fits) return provider.details(sid, choice.type, ctx);
+  if (choice?.imdbId && provider.byImdbId) return provider.byImdbId(choice.imdbId, ctx);
+  return null;
+}
+
 export async function findMatch(item, ctx) {
   const { provider, key, budget, signal } = ctx;
-  const query = { title: item.title, year: item.year, type: item.type };
+  /* A title left alone keeps the year of the film it was wrongly matched to
+     — "Rings of power" still said 1978 — so when it is checked again the year
+     is not held against the right one. Unless someone typed it. */
+  const leftAlone = item.meta?.status === 'skipped';
+  const query = {
+    title: item.title,
+    year: leftAlone && !isLocked(item, 'year') ? null : item.year,
+    /* Same for film or series: "1899" was filed as a 2007 film. */
+    type: leftAlone && !isLocked(item, 'type') ? null : item.type,
+  };
 
   /* Fast path: an id this matcher verified itself. An id lookup is exact —
      no fuzzy matching, no chance of drifting onto a different film. */
   if (item.meta?.status === 'matched' && item.meta?.sourceId) {
-    /* The id belongs to whichever database matched it. Someone who switched
-       from OMDb to TMDB holds OMDb ids ("tt…") that TMDB's /movie/{id} cannot
-       resolve, so every title would have paid for a full search again when
-       its record expired. The IMDb id is the same film on both, and verified
-       when it was matched, so it stands in. */
-    const sid = String(item.meta.sourceId);
-    const fits = provider.id === 'omdb' ? /^tt\d+$/.test(sid) : /^\d+$/.test(sid);
-    const held = fits
-      ? await provider.details(sid, item.type, ctx)
-      : item.imdbId && provider.byImdbId
-        ? await provider.byImdbId(item.imdbId, ctx)
-        : null;
+    const held = await recordFor({ sourceId: item.meta.sourceId, imdbId: item.imdbId, type: item.type }, ctx);
     if (held) {
       return { status: 'matched', confidence: 1, chosen: held, candidates: [held], reasons: ['known id'] };
     }
@@ -270,7 +287,7 @@ export async function findMatch(item, ctx) {
  * Turn a Record into a patch, respecting locked fields and never replacing
  * data we hold with something emptier.
  */
-export function toPatch(item, record, confidence, providerId = 'omdb') {
+export function toPatch(item, record, confidence, providerId = 'omdb', { chosen = false } = {}) {
   const patch = {};
   const set = (field, value) => {
     if (value === null || value === undefined || value === '') return;
@@ -289,8 +306,10 @@ export function toPatch(item, record, confidence, providerId = 'omdb') {
   if (record.genres?.length && !isLocked(item, 'genre')) patch.genres = record.genres;
 
   /* Adopt the provider's canonical title only when it is essentially the same
-     film — this stops "Alien" quietly becoming "Aliens". */
-  if (record.title && !isLocked(item, 'title') && similarity(item.title, record.title) >= 0.9) {
+     film — this stops "Alien" quietly becoming "Aliens". Unless a person
+     picked this film: then "garth meringues dark place" should become the
+     name of the thing they chose. */
+  if (record.title && !isLocked(item, 'title') && (chosen || similarity(item.title, record.title) >= 0.9)) {
     patch.title = record.title;
   }
 
@@ -310,23 +329,42 @@ export function toPatch(item, record, confidence, providerId = 'omdb') {
    It also keeps ratings and artwork from drifting years out of date. */
 export const CACHE_TTL_MS = 180 * 24 * 60 * 60 * 1000;
 
+/**
+ * A match someone chose whose details never arrived.
+ *
+ * Either saved with no date (no key yet, or the network dropped), or picked
+ * from the review list before that list could look a choice up through the
+ * other database — those were saved as done with the old, wrong poster still
+ * on them, and are told apart by having no chosenAt, which that list never
+ * wrote. The next check fetches them by their IMDb id.
+ */
+function awaitingDetails(m) {
+  return m.status === 'matched' && (!m.at || (m.source === 'user' && !m.chosenAt));
+}
+
 /** Items that actually need work — this is what makes re-runs cheap. */
-export function needsEnrichment(item, { force = false, now = Date.now() } = {}) {
+export function needsEnrichment(item, { force = false, skipped = false, now = Date.now() } = {}) {
   if (force) return true;
   const m = item.meta || {};
-  if (m.status === 'skipped') return false; // user dismissed it
+  /* Left alone — only looked at again when asked to. */
+  if (m.status === 'skipped') return skipped;
   if (m.status === 'matched' && m.v >= META_VERSION) {
-    /* Expired records fall back into the queue. */
-    return !!m.at && now - m.at > CACHE_TTL_MS;
+    /* Expired records fall back into the queue — and so does a choice whose
+       details never arrived (no key yet, or the network dropped), which is
+       saved with no date for exactly this. */
+    return awaitingDetails(m) || now - m.at > CACHE_TTL_MS;
   }
   return true;
 }
 
 export function enrichmentSummary(list) {
-  const s = { total: list.length, done: 0, pending: 0, stale: 0, review: 0, unmatched: 0, skipped: 0 };
+  const s = { total: list.length, done: 0, fill: 0, pending: 0, stale: 0, review: 0, unmatched: 0, skipped: 0 };
   for (const i of list) {
     const st = i.meta?.status;
-    if (st === 'matched' && i.meta.v >= META_VERSION) s.done += 1;
+    if (st === 'matched' && i.meta.v >= META_VERSION) {
+      s.done += 1;
+      if (awaitingDetails(i.meta)) s.fill += 1;
+    }
     else if (st === 'review') s.review += 1;
     else if (st === 'unmatched') s.unmatched += 1;
     else if (st === 'skipped') s.skipped += 1;
@@ -336,7 +374,7 @@ export function enrichmentSummary(list) {
     else if (st === 'stale') s.stale += 1;
     else s.pending += 1;
   }
-  s.todo = s.pending + s.stale;
+  s.todo = s.pending + s.stale + s.fill;
   return s;
 }
 

@@ -134,6 +134,11 @@ export function closeDetail({ swiped = false } = {}) {
   lastFocus = null;
 }
 
+/** How many films deep the overlay is: 0 when Back leaves it. */
+export function detailDepth() {
+  return historyStack.length;
+}
+
 export function isDetailOpen() {
   return root?.classList.contains('is-open');
 }

@@ -12,9 +12,9 @@ import { syncViewport, blockZoom, measureShortfall, applyHomeIndicatorFloor } fr
 import { icon } from './icons.js';
 import * as haptics from './haptics.js';
 import { el, toast } from './ui.js';
-import { initSwipeBack } from './swipeback.js';
+import { initSwipeBack, cancelSwipe } from './swipeback.js';
 
-import { initDetail, closeDetail, isDetailOpen } from './screens/detail.js';
+import { initDetail, closeDetail, isDetailOpen, detailDepth } from './screens/detail.js';
 import { initTonight, showTonight } from './screens/tonight.js';
 import { initLibrary, showLibrary } from './screens/library.js';
 import { initDiscover, showDiscover } from './screens/discover.js';
@@ -70,6 +70,10 @@ function navigate(id, params = {}, { back = false, swiped = false } = {}) {
     return;
   }
 
+  /* Anything else navigating ends a swipe still settling — otherwise its
+     deferred Back would land after, and on top of, this. */
+  if (!swiped) cancelSwipe();
+
   const from = current;
   const had = document.activeElement;
   const prev = scroller(from);
@@ -83,15 +87,16 @@ function navigate(id, params = {}, { back = false, swiped = false } = {}) {
   }
 
   const target = document.getElementById(`screen-${id}`);
-  target.classList.remove('is-push', 'is-pop');
+  target.classList.remove('is-push', 'is-pop', 'is-fade');
   /* Not after a swipe back: the finger already moved the screens, and a
      slide on top of that played the arrival twice. */
   if (id !== from && document.body.classList.contains('is-ready') && !swiped) {
     if (PUSHED.has(id) && !back) target.classList.add('is-push');
     else if (back || PUSHED.has(from)) target.classList.add('is-pop');
+    else target.classList.add('is-fade');
     /* A direction class must not outlive its slide: anything that restarts
        animations later (the viewport heal does) would replay it. */
-    target.addEventListener('animationend', () => target.classList.remove('is-push', 'is-pop'), { once: true });
+    target.addEventListener('animationend', () => target.classList.remove('is-push', 'is-pop', 'is-fade'), { once: true });
   }
 
   for (const screen of document.querySelectorAll('.screen')) {
@@ -178,7 +183,33 @@ function goBack({ swiped = false } = {}) {
    back to. */
 function swipeTarget() {
   if (isDetailOpen()) {
-    return { layer: document.getElementById('detail'), onBack: () => closeDetail({ swiped: true }) };
+    const detail = document.getElementById('detail');
+    /* The close button is fixed, and a transform makes the overlay its
+       containing block — scrolled down, it slid away with the content. Pin it
+       where it is for the length of the swipe. */
+    const pin = () => {
+      const b = detail.querySelector('.detail-back');
+      if (!b) return;
+      const r = b.getBoundingClientRect();
+      Object.assign(b.style, { position: 'absolute', top: `${detail.scrollTop + r.top}px`, left: `${r.left}px` });
+    };
+    const unpin = () => {
+      const b = detail.querySelector('.detail-back');
+      if (b) Object.assign(b.style, { position: '', top: '', left: '' });
+    };
+    /* A film opened from another film's "More like this" goes back to that
+       film, not to the app — so the app must not show through as if it did.
+       Plain ink underneath, and the film before swaps in the usual way. */
+    if (detailDepth()) {
+      return {
+        layer: detail,
+        under: document.getElementById('detail-under'),
+        onStart: pin,
+        onEnd: unpin,
+        onBack: () => closeDetail(),
+      };
+    }
+    return { layer: detail, onStart: pin, onEnd: unpin, onBack: () => closeDetail({ swiped: true }) };
   }
   if (!PUSHED.has(current)) return null;
   const to = backStack[backStack.length - 1] || 'tonight';
@@ -210,7 +241,10 @@ async function boot() {
 
   document.getElementById('app').appendChild(buildTabBar());
   wireChrome();
-  initSwipeBack(swipeTarget);
+  initSwipeBack(swipeTarget, [
+    ...[...PUSHED].map((id) => document.getElementById(`screen-${id}`)),
+    document.getElementById('detail'),
+  ]);
 
   initDetail({ navigate });
   initTonight({ navigate });

@@ -176,9 +176,13 @@ function summaryLine(s) {
   const bits = [];
   if (s.done) bits.push(`${s.done} verified`);
   if (s.stale) bits.push(`${s.stale} to re-check`);
+  if (s.fill) bits.push(`${s.fill} waiting for details`);
   if (s.pending) bits.push(`${s.pending} never looked up`);
   if (s.review) bits.push(`${s.review} need you to choose`);
   if (s.unmatched) bits.push(`${s.unmatched} not found`);
+  /* Said, because they were otherwise invisible: not in the count, not in the
+     review list, and the line underneath read "Everything is up to date". */
+  if (s.skipped) bits.push(`${s.skipped} left as they were`);
   if (!bits.length) return s.total === 1 ? 'Your one title has verified details.' : `All ${s.total} titles have verified details.`;
   return `${plural(s.total, 'title')} — ` + bits.join(', ') + '.';
 }
@@ -624,7 +628,27 @@ function dataGroup() {
       onClick: () => (sweepController ? stopSweep() : runSweep({ force: false })),
     });
     controls.appendChild(checkBtn);
-  } else if (!summary.review && !summary.unmatched) {
+  }
+  if (summary.skipped && !sweepController) {
+    /* Titles someone chose to leave alone are never looked up again on their
+       own — which is right, until the matcher or the database changes. Most
+       came across from the old app with another film's details. */
+    if (!summary.todo) {
+      progressText.style.color = 'var(--amber)';
+      progressText.textContent =
+        summary.skipped === 1
+          ? 'One title was left as it was when it did not match. Checking it again may find it now.'
+          : `${summary.skipped} titles were left as they were when they did not match. Checking them again may find them now.`;
+    }
+    controls.appendChild(
+      button(`Check ${summary.skipped} again`, {
+        kind: summary.todo ? 'secondary' : 'primary',
+        iconName: 'search',
+        onClick: () => runSweep({ skipped: true }),
+      })
+    );
+  }
+  if (!summary.todo && !sweepController && !summary.skipped && !summary.review && !summary.unmatched) {
     /* A status, said as one — not a bordered button that toasts "Nothing
        needs looking up" when pressed. */
     progressText.style.color = 'var(--sage)';
@@ -1153,7 +1177,10 @@ function reviewCard(item, { resolved, reroute }) {
           meta: {
             v: meta.META_VERSION,
             status: 'matched',
-            at: Date.now(),
+            /* No date until the details arrive, so a choice whose details
+               never came is looked up by the next check rather than counted
+               as done for six months. */
+            at: null,
             confidence: 1,
             source: 'user',
             sourceId: c.sourceId,
@@ -1161,14 +1188,20 @@ function reviewCard(item, { resolved, reroute }) {
         });
         if (key) {
           try {
-            const full = await provider.details(c.sourceId, c.type, {
+            /* By whichever id this database understands: these candidates may
+               have been found through the other one. */
+            const full = await meta.recordFor(c, {
               provider,
               key,
               budget: new meta.RequestBudget(provider.dailyLimit, provider.id),
             });
-            if (full) store.update(item.uid, meta.toPatch(store.byUid(item.uid), full, 1, provider.id));
+            if (full) {
+              const patch = meta.toPatch(store.byUid(item.uid), full, 1, provider.id, { chosen: true });
+              patch.meta = { ...patch.meta, source: 'user', chosenAt: Date.now() };
+              store.update(item.uid, patch);
+            }
           } catch {
-            /* the choice is saved either way; details fill in on the next sweep */
+            /* the choice is saved either way; details fill in on the next check */
           }
         }
         store.saveNow();

@@ -150,6 +150,120 @@ function check(name, cond, detail = '') {
   await page.evaluate(async () => (await import('./src/ui.js')).closeSheet());
   await page.waitForTimeout(300);
 
+  console.log('\n─── what the review of the first version found ───');
+  const toTonight = async () => { await page.tap('[data-tab="tonight"]'); await page.waitForTimeout(400); };
+  /* The screen landed on used to blink out and fade back in. */
+  await toTonight();
+  await open('settings');
+  await page.waitForTimeout(500);
+  await swipe(6, 300);
+  const landed = await page.evaluate(() => {
+    const s = document.getElementById('screen-tonight');
+    return { opacity: getComputedStyle(s).opacity, running: s.getAnimations().length };
+  });
+  check('the screen a swipe lands on does not fade in again', landed.opacity === '1' && landed.running === 0, JSON.stringify(landed));
+  await open('settings');
+  await page.waitForTimeout(500);
+  await touch('touchStart', 6, 400);
+  for (let i = 1; i <= 4; i++) { await touch('touchMove', 6 + i * 15, 400); await page.waitForTimeout(40); }
+  await page.waitForTimeout(200);
+  await touch('touchEnd');
+  await page.waitForTimeout(260);
+  const sprung = await page.evaluate(() => {
+    const s = document.getElementById('screen-settings');
+    return { opacity: getComputedStyle(s).opacity, running: s.getAnimations().length };
+  });
+  check('nor does the one that springs back', sprung.opacity === '1' && sprung.running === 0, JSON.stringify(sprung));
+
+  /* Releasing while moving back is changing your mind. */
+  await touch('touchStart', 6, 400);
+  for (let i = 1; i <= 10; i++) { await touch('touchMove', 6 + i * 24, 400); await page.waitForTimeout(16); }
+  for (let i = 1; i <= 4; i++) { await touch('touchMove', 246 - i * 18, 400); await page.waitForTimeout(16); }
+  await touch('touchEnd');
+  await page.waitForTimeout(450);
+  check('letting go while moving back stays put, however far it went', (await active()) === 'screen-settings', await active());
+
+  /* A second swipe straight after the first. */
+  await page.evaluate(() => (document.querySelector('.screen.is-active [data-nav="add"]') || document.querySelector('[data-nav="add"]'))?.click());
+  await page.waitForTimeout(400);
+  const chainFrom = await active();
+  await touch('touchStart', 6, 400);
+  for (let i = 1; i <= 8; i++) { await touch('touchMove', 6 + i * 36, 400); await page.waitForTimeout(12); }
+  await touch('touchEnd');
+  await page.waitForTimeout(60);
+  await swipe(6, 300);
+  check('a second swipe straight after the first goes back again', chainFrom === 'screen-add' && (await active()) === 'screen-tonight', `${chainFrom} → ${await active()}`);
+
+  /* A tab tapped while a swipe settles wins. */
+  await open('settings');
+  await page.waitForTimeout(500);
+  await touch('touchStart', 6, 400);
+  for (let i = 1; i <= 8; i++) { await touch('touchMove', 6 + i * 36, 400); await page.waitForTimeout(12); }
+  await touch('touchEnd');
+  await page.evaluate(() => document.querySelector('[data-tab="library"]').click());
+  await page.waitForTimeout(450);
+  const underLeft = await page.evaluate(() => document.querySelectorAll('.screen.is-under, .screen.is-swiping').length);
+  check('a tab tapped while a swipe settles is where you end up', (await active()) === 'screen-library' && underLeft === 0, `${await active()} ${underLeft}`);
+
+  /* A film re-rendered mid-swipe — a sync landing — must not freeze it. */
+  await page.evaluate(async () => (await import('./src/screens/detail.js')).openDetail(window.__test.items()[1].uid));
+  await page.waitForTimeout(500);
+  await touch('touchStart', 6, 400);
+  for (let i = 1; i <= 4; i++) { await touch('touchMove', 6 + i * 20, 400); await page.waitForTimeout(16); }
+  await page.evaluate(async () => (await import('./src/store.js')).emit('item'));
+  for (let i = 5; i <= 12; i++) { await touch('touchMove', 6 + i * 24, 400); await page.waitForTimeout(16); }
+  await touch('touchEnd');
+  await page.waitForTimeout(450);
+  const afterEmit = await page.evaluate(() => ({ open: document.getElementById('detail').classList.contains('is-open'), transform: document.getElementById('detail').style.transform, swiping: document.getElementById('detail').classList.contains('is-swiping') }));
+  check('details re-rendered mid-swipe still finish the swipe', !afterEmit.open && !afterEmit.transform && !afterEmit.swiping, JSON.stringify(afterEmit));
+
+  /* One film opened from another goes back to that film. */
+  const [first, second] = await page.evaluate(() => window.__test.items().slice(2, 4).map((i) => i.uid));
+  await page.evaluate(async ([a, b]) => { const d = await import('./src/screens/detail.js'); d.openDetail(a); d.openDetail(b); }, [first, second]);
+  await page.waitForTimeout(500);
+  await touch('touchStart', 6, 400);
+  for (let i = 1; i <= 6; i++) { await touch('touchMove', 6 + i * 20, 400); await page.waitForTimeout(16); }
+  const behind = await page.evaluate(() => {
+    const u = document.getElementById('detail-under');
+    return u.classList.contains('is-under') && getComputedStyle(u).display === 'block';
+  });
+  for (let i = 7; i <= 14; i++) { await touch('touchMove', 6 + i * 22, 400); await page.waitForTimeout(16); }
+  await touch('touchEnd');
+  await page.waitForTimeout(600);
+  const back = await page.evaluate(() => ({ open: document.getElementById('detail').classList.contains('is-open'), title: document.getElementById('detail-title')?.textContent }));
+  const firstTitle = await page.evaluate((u) => window.__test.byUid(u).title, first);
+  check('a film opened from another shows plain ink behind it, not the app', behind);
+  check('and swiping back lands on the film before', back.open && back.title === firstTitle, JSON.stringify(back));
+  await page.evaluate(async () => { const d = await import('./src/screens/detail.js'); while (d.isDetailOpen()) d.closeDetail(); });
+  await page.waitForTimeout(400);
+
+  /* The close button stays put when the details are scrolled. */
+  await page.evaluate(async () => (await import('./src/screens/detail.js')).openDetail(window.__test.items()[5].uid));
+  await page.waitForTimeout(500);
+  await page.evaluate(() => { document.getElementById('detail').scrollTop = 400; });
+  await page.waitForTimeout(100);
+  const y0 = await page.evaluate(() => document.querySelector('#detail .detail-back')?.getBoundingClientRect().y);
+  await touch('touchStart', 6, 400);
+  for (let i = 1; i <= 5; i++) { await touch('touchMove', 6 + i * 20, 400); await page.waitForTimeout(16); }
+  const y1 = await page.evaluate(() => document.querySelector('#detail .detail-back')?.getBoundingClientRect().y);
+  await page.waitForTimeout(200);
+  await touch('touchEnd');
+  await page.waitForTimeout(450);
+  check('the film’s close button stays on screen during a swipe', typeof y0 === 'number' && Math.abs(y1 - y0) < 2, `${y0} → ${y1}`);
+  await page.evaluate(async () => { const d = await import('./src/screens/detail.js'); while (d.isDetailOpen()) d.closeDetail(); });
+  await page.waitForTimeout(300);
+
+  /* On Pick, only the card itself is not a back swipe. */
+  await toTonight();
+  await page.evaluate(async () => (await import('./src/screens/pick.js')).openPickSheet());
+  await page.waitForTimeout(500);
+  await page.evaluate(() => [...document.querySelectorAll('.panel.is-open button, .sheet.is-open button')].find((b) => /Deal me some/.test(b.textContent))?.click());
+  await page.waitForTimeout(700);
+  const deckY = await page.evaluate(() => { const r = document.querySelector('#screen-pick .deck')?.getBoundingClientRect(); return r ? r.y + r.height / 2 : null; });
+  const onPick = await active();
+  if (deckY) await swipe(8, 300, { y: deckY });
+  check('on Pick, a swipe from the edge beside the card goes back', onPick === 'screen-pick' && (await active()) !== 'screen-pick', `${onPick} → ${await active()}`);
+
   console.log('\n─── no errors ───');
   check('no JavaScript errors', errors.length === 0, errors.join(' | '));
   await browser.close();
