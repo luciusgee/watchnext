@@ -17,13 +17,15 @@ import { storageHealth, markBackedUp, requestPersistence } from '../durability.j
 import { BUILD } from '../build.js';
 import { healState, safeAreaInsets } from '../viewport.js';
 import { openMatchPicker } from './match.js';
-import { runtime } from '../format.js';
+import { runtime, relativeTime } from '../format.js';
 import { MODELS, currentModel } from '../ai.js';
+import * as sync from '../sync.js';
 
 let root = null;
 let bodyEl = null;
 let navigate = null;
 let sweepController = null;
+let syncWatcher = null;
 
 export function initSettings({ navigate: nav }) {
   navigate = nav;
@@ -57,6 +59,9 @@ function render() {
 
   bodyEl.appendChild(groupLabel('Library data'));
   bodyEl.appendChild(dataGroup());
+
+  bodyEl.appendChild(groupLabel('Sync'));
+  bodyEl.appendChild(syncGroup());
 
   bodyEl.appendChild(groupLabel('Your data'));
   bodyEl.appendChild(backupGroup());
@@ -287,6 +292,134 @@ function connectionsGroup() {
   }
   g.appendChild(ai);
 
+  return g;
+}
+
+/* ── sync ──
+   A private repo as the shared shelf. See sync.js for why it is git and not a
+   database, and what that costs. */
+
+function syncGroup() {
+  const g = el('div', { class: 'group' });
+  const cfg = sync.config();
+
+  const box = el('div', { class: 'group-pad' });
+  box.appendChild(el('div', { class: 'group-item-t', text: 'Share a library', style: 'margin-bottom:4px' }));
+  box.appendChild(
+    el('div', {
+      class: 'group-item-s',
+      style: 'margin-bottom:12px',
+      text:
+        'Keep this library in a GitHub repo, so two phones share one shelf and every change is a commit you can roll back to. ' +
+        'Films added on either phone appear on the other within about half a minute.',
+    })
+  );
+  /* Said here rather than discovered on github.com. The repo that serves this
+     app has to be public for Pages; the one holding a watch history does not. */
+  box.appendChild(
+    el('div', {
+      style: 'font-size:12px;color:var(--amber);margin-bottom:14px;line-height:1.5',
+      text: 'Use a private repo — not the one this app is published from. A public repo means anyone can read what you own and what you have watched.',
+    })
+  );
+
+  const repo = el('input', {
+    class: 'input', type: 'text', autocomplete: 'off', spellcheck: 'false',
+    placeholder: 'yourname/watchnext-data', value: cfg.repo, 'aria-label': 'Repository, as owner/name',
+  });
+  box.appendChild(repo);
+
+  const token = el('input', {
+    class: 'input', type: 'password', autocomplete: 'off', spellcheck: 'false',
+    placeholder: 'github_pat_…', value: cfg.token, 'aria-label': 'GitHub access token',
+    style: 'margin-top:8px',
+  });
+  box.appendChild(token);
+  box.appendChild(
+    el('div', {
+      style: 'font-size:12px;color:var(--ash);margin-top:8px;line-height:1.5',
+      text: 'A fine-grained token with Contents: read and write, on that one repo only. Both phones use the same one. Lose a phone and you revoke it on github.com.',
+    })
+  );
+
+  const verdict = el('div', { style: 'font-size:12px;margin-top:10px;line-height:1.5' });
+  box.appendChild(verdict);
+
+  const say = (text, colour) => {
+    verdict.textContent = text;
+    verdict.style.color = colour;
+  };
+
+  const row = el('div', { style: 'display:flex;gap:8px;margin-top:12px;flex-wrap:wrap' });
+  row.appendChild(
+    button(cfg.enabled ? 'Save' : 'Turn on sync', {
+      kind: 'primary',
+      onClick: async () => {
+        store.updateSettings({
+          sync: { ...cfg, repo: repo.value.trim(), token: token.value.trim(), enabled: true },
+        });
+        say('Checking…', 'var(--ash)');
+        const result = await sync.check();
+        if (!result.ok) {
+          /* Left switched off rather than saved broken: an enabled sync that
+             cannot write would sit there reporting errors and quietly not
+             backing anything up. */
+          store.updateSettings({ sync: { ...sync.config(), enabled: false } });
+          say(result.message, 'var(--ember)');
+          return;
+        }
+        if (result.warning) say(result.warning, 'var(--amber)');
+        sync.start();
+        toast('Sync on');
+        render();
+      },
+    })
+  );
+  if (cfg.enabled) {
+    row.appendChild(
+      button('Sync now', {
+        kind: 'secondary',
+        onClick: async () => {
+          say('Syncing…', 'var(--ash)');
+          const moved = await sync.syncNow({ note: 'Manual sync' });
+          const st = sync.status();
+          if (st.phase === 'error') say(st.message, 'var(--ember)');
+          else say(moved ? 'Synced.' : 'Already up to date.', 'var(--sage)');
+        },
+      })
+    );
+    row.appendChild(
+      button('Turn off', {
+        kind: 'quiet',
+        onClick: () => {
+          store.updateSettings({ sync: { ...sync.config(), enabled: false } });
+          toast('Sync off. Your library stays on this phone.');
+          render();
+        },
+      })
+    );
+  }
+  box.appendChild(row);
+
+  if (cfg.enabled) {
+    const live = el('div', { style: 'font-size:12px;color:var(--ash);margin-top:10px' });
+    const paint = (st) => {
+      live.textContent =
+        st.phase === 'syncing' ? 'Syncing…'
+        : st.phase === 'error' ? st.message
+        : st.at ? `Last synced ${relativeTime(st.at)}`
+        : 'Waiting for the first sync.';
+      live.style.color = st.phase === 'error' ? 'var(--ember)' : 'var(--ash)';
+    };
+    paint(sync.status());
+    /* Unsubscribed when Settings is re-rendered, not left accumulating one
+       listener per visit. */
+    if (syncWatcher) syncWatcher();
+    syncWatcher = sync.watch(paint);
+    box.appendChild(live);
+  }
+
+  g.appendChild(box);
   return g;
 }
 

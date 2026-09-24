@@ -51,6 +51,8 @@ const SHELL = [
   './src/viewport.js',
   './src/deck.js',
   './src/ai.js',
+  './src/sync.js',
+  './src/merge.js',
   './src/providers/index.js',
   './src/providers/shared.js',
   './src/providers/omdb.js',
@@ -153,7 +155,7 @@ self.addEventListener('fetch', (event) => {
 
   /* Never cache API traffic. Metadata and model responses are the user's own
      quota, and stale answers here would be actively confusing. */
-  if (/api\.themoviedb\.org|omdbapi\.com|api\.anthropic\.com/.test(url.hostname)) return;
+  if (/api\.themoviedb\.org|omdbapi\.com|api\.anthropic\.com|api\.github\.com/.test(url.hostname)) return;
 
   if (isImage(request, url)) {
     event.respondWith(cacheFirst(request));

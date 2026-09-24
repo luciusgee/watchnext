@@ -7,6 +7,7 @@
 
 import * as store from './store.js';
 import { requestPersistence } from './durability.js';
+import { start as startSync } from './sync.js';
 import { syncViewport, blockZoom, measureShortfall, applyHomeIndicatorFloor } from './viewport.js';
 import { icon } from './icons.js';
 import { el, toast } from './ui.js';
@@ -150,6 +151,9 @@ async function boot() {
   exposeTestHooks();
   registerServiceWorker();
   protectStorage();
+  /* After the screens exist: adopting the other phone's changes emits 'item',
+     and the handlers for that are wired up in the init calls above. */
+  startSync();
   clearRetiredKeys();
   applyHomeIndicatorFloor();
   /* Before syncViewport: it decides whether the blank-and-reflow fallback is

@@ -79,6 +79,12 @@ export function makeItem(partial = {}) {
     seenAt: partial.seenAt ?? null,
 
     addedAt: partial.addedAt ?? Date.now(),
+    /* When this record last changed, as opposed to when it arrived. The merge
+       in merge.js decides which of two copies of a title wins by comparing
+       these, so anything that mutates an item has to move it — see update(),
+       bulk() and applySync(). Falls back to addedAt for the several hundred
+       records that predate the field. */
+    updatedAt: partial.updatedAt ?? partial.addedAt ?? Date.now(),
     locked: partial.locked || [],
     meta: partial.meta || { v: 0, status: 'pending', at: null, confidence: null },
   };
@@ -110,6 +116,10 @@ function emptyState() {
     schema: SCHEMA,
     items: [],
     activity: [],
+    /* { uid, at } for every title deleted here. A deleted film and a film this
+       device has never heard of look identical without this, so a sync would
+       hand back everything the other person threw away. Pruned in merge.js. */
+    tombstones: [],
     settings: {
       name: '',
       provider: 'tmdb',
@@ -122,6 +132,11 @@ function emptyState() {
          exist. */
       aiModel: '',
       libraryView: 'list',
+      /* Two phones, one shelf — see sync.js. The token lives here with the
+         other keys, which is also why the sync payload is built by
+         syncSnapshot() rather than from settings: this object must never be
+         the thing that gets written to a repo. */
+      sync: { repo: '', token: '', path: 'library.json', enabled: false },
       /* Things you never want suggested. See tastePrefs(). */
       taste: { genres: [], franchises: [], never: [] },
       /* Who watches here. Empty means one person, and one person is the case
@@ -226,6 +241,9 @@ function migrate(s) {
     delete s.settings.omdbKey;
   }
   if (s.settings && !s.settings.provider) s.settings.provider = 'tmdb';
+  /* Added with sync. Absent on every state saved before it, and read on every
+     merge, so it is defaulted here rather than guarded at each use. */
+  if (!Array.isArray(s.tombstones)) s.tombstones = [];
 
   if (s.schema === SCHEMA) return s;
   /* future schema migrations land here, oldest first */
@@ -402,6 +420,7 @@ export function update(id, patch) {
   if (patch && (patch.title || (typeof patch === 'function' && next.title !== state.items[idx].title))) {
     next.sortTitle = sortableTitle(next.title);
   }
+  next.updatedAt = Date.now();
   state.items[idx] = next;
   save();
   return next;
@@ -431,8 +450,19 @@ export function remove(id) {
   const idx = indexOfUid(id);
   if (idx < 0) return null;
   const [gone] = state.items.splice(idx, 1);
+  bury(gone.uid);
   save();
   return gone;
+}
+
+/** Record that a uid was deleted here, so a sync cannot resurrect it. */
+function bury(id) {
+  if (!id) return;
+  if (!Array.isArray(state.tombstones)) state.tombstones = [];
+  const at = Date.now();
+  const held = state.tombstones.find((t) => t.uid === id);
+  if (held) held.at = at;
+  else state.tombstones.push({ uid: id, at });
 }
 
 export function updateSettings(patch) {
@@ -500,9 +530,13 @@ export function clearActivity() {
 /* ── bulk operations ── */
 
 export function bulk(fn) {
+  const at = Date.now();
   state.items.forEach((item, i) => {
     const patch = fn(item, i);
-    if (patch) state.items[i] = { ...item, ...patch };
+    /* Stamped here as well as in update(), which this deliberately does not go
+       through — a bulk edit is still an edit, and a sync that could not see it
+       would hand back the old version of every title it touched. */
+    if (patch) state.items[i] = { ...item, ...patch, updatedAt: at };
   });
   saveNow();
 }
@@ -559,6 +593,14 @@ export function importPayload(payload, mode = 'merge') {
   if (!incoming) throw new Error('That file does not look like a Watch Next backup.');
 
   if (mode === 'replace') {
+    /* A restore is a claim about what the library should be, so the titles it
+       drops are deletions and have to be recorded as such. Without this,
+       restoring last month's backup onto one phone and syncing gets you
+       everything you restored *plus* everything you were trying to undo. */
+    const keeping = new Set(incoming.map((i) => i.uid));
+    for (const held of state.items) {
+      if (!keeping.has(held.uid)) bury(held.uid);
+    }
     state.items = incoming;
     state.activity = Array.isArray(payload.activity) ? payload.activity : [];
     /* Put back the settings the backup actually carries. exportPayload has
@@ -620,6 +662,54 @@ export function importPayload(payload, mode = 'merge') {
   }
   saveNow();
   return { added, merged, skipped: 0 };
+}
+
+/* ── sync ──
+   What leaves the device, and what comes back. */
+
+/**
+ * The shareable half of the state.
+ *
+ * Items, the record of what has been deleted, and who lives here — because
+ * `watchedBy` is keyed on person ids and means nothing on the other phone
+ * without them.
+ *
+ * Deliberately not settings. Settings is where the API keys live, including
+ * the token doing the syncing, and a library file is a thing that ends up in a
+ * repo. `viewer` is also left out on purpose: which of you is holding this
+ * phone is a property of the phone.
+ */
+export function syncSnapshot() {
+  return {
+    items: state.items,
+    tombstones: Array.isArray(state.tombstones) ? state.tombstones : [],
+    people: Array.isArray(state.settings.people) ? state.settings.people : [],
+  };
+}
+
+/**
+ * Adopt a merged snapshot.
+ *
+ * Writes the records through untouched — no makeItem, no re-stamping of
+ * updatedAt. Stamping here would make every sync look like a local edit, and
+ * two phones would push each other's changes back and forth forever.
+ */
+export function applySync(snapshot) {
+  if (!snapshot || !Array.isArray(snapshot.items)) return false;
+  state.items = snapshot.items;
+  state.tombstones = Array.isArray(snapshot.tombstones) ? snapshot.tombstones : [];
+  if (Array.isArray(snapshot.people)) {
+    state.settings.people = snapshot.people;
+    /* The person this phone was answering for may have been removed on the
+       other one. Falling back to nobody is the same state as a household of
+       one, which every screen already handles. */
+    if (state.settings.viewer && !snapshot.people.some((p) => p.id === state.settings.viewer)) {
+      state.settings.viewer = null;
+    }
+  }
+  saveNow();
+  emit('item');
+  return true;
 }
 
 /* ── derived selectors ── */
