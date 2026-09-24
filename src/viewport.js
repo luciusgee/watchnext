@@ -78,13 +78,6 @@ export function applyHomeIndicatorFloor() {
      reserving the full 34pt inset for a bar that does not need it. */
   const floor = standalone && hasFurniture ? '20px' : '0px';
   document.documentElement.style.setProperty('--sb-floor', floor);
-  /* The top bar's row, nudged up. The web view starts under the status bar,
-     so the bar was centred between that edge and its hairline — but the
-     clock sits well above the edge, and the dark band read as having the row
-     low in it. env(safe-area-inset-top) cannot say so: it is 0 in this app,
-     which does not ask for viewport-fit=cover. Landscape has no status bar,
-     and the stylesheet drops the nudge there. */
-  document.documentElement.style.setProperty('--bar-lift-device', standalone && hasFurniture ? '6px' : '0px');
   state.floor = floor;
   return floor;
 }

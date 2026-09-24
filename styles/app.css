@@ -431,20 +431,11 @@ body.is-ready #boot {
   display: flex;
   align-items: center;
   gap: var(--s2);
-  /* Centred by eye, not by box: see --bar-lift-device in viewport.js. */
-  --bar-lift: var(--bar-lift-device, 0px);
   padding: var(--s3) var(--s4);
-  padding-top: calc(var(--st) + var(--s3) - var(--bar-lift));
-  padding-bottom: calc(var(--s3) + var(--bar-lift));
+  padding-top: calc(var(--st) + var(--s3));
   background: var(--ink);
   border-bottom: 1px solid var(--hairline);
   flex: none;
-}
-
-@media (orientation: landscape) {
-  .topbar {
-    --bar-lift: 0px;
-  }
 }
 
 .topbar-title {
