@@ -34,7 +34,7 @@ if ! curl -s -o /dev/null "http://127.0.0.1:$PORT/index.html"; then
 fi
 
 FAILED=0
-for suite in migration legacy-scale meta-e2e keycheck rematch offline durability viewport sync e2e polish haptics duplicates swipeback leftalone; do
+for suite in migration legacy-scale meta-e2e keycheck rematch offline durability viewport sync e2e polish haptics duplicates swipeback leftalone setup; do
   echo ""
   echo "── $suite ───────────────────────────────────────"
   node "tools/$suite.js" || FAILED=1

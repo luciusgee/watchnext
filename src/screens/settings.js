@@ -173,6 +173,9 @@ function groupLabel(text) {
 }
 
 function summaryLine(s) {
+  if (s.total && s.done === s.total && !s.fill && !s.missing) {
+    return s.total === 1 ? 'Your one title has verified details.' : `All ${s.total} titles have verified details.`;
+  }
   const bits = [];
   if (s.done) bits.push(`${s.done} verified`);
   if (s.stale) bits.push(`${s.stale} to re-check`);
@@ -180,9 +183,7 @@ function summaryLine(s) {
   if (s.pending) bits.push(`${s.pending} never looked up`);
   if (s.review) bits.push(`${s.review} need you to choose`);
   if (s.unmatched) bits.push(`${s.unmatched} not found`);
-  /* Said, because they were otherwise invisible: not in the count, not in the
-     review list, and the line underneath read "Everything is up to date". */
-  if (s.skipped) bits.push(`${s.skipped} left as they were`);
+  if (s.missing) bits.push(`${s.missing} missing a poster or details`);
   if (!bits.length) return s.total === 1 ? 'Your one title has verified details.' : `All ${s.total} titles have verified details.`;
   return `${plural(s.total, 'title')} — ` + bits.join(', ') + '.';
 }
@@ -629,26 +630,18 @@ function dataGroup() {
     });
     controls.appendChild(checkBtn);
   }
-  if (summary.skipped && !sweepController) {
-    /* Titles someone chose to leave alone are never looked up again on their
-       own — which is right, until the matcher or the database changes. Most
-       came across from the old app with another film's details. */
-    if (!summary.todo) {
-      progressText.style.color = 'var(--amber)';
-      progressText.textContent =
-        summary.skipped === 1
-          ? 'One title was left as it was when it did not match. Checking it again may find it now.'
-          : `${summary.skipped} titles were left as they were when they did not match. Checking them again may find them now.`;
-    }
+  /* Only what is short of something — not every title, every time. Offered
+     when there is something to fill, and gone when there is not. */
+  if (summary.missing && !sweepController) {
     controls.appendChild(
-      button(`Check ${summary.skipped} again`, {
+      button(`Fill in ${summary.missing} missing`, {
         kind: summary.todo ? 'secondary' : 'primary',
         iconName: 'search',
-        onClick: () => runSweep({ skipped: true }),
+        onClick: () => runSweep({ missing: true }),
       })
     );
   }
-  if (!summary.todo && !sweepController && !summary.skipped && !summary.review && !summary.unmatched) {
+  if (!summary.todo && !sweepController && !summary.missing && !summary.review && !summary.unmatched) {
     /* A status, said as one — not a bordered button that toasts "Nothing
        needs looking up" when pressed. */
     progressText.style.color = 'var(--sage)';
@@ -666,14 +659,20 @@ function dataGroup() {
       })
     );
   }
-  controls.appendChild(
-    button('Re-check everything', {
+  /* Still here for when it is wanted, but small and on its own line: it is
+     not the thing to press, and it was the one button always showing. */
+  const recheck = el('div', { style: 'margin-top:var(--s3)' });
+  status.appendChild(controls);
+  status.appendChild(recheck);
+  recheck.appendChild(
+    button(`Re-check all ${summary.total}…`, {
       kind: 'quiet',
+      size: 'sm',
       iconName: 'refresh',
       onClick: () =>
         openSheet({
           title: 'Re-check every title?',
-          message: `This looks up all ${plural(summary.total, 'title')} again. It only replaces details you have not edited yourself, but it uses your daily API allowance.`,
+          message: `This looks up every title again. It only replaces details you have not edited yourself, and leaves alone any you chose to keep as they are.`,
           actions: [
             {
               label: 'Re-check everything',
@@ -686,7 +685,6 @@ function dataGroup() {
         }),
     })
   );
-  status.appendChild(controls);
   g.appendChild(status);
 
   sweepUi = { text: progressText, bar: fill, btn: checkBtn, done: summary.done, total: summary.total };
@@ -772,8 +770,22 @@ async function runSweep(opts, { restart = false } = {}) {
       paintSweep();
     },
     apply: (item, res) => {
+      const wasShort = meta.missingDetails(item);
       if (res.status === 'matched' && res.chosen) {
-        store.update(item.uid, meta.toPatch(item, res.chosen, res.confidence, provider.id));
+        const patch = meta.toPatch(item, res.chosen, res.confidence, provider.id);
+        /* A person's choice stays marked as one after its details refresh. */
+        if (item.meta?.source === 'user') {
+          patch.meta = { ...patch.meta, source: 'user', chosenAt: item.meta.chosenAt || Date.now() };
+        }
+        /* Filled as far as the database can: if something is still missing,
+           it is not offered again for a while. */
+        if (wasShort) patch.meta.filledAt = Date.now();
+        store.update(item.uid, patch);
+      } else if (item.meta?.status === 'matched') {
+        /* Already verified, and this lookup came back unsure — a database
+           hiccup is no reason to un-verify a film and send it to review.
+           Noted as tried, and left as it was. */
+        store.update(item.uid, { meta: { ...item.meta, filledAt: Date.now() } });
       } else {
         store.update(item.uid, {
           meta: {
@@ -1139,23 +1151,30 @@ function reviewCard(item, { resolved, reroute }) {
     'data-review': item.uid,
     style: 'padding:var(--s4) 0;border-bottom:1px solid var(--hairline)',
   });
-  card.appendChild(el('div', { style: 'font-weight:620;margin-bottom:2px', text: item.title }));
-  card.appendChild(
+  /* What it has now, poster and all. A card that showed only the title and
+     "No candidates found" gave no way to see the details were already right
+     short of leaving the list to look. */
+  const now = el('div', { style: 'display:flex;gap:var(--s3);align-items:center;margin-bottom:var(--s3)' });
+  now.appendChild(poster(item, { width: 44 }));
+  const nowText = el('div', { style: 'flex:1;min-width:0' });
+  nowText.appendChild(el('div', { class: 'eyebrow', style: 'margin-bottom:2px', text: 'What it has now' }));
+  nowText.appendChild(el('div', { style: 'font-weight:620', text: item.title }));
+  nowText.appendChild(
     el('div', {
-      style: 'font-size:var(--t-meta);color:var(--ash);margin-bottom:var(--s3)',
+      style: 'font-size:var(--t-meta);color:var(--ash)',
       text: [item.year, item.type === 'tv' ? 'Series' : 'Film'].filter(Boolean).join(' · '),
     })
   );
+  now.appendChild(nowText);
+  card.appendChild(now);
 
   const candidates = item.meta?.candidates || [];
-  if (!candidates.length) {
-    card.appendChild(
-      el('div', {
-        style: 'font-size:var(--t-sub);color:var(--ash);margin-bottom:var(--s3)',
-        text: 'No candidates found for this title.',
-      })
-    );
-  }
+  card.appendChild(
+    el('div', {
+      style: 'font-size:var(--t-sub);color:var(--ash);margin-bottom:var(--s2)',
+      text: candidates.length ? 'Or is it one of these?' : 'Nothing else turned up under this name.',
+    })
+  );
 
   for (const c of candidates) {
     const b = el('div', { style: 'flex:1;min-width:0' });
@@ -1236,7 +1255,9 @@ function reviewCard(item, { resolved, reroute }) {
       'div',
       { class: 'btn-pair', style: 'margin-top:var(--s1)' },
       [
-        button('Leave it alone', {
+        /* Keeping it is a verdict — "this is right" — and counts as verified.
+           It used to be called Leave it alone and counted as nothing. */
+        button('Keep as it is', {
           kind: 'quiet',
           size: 'sm',
           onClick: () => {
@@ -1369,6 +1390,19 @@ function backupGroup() {
     })
   );
 
+  g.appendChild(
+    settingsRow('send', 'Set up another phone', 'One file with your library, keys and sync — to send to the other phone', () =>
+      openSheet({
+        title: 'Set up another phone',
+        message:
+          'This makes one file holding your library, your film database and Claude keys, and your sync repo and token. ' +
+          'Send it to the other phone — AirDrop is best — then on that phone open Settings and choose Restore from a backup. ' +
+          'It holds your keys, so delete it from both phones once it is done.',
+        actions: [{ label: 'Make the file', kind: 'primary', onClick: shareSetup }],
+      })
+    )
+  );
+
   const fileInput = el('input', {
     type: 'file',
     accept: 'application/json,.json',
@@ -1380,6 +1414,10 @@ function backupGroup() {
     try {
       const text = await file.text();
       const payload = JSON.parse(text);
+      if (store.readSetup(payload)) {
+        confirmSetup(payload);
+        return;
+      }
       const incoming = store.readBackup(payload);
       if (!incoming) {
         toast('That file does not look like a Watch Next backup');
@@ -1417,10 +1455,63 @@ function backupGroup() {
   });
   g.appendChild(fileInput);
   g.appendChild(
-    settingsRow('download', 'Restore from a backup', 'Merge or replace your library', () => fileInput.click())
+    settingsRow('download', 'Restore from a backup', 'A backup, or the setup file from your other phone', () => fileInput.click())
   );
 
   return g;
+}
+
+/* The setup file, handed to the share sheet so it can go straight to
+   AirDrop. Called from the sheet button's click, which is the user gesture
+   the share sheet needs. */
+function shareSetup() {
+  const name = `watchnext-setup-${new Date().toISOString().slice(0, 10)}.json`;
+  const text = JSON.stringify(store.exportSetup(), null, 2);
+  const file = typeof File === 'function' ? new File([text], name, { type: 'application/json' }) : null;
+  if (file && navigator.canShare?.({ files: [file] })) {
+    navigator.share({ files: [file], title: 'Watch Next setup' }).catch((err) => {
+      if (err?.name !== 'AbortError') toast('Could not share that file');
+    });
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const a = el('a', { href: url, download: name });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('Saved — send it to the other phone, then delete it');
+}
+
+/* Said in full before anything is applied: this file changes keys and turns
+   on sync, which a backup never does. */
+function confirmSetup(payload) {
+  const setup = store.readSetup(payload);
+  const count = store.readBackup(payload)?.length || 0;
+  const bits = [];
+  if (count) bits.push(plural(count, 'title'));
+  const db = setup.provider && setup.dataKeys[setup.provider] ? setup.provider : Object.keys(setup.dataKeys)[0];
+  if (db) bits.push(`the ${getProvider(db).label} key`);
+  if (setup.aiKey) bits.push('the Claude key');
+  if (setup.sync) bits.push(`sync with ${setup.sync.repo}`);
+  openSheet({
+    title: 'Set up this phone?',
+    message: `This file brings ${bits.join(', ').replace(/, ([^,]*)$/, ' and $1')}. Anything already on this phone stays.`,
+    actions: [
+      {
+        label: 'Set up this phone',
+        kind: 'primary',
+        onClick: () => {
+          const r = store.applySetup(payload);
+          if (!r) return;
+          store.emit('item');
+          if (r.setup.sync) sync.start();
+          render();
+          toast('This phone is set up. Delete the file now.', { duration: 6000 });
+        },
+      },
+    ],
+  });
 }
 
 /* ── activity ── */

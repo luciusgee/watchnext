@@ -1,13 +1,14 @@
 /*
- * Titles left alone, and choices made through the other database.
+ * Titles kept as they are, details filled in, and choices made through the
+ * other database.
  *
  * The case as it happened: a library matched through OMDb, then switched to
- * TMDB. Settings said "520 titles — 505 verified" and "Everything is up to
- * date" — the other fifteen had been left alone months earlier, carried
- * another film's details from the old app, and were in neither the count nor
- * the review list. Picking a film in the review list marked it verified but
- * never replaced the poster: the stored candidates carried OMDb ids, which
- * TMDB cannot look up.
+ * TMDB. Settings said "520 titles — 505 verified": the other fifteen had been
+ * kept as they were ("Leave it alone") because their details were already
+ * right, and counted as nothing. Picking a film in the review list marked it
+ * verified but never replaced the poster: the stored candidates carried OMDb
+ * ids, which TMDB cannot look up. And the only other button always showing
+ * was "Re-check everything".
  */
 const { chromium, devices } = require('/opt/node22/lib/node_modules/playwright');
 
@@ -25,6 +26,9 @@ const CATALOG = [
   { key: 'se7en', title: 'Se7en', year: 1995, type: 'movie', imdb: 'tt0114369', tmdb: 807, genre: 'Crime', runtime: 127, plot: 'Two detectives hunt a killer.' },
   { key: 'br1982', title: 'Blade Runner', year: 1982, type: 'movie', imdb: 'tt0083658', tmdb: 78, genre: 'Science Fiction', runtime: 117, plot: 'A blade runner must pursue replicants.' },
   { key: 'alien', title: 'Alien', year: 1979, type: 'movie', imdb: 'tt0078748', tmdb: 348, genre: 'Horror', runtime: 117, plot: 'The crew of the Nostromo.' },
+  { key: 'arrival', title: 'Arrival', year: 2016, type: 'movie', imdb: 'tt2543164', tmdb: 329865, genre: 'Drama', runtime: 116, plot: 'A linguist is recruited.' },
+  /* TMDB has no running time for this one, however often it is asked. */
+  { key: 'short', title: 'A Short Film', year: 2020, type: 'movie', imdb: 'tt0000777', tmdb: 777, genre: 'Drama', runtime: null, plot: 'Brief.' },
 ];
 
 function tmdbRoute(route, hits) {
@@ -88,6 +92,10 @@ function tmdbRoute(route, hits) {
       /* Picked from the review list today, before this fix: saved as done,
          details never arrived. */
       base('d', 'Alien', 1979, 'movie', 'tt0078748', { v: 2, status: 'matched', at: Date.now(), confidence: 1, source: 'user', sourceId: 'tt0078748' }),
+      /* Verified, but short of a poster and a description. */
+      base('e', 'Arrival', 2016, 'movie', 'tt2543164', { v: 2, status: 'matched', at: Date.now(), confidence: 1, source: 'tmdb', sourceId: '329865' }, { poster: null, overview: '', runtime: 116, genres: ['Drama'] }),
+      /* Verified, and TMDB will never have a running time for it. */
+      base('f', 'A Short Film', 2020, 'movie', 'tt0000777', { v: 2, status: 'matched', at: Date.now(), confidence: 1, source: 'tmdb', sourceId: '777' }, { runtime: null, genres: ['Drama'] }),
     ];
     st.settings.provider = 'tmdb';
     st.settings.dataKeys = { tmdb: '0123456789abcdef0123456789abcdef' };
@@ -99,18 +107,28 @@ function tmdbRoute(route, hits) {
   await page.evaluate(() => document.querySelector('[data-nav="settings"]').click());
   await page.waitForTimeout(500);
 
-  console.log('\n─── nothing is hidden ───');
-  const summary = await page.evaluate(() => document.querySelector('[data-region="sweep"] .group-item-s')?.textContent || '');
-  check('the titles left alone are counted', /2 left as they were/.test(summary), summary);
-  check('and so is a choice whose details never arrived', /1 waiting for details/.test(summary), summary);
-  const buttons = await page.evaluate(() => [...document.querySelectorAll('[data-region="sweep"] button')].map((b) => b.textContent.trim()));
-  check('there is a button to check the left-alone titles again', buttons.some((t) => /Check 2 again/.test(t)), JSON.stringify(buttons));
-  check('and it no longer claims everything is up to date', !/Everything is up to date/.test(await page.evaluate(() => document.querySelector('[data-region="sweep-status"]').textContent)));
+  const sweepText = () => page.evaluate(() => document.querySelector('[data-region="sweep"] .group-item-s')?.textContent || '');
+  const sweepButtons = () => page.evaluate(() => [...document.querySelectorAll('[data-region="sweep"] button')].map((b) => b.textContent.trim()));
+  const tapSweep = (re) => page.evaluate((src) => [...document.querySelectorAll('[data-region="sweep"] button')].find((b) => new RegExp(src).test(b.textContent)).click(), re);
+  const settle = () => page.waitForFunction(() => !/Looking up|Starting/.test(document.querySelector('[data-region="sweep-status"]')?.textContent || ''), null, { timeout: 15000 }).then(() => page.waitForTimeout(300));
 
-  console.log('\n─── picking through the other database ───');
+  console.log('\n─── kept as it is counts as verified ───');
+  const summary = await sweepText();
+  check('titles kept as they are count as verified — 2 kept + 3 matched', /5 verified/.test(summary), summary);
+  check('nothing says "left as they were" or offers to check them again', !/left as they were/.test(summary) && !(await sweepButtons()).some((t) => /again/.test(t)), summary);
+  check('a choice whose details never arrived is waiting for them', /1 waiting for details/.test(summary), summary);
+  check('and titles short of a poster or details are counted', /2 missing a poster or details/.test(summary), summary);
+
+  console.log('\n─── the review list ───');
   hits.length = 0;
-  await page.evaluate(() => [...document.querySelectorAll('[data-region="sweep"] button')].find((b) => /Review/.test(b.textContent)).click());
+  await tapSweep('Review');
   await page.waitForTimeout(500);
+  const card = await page.evaluate(() => {
+    const c = document.querySelector('[data-review="c"]');
+    return { now: /What it has now/.test(c.textContent), poster: !!c.querySelector('.poster, img'), keep: [...c.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Keep as it is') };
+  });
+  check('each card shows what the title has now, poster and all', card.now && card.poster, JSON.stringify(card));
+  check('and the button to keep it says so', card.keep, JSON.stringify(card));
   await page.evaluate(() => document.querySelector('[data-review="c"] .result-row').click());
   await page.waitForTimeout(800);
   const c = await page.evaluate(() => window.__test.byUid('c'));
@@ -122,21 +140,37 @@ function tmdbRoute(route, hits) {
   await page.evaluate(() => [...document.querySelectorAll('.panel.is-open button, .sheet.is-open button')].find((b) => b.textContent.trim() === 'Done')?.click());
   await page.waitForTimeout(500);
 
-  console.log('\n─── checking them again ───');
+  console.log('\n─── checking only what needs it ───');
   hits.length = 0;
-  await page.evaluate(() => [...document.querySelectorAll('[data-region="sweep"] button')].find((b) => /again/.test(b.textContent)).click());
-  await page.waitForFunction(() => /need you to choose|verified details/.test(document.querySelector('[data-region="sweep"] .group-item-s')?.textContent || '') && !/left as they were/.test(document.querySelector('[data-region="sweep"] .group-item-s')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
-  const after = await page.evaluate(() => ['a', 'b', 'd'].map((u) => window.__test.byUid(u)));
-  const [a, b, d] = after;
-  check('a left-alone title is searched again', !!a && a.meta.status !== 'skipped' && !!b && b.meta.status !== 'skipped', JSON.stringify([a?.meta?.status, b?.meta?.status]));
-  const search1899 = hits.find((h) => h.startsWith('/3/search/') && /query=1899/.test(h)) || '';
-  check('without the year of the film it was wrongly matched to', !/year=2007/.test(search1899), search1899);
-  const cands = a.meta.status === 'matched' ? [{ sourceId: a.meta.sourceId, type: a.type, year: a.year }] : a.meta.candidates || [];
-  check('and "1899" filed as a 2007 film now finds the 2022 series', cands.some((x) => x.type === 'tv' && x.year === 2022), JSON.stringify(cands));
-  check('with TMDB ids, so picking one works', cands.every((x) => /^\d+$/.test(String(x.sourceId))), JSON.stringify(cands));
+  await tapSweep('^Check');
+  await settle();
+  const d = await page.evaluate(() => window.__test.byUid('d'));
   check('the choice whose details never arrived now has them', /alien/.test(d.poster || '') && d.overview === 'The crew of the Nostromo.', `${d.poster} ${d.overview}`);
-  const summary2 = await page.evaluate(() => document.querySelector('[data-region="sweep"] .group-item-s')?.textContent || '');
-  check('and nothing is waiting any more', !/waiting for details|left as they were/.test(summary2), summary2);
+  check('and is still marked as your choice', d.meta.source === 'user' && !!d.meta.chosenAt, JSON.stringify(d.meta));
+  const kept = await page.evaluate(() => ['a', 'b'].map((u) => window.__test.byUid(u)));
+  check('titles kept as they are were not touched', kept.every((k) => k.meta.status === 'skipped' && /wrong-/.test(k.poster)), JSON.stringify(kept.map((k) => [k.meta.status, k.poster])));
+
+  check('"Fill in 2 missing" is offered', (await sweepButtons()).some((t) => /Fill in 2 missing/.test(t)), JSON.stringify(await sweepButtons()));
+  hits.length = 0;
+  await tapSweep('Fill in');
+  await settle();
+  const [e, f] = await page.evaluate(() => ['e', 'f'].map((u) => window.__test.byUid(u)));
+  check('filling in fetches only the titles short of something', hits.filter((h) => /\/3\/(movie|tv|find)\//.test(h)).every((h) => /329865|777/.test(h)) && hits.length > 0, JSON.stringify(hits));
+  check('and the missing poster and description arrive', /arrival/.test(e.poster || '') && e.overview === 'A linguist is recruited.', `${e.poster} ${e.overview}`);
+  check('a title the database cannot complete is not offered again straight away', !!f.meta.filledAt && !(await sweepButtons()).some((t) => /Fill in/.test(t)), JSON.stringify([f.meta, await sweepButtons()]));
+  check('and then everything reads as verified', /All 6 titles have verified details|Everything is up to date/.test((await sweepText()) + (await page.evaluate(() => document.querySelector('[data-region="sweep-status"]').textContent))), await sweepText());
+
+  console.log('\n─── re-checking everything ───');
+  const recheck = (await sweepButtons()).find((t) => /Re-check all/.test(t));
+  check('re-checking everything is still there, but small and apart', !!recheck && (await page.evaluate(() => [...document.querySelectorAll('[data-region="sweep"] button')].find((b) => /Re-check all/.test(b.textContent)).classList.contains('btn-sm'))), recheck);
+  hits.length = 0;
+  await tapSweep('Re-check all');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => [...document.querySelectorAll('.sheet.is-open button')].find((b) => b.textContent.trim() === 'Re-check everything').click());
+  await settle();
+  const after = await page.evaluate(() => ['a', 'b', 'c', 'd', 'e', 'f'].map((u) => window.__test.byUid(u)));
+  check('it leaves titles you kept as they are alone', after.slice(0, 2).every((k) => k.meta.status === 'skipped' && /wrong-/.test(k.poster)), JSON.stringify(after.slice(0, 2).map((k) => k.meta.status)));
+  check('and a verified title stays verified', after.slice(2).every((k) => k.meta.status === 'matched'), JSON.stringify(after.slice(2).map((k) => k.meta.status)));
 
   console.log('\n─── no errors ───');
   check('no JavaScript errors', errors.length === 0, errors.join(' | '));

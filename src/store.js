@@ -757,6 +757,69 @@ export function importPayload(payload, mode = 'merge') {
   return { added: added - folded, merged: merged + folded, skipped: 0 };
 }
 
+/* ── setting up another phone ──
+   One file that makes a second phone this one: the library, the film
+   database key, the Claude key, and the sync repo with its token. Unlike a
+   backup it carries secrets on purpose, so it has its own kind, is only
+   ever read field by field, and says what it holds before it is applied. */
+
+export function exportSetup() {
+  const s = state.settings;
+  const sync = s.sync || {};
+  return {
+    ...exportPayload(),
+    kind: 'setup',
+    setup: {
+      provider: s.provider,
+      dataKeys: { ...(s.dataKeys || {}) },
+      keyStatus: { ...(s.keyStatus || {}) },
+      aiKey: s.aiKey || '',
+      aiModel: s.aiModel || '',
+      sync: sync.repo && sync.token ? { repo: sync.repo, token: sync.token, path: sync.path || 'library.json' } : null,
+    },
+  };
+}
+
+/** The settings a setup file carries, checked field by field — or null if it
+    is not one. Nothing outside this whitelist is ever taken from it. */
+export function readSetup(payload) {
+  if (!payload || payload.kind !== 'setup' || !payload.setup || typeof payload.setup !== 'object') return null;
+  const x = payload.setup;
+  const str = (v, max = 400) => (typeof v === 'string' && v.length <= max ? v.trim() : '');
+  const out = { dataKeys: {}, keyStatus: {} };
+  if (x.provider === 'tmdb' || x.provider === 'omdb') out.provider = x.provider;
+  for (const id of ['tmdb', 'omdb']) {
+    const k = str(x.dataKeys?.[id]);
+    if (!k) continue;
+    out.dataKeys[id] = k;
+    const v = x.keyStatus?.[id];
+    if (v && typeof v === 'object') out.keyStatus[id] = { ok: !!v.ok, message: str(v.message, 200), at: Number(v.at) || null };
+  }
+  out.aiKey = str(x.aiKey);
+  out.aiModel = str(x.aiModel, 64);
+  const repo = str(x.sync?.repo, 200);
+  const token = str(x.sync?.token);
+  out.sync = repo && token ? { repo, token, path: str(x.sync?.path, 200) || 'library.json' } : null;
+  return out;
+}
+
+/** Make this phone the one the file came from. The library is merged, never
+    replaced: anything already here stays. */
+export function applySetup(payload) {
+  const setup = readSetup(payload);
+  if (!setup) return null;
+  const s = state.settings;
+  if (setup.provider) s.provider = setup.provider;
+  s.dataKeys = { ...(s.dataKeys || {}), ...setup.dataKeys };
+  s.keyStatus = { ...(s.keyStatus || {}), ...setup.keyStatus };
+  if (setup.aiKey) s.aiKey = setup.aiKey;
+  if (setup.aiModel) s.aiModel = setup.aiModel;
+  if (setup.sync) s.sync = { ...(s.sync || {}), ...setup.sync, enabled: true };
+  const library = readBackup(payload) ? importPayload(payload, 'merge') : { added: 0, merged: 0 };
+  saveNow();
+  return { setup, library };
+}
+
 /* ── sync ──
    What leaves the device, and what comes back. */
 

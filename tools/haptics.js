@@ -219,14 +219,48 @@ function check(name, cond, detail = '') {
   await page.waitForTimeout(300);
   check('and an empty one is still refused, not submitted blank', (await page.evaluate(() => window.__test.count())) === countAfter);
 
+  /* WebKit submits it itself — the label's click goes on to dispatch
+     DOMActivate, which reaches the button — and so does Chromium. Counting
+     titles hid a second submit (the by-hand form refuses a duplicate), so
+     count the submits themselves. */
+  await page.fill('#add-title', 'Submitted Once');
+  await page.evaluate(() => {
+    document.activeElement?.blur();
+    window.__submits = 0;
+    window.__countSubmit = () => window.__submits++;
+    document.addEventListener('submit', window.__countSubmit, true);
+  });
+  const before2 = await page.evaluate(() => window.__test.count());
+  await page.tap('#screen-add button[type="submit"]');
+  await page.waitForTimeout(400);
+  const submits = await page.evaluate(() => { document.removeEventListener('submit', window.__countSubmit, true); return window.__submits; });
+  check('one tap is one submit, not two', submits === 1 && (await page.evaluate(() => window.__test.count())) === before2 + 1, `${submits} submits`);
+
+  /* VoiceOver presses a button by hit-testing its centre: that finds the
+     label, which presses the switch directly, with no tap on the label. */
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.waitForTimeout(300);
+  await page.tap('[data-tab="tonight"]');
+  await page.waitForTimeout(400);
+  const voiced = await page.evaluate(async () => {
+    const b = document.querySelector('#screen-tonight .hero-scope button');
+    if (!b) return null;
+    const was = b.getAttribute('aria-pressed');
+    b.querySelector(':scope > .haptic .haptic-switch').click();
+    await new Promise((r) => setTimeout(r, 300));
+    return { was, now: document.querySelector('#screen-tonight .hero-scope button')?.getAttribute('aria-pressed') };
+  });
+  check('a press that reaches the switch without a tap — VoiceOver — still presses the button', voiced && voiced.was !== voiced.now, JSON.stringify(voiced));
+
   /* And a link has to be followed by hand — once. */
   const opened = await page.evaluate(async () => {
     const calls = [];
     const real = window.open;
-    window.open = (...a) => { calls.push(a[0]); return null; };
+    window.open = (...a) => { calls.push(a); return null; };
     const a = document.createElement('a');
     a.href = 'https://example.com/trailer';
     a.target = '_blank';
+    a.rel = 'noopener noreferrer';
     a.textContent = 'Trailer';
     a.style.cssText = 'position:fixed;top:200px;left:100px;padding:20px;z-index:5000;background:#333';
     document.body.appendChild(a);
@@ -247,6 +281,7 @@ function check(name, cond, detail = '') {
   check('a link carries a label too', opened);
   check('and ticks', (await ticks()).length === 1, JSON.stringify(await ticks()));
   check('and opens once', linkCalls.length + popups.length === 1, JSON.stringify({ linkCalls, popups }));
+  check('keeping its promise not to send a referrer', /noreferrer/.test(linkCalls[0]?.[2] || ''), JSON.stringify(linkCalls));
 
   check('the switch’s click, input and change never reach anything else', (await page.evaluate(() => window.__leaks)) === 0, String(await page.evaluate(() => window.__leaks)));
 

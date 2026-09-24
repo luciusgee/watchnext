@@ -230,16 +230,7 @@ export async function recordFor(choice, ctx) {
 
 export async function findMatch(item, ctx) {
   const { provider, key, budget, signal } = ctx;
-  /* A title left alone keeps the year of the film it was wrongly matched to
-     — "Rings of power" still said 1978 — so when it is checked again the year
-     is not held against the right one. Unless someone typed it. */
-  const leftAlone = item.meta?.status === 'skipped';
-  const query = {
-    title: item.title,
-    year: leftAlone && !isLocked(item, 'year') ? null : item.year,
-    /* Same for film or series: "1899" was filed as a 2007 film. */
-    type: leftAlone && !isLocked(item, 'type') ? null : item.type,
-  };
+  const query = { title: item.title, year: item.year, type: item.type };
 
   /* Fast path: an id this matcher verified itself. An id lookup is exact —
      no fuzzy matching, no chance of drifting onto a different film. */
@@ -342,12 +333,31 @@ function awaitingDetails(m) {
   return m.status === 'matched' && (!m.at || (m.source === 'user' && !m.chosenAt));
 }
 
-/** Items that actually need work — this is what makes re-runs cheap. */
-export function needsEnrichment(item, { force = false, skipped = false, now = Date.now() } = {}) {
-  if (force) return true;
+/* A title that has been through a fill-in and still came back short — TMDB
+   simply has no runtime for it — is not offered again for a month. */
+const FILL_RETRY_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Verified, but short of something you would see: no poster, no
+ * description, no running time or no genre. What "fill in what is missing"
+ * works on, rather than re-checking every title.
+ */
+export function missingDetails(item, now = Date.now()) {
   const m = item.meta || {};
-  /* Left alone — only looked at again when asked to. */
-  if (m.status === 'skipped') return skipped;
+  if (m.status !== 'matched') return false;
+  if (m.filledAt && now - m.filledAt < FILL_RETRY_MS) return false;
+  return !item.poster || !item.overview || !item.runtime || !(item.genres?.length || item.genre);
+}
+
+/** Items that actually need work — this is what makes re-runs cheap. */
+export function needsEnrichment(item, { force = false, missing = false, now = Date.now() } = {}) {
+  const m = item.meta || {};
+  /* "Keep as it is": someone looked and said it was right. Not even a
+     re-check of everything second-guesses that — a wrong one is changed from
+     the film's own screen. */
+  if (m.status === 'skipped') return false;
+  if (force) return true;
+  if (missing && missingDetails(item, now)) return true;
   if (m.status === 'matched' && m.v >= META_VERSION) {
     /* Expired records fall back into the queue — and so does a choice whose
        details never arrived (no key yet, or the network dropped), which is
@@ -358,16 +368,21 @@ export function needsEnrichment(item, { force = false, skipped = false, now = Da
 }
 
 export function enrichmentSummary(list) {
-  const s = { total: list.length, done: 0, fill: 0, pending: 0, stale: 0, review: 0, unmatched: 0, skipped: 0 };
+  const s = { total: list.length, done: 0, fill: 0, missing: 0, pending: 0, stale: 0, review: 0, unmatched: 0, skipped: 0 };
   for (const i of list) {
     const st = i.meta?.status;
     if (st === 'matched' && i.meta.v >= META_VERSION) {
       s.done += 1;
       if (awaitingDetails(i.meta)) s.fill += 1;
-    }
-    else if (st === 'review') s.review += 1;
+      else if (missingDetails(i)) s.missing += 1;
+    } else if (st === 'review') s.review += 1;
     else if (st === 'unmatched') s.unmatched += 1;
-    else if (st === 'skipped') s.skipped += 1;
+    else if (st === 'skipped') {
+      /* Kept as it is: someone looked at it and said it was right, which is
+         as verified as a title gets. */
+      s.skipped += 1;
+      s.done += 1;
+    }
     /* `stale` means "carried over from the old build" — it has details, they
        just have not been checked by this matcher. Worth saying separately from
        "we know nothing about this title". */

@@ -21,9 +21,16 @@
  * a drag that started on one.
  *
  * The one cost: the label takes the click's default action. For most buttons
- * there is none, but a submit button would no longer submit and a link would
- * no longer open — so those two are done here, by hand, once the click has
- * been through every handler and nobody has cancelled it.
+ * there is none. A link would no longer open, so that is done here by hand,
+ * once the click has been through every handler and nobody has cancelled it.
+ * A submit button still submits in WebKit — the label's click goes on to
+ * dispatch DOMActivate, which reaches the button — but not in every engine,
+ * so it is submitted by hand only if nothing else did.
+ *
+ * And assistive technology: VoiceOver, Voice Control and Switch Control press
+ * a button by hit-testing its centre, which finds the label, which presses
+ * the switch directly — so a press on the switch that did not come through
+ * the label is handed to the button it covers.
  *
  * What this cannot do: a tick that is not a tap. A swipe, a long press, an
  * answer arriving from Claude — none of those is a click on anything.
@@ -57,6 +64,9 @@ function enabled() {
 }
 
 const stop = (e) => e.stopPropagation();
+
+/* The label whose tap is being passed on to its switch right now. */
+let forwarding = null;
 /* Labels this module built, so a copy made by serialising a button's markup —
    which would carry a switch with none of the listeners below — is told apart
    and replaced. */
@@ -90,7 +100,24 @@ function arm(host) {
   /* The label's click is the one the control should see. The switch's copy,
      and the input and change it fires, belong to nobody — a form listening
      for input would otherwise hear a field it does not have. */
-  sw.addEventListener('click', stop);
+  label.addEventListener('click', () => {
+    forwarding = label;
+    /* In case the forward never comes — a handler cancelled the click. */
+    setTimeout(() => {
+      if (forwarding === label) forwarding = null;
+    }, 0);
+  });
+  sw.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (forwarding === label) {
+      forwarding = null;
+      return;
+    }
+    /* Pressed without a tap on the label: assistive technology. The press
+       was meant for the button. */
+    e.preventDefault();
+    label.parentElement?.click();
+  });
   sw.addEventListener('input', stop);
   sw.addEventListener('change', stop);
   label.appendChild(sw);
@@ -128,10 +155,26 @@ function onClick(e) {
   const host = label.parentElement;
   if (!host) return;
   if (host instanceof HTMLButtonElement && host.type === 'submit' && host.form && !host.disabled) {
-    host.form.requestSubmit(host);
+    /* WebKit submits this itself, straight after this click, through
+       DOMActivate; submitting here as well sent the form twice — "Added
+       Alien", then "Give it a title first" for the emptied form. Only if
+       nothing has submitted by the end of the task is it done here. */
+    const form = host.form;
+    let submitted = false;
+    const saw = (ev) => {
+      if (ev.target === form) submitted = true;
+    };
+    document.addEventListener('submit', saw, true);
+    setTimeout(() => {
+      document.removeEventListener('submit', saw, true);
+      if (!submitted && host.isConnected && !host.disabled) form.requestSubmit(host);
+    }, 0);
   } else if (host instanceof HTMLAnchorElement && host.href) {
-    if (host.target === '_blank') window.open(host.href, '_blank', 'noopener');
-    else location.assign(host.href);
+    if (host.target === '_blank') {
+      /* The link's own promise not to send a referrer, kept. */
+      const features = /\bnoreferrer\b/i.test(host.rel) ? 'noopener,noreferrer' : 'noopener';
+      window.open(host.href, '_blank', features);
+    } else location.assign(host.href);
   }
 }
 

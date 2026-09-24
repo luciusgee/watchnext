@@ -191,7 +191,7 @@ function onSheetKey(e) {
   }
   if (e.key !== 'Tab' || !sheetEls) return;
   const focusable = sheetEls.sheet.querySelectorAll(
-    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    'button, [href], input:not(.haptic-switch), select, textarea, [tabindex]:not([tabindex="-1"])'
   );
   if (!focusable.length) return;
   const first = focusable[0];
@@ -292,7 +292,7 @@ export function openPanel({ label, className = '', style = '', onClose = null } 
     }
     if (e.key !== 'Tab') return;
     const f = [...panel.querySelectorAll(
-      'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
+      'button:not([disabled]), [href], input:not([disabled]):not(.haptic-switch), select, textarea, [tabindex]:not([tabindex="-1"])'
     )].filter((n) => !n.closest('[hidden]'));
     if (!f.length) return;
     const first = f[0];
