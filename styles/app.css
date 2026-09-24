@@ -431,17 +431,20 @@ body.is-ready #boot {
   display: flex;
   align-items: center;
   gap: var(--s2);
-  /* Centred by eye, not by box. Below a notch or Dynamic Island the safe
-     area runs well past the clock, so a row centred between the safe-area
-     edge and the hairline sat visibly low in the dark band. Lift it by a
-     share of the inset — nothing on a phone without one. */
-  --bar-lift: clamp(0px, calc((var(--st) - 20px) * 0.25), 8px);
+  /* Centred by eye, not by box: see --bar-lift-device in viewport.js. */
+  --bar-lift: var(--bar-lift-device, 0px);
   padding: var(--s3) var(--s4);
   padding-top: calc(var(--st) + var(--s3) - var(--bar-lift));
   padding-bottom: calc(var(--s3) + var(--bar-lift));
   background: var(--ink);
   border-bottom: 1px solid var(--hairline);
   flex: none;
+}
+
+@media (orientation: landscape) {
+  .topbar {
+    --bar-lift: 0px;
+  }
 }
 
 .topbar-title {
