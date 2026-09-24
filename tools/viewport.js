@@ -83,6 +83,18 @@ async function measure(page) {
     await ctx.close();
   }
 
+  /* The Ask composer only exists once there is a key to send with, and these
+     tests drive the keyboard through it. */
+  const withKey = async (pg) => {
+    await pg.evaluate(async () => {
+      const st = await import('./src/store.js');
+      st.updateSettings({ aiKey: 'sk-ant-test' });
+      st.saveNow();
+    });
+    await pg.reload({ waitUntil: 'networkidle' });
+    await pg.waitForSelector('body.is-ready');
+  };
+
   console.log('\n─── the keyboard does not cover the composer ───');
   const ctx = await browser.newContext({ ...devices['iPhone 13 Pro'] });
   await ctx.route('**://image.tmdb.org/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: BLANK }));
@@ -90,6 +102,7 @@ async function measure(page) {
   const page = await ctx.newPage();
   await page.goto(URL, { waitUntil: 'networkidle' });
   await page.waitForSelector('body.is-ready');
+  await withKey(page);
   await page.click('[data-tab="ask"]');
   await page.waitForTimeout(400);
 
@@ -232,6 +245,7 @@ async function measure(page) {
     const p = await c.newPage();
     await p.goto(URL, { waitUntil: 'networkidle' });
     await p.waitForSelector('body.is-ready');
+    await withKey(p);
     await p.click('[data-tab="ask"]');
     await p.waitForTimeout(400);
     const shown = await p.evaluate(async () => {
@@ -306,6 +320,7 @@ async function measure(page) {
        Discover deck. The starter set is opt-in now, so ask for it. */
     await p.evaluate(() => window.__test?.loadSample());
     await p.waitForTimeout(500);
+    await withKey(p);
     return { c, p };
   };
 

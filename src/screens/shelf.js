@@ -13,7 +13,8 @@
 
 import * as store from '../store.js';
 import { decodeShelf } from '../share.js';
-import { el, clear, button, toast, poster } from '../ui.js';
+import { el, clear, button, toast, poster, emptyState } from '../ui.js';
+import { plural } from '../format.js';
 import { addItem } from '../actions.js';
 
 let root = null;
@@ -29,7 +30,12 @@ export function initShelf({ navigate: nav }) {
 
 export async function showShelf() {
   clear(bodyEl);
-  bodyEl.appendChild(el('div', { style: 'padding:32px 16px;text-align:center;color:var(--ash)', text: 'Opening…' }));
+  bodyEl.appendChild(
+    el('div', { class: 'big-figure', role: 'status' }, [
+      el('div', { class: 'skeleton', style: 'width:72px;height:56px;margin:0 auto;border-radius:var(--r-md)' }),
+      el('div', { class: 'big-figure-l', text: 'Opening their shelf…' }),
+    ])
+  );
 
   try {
     shelf = await decodeShelf();
@@ -43,14 +49,12 @@ export async function showShelf() {
     /* A link that claims to be a shelf and is not. Saying so is better than an
        empty page, which reads as "their shelf is empty" or "the app is broken". */
     bodyEl.appendChild(
-      el('div', {
-        style: 'padding:32px 16px;text-align:center;color:var(--ash);line-height:1.6',
-        text: 'That link could not be read. It may have been cut short — long links get truncated by some apps.',
+      emptyState({
+        iconName: 'warning',
+        title: 'That link could not be read',
+        message: 'It may have been cut short — some apps truncate long links. Ask for it to be sent again.',
+        action: { label: 'Go to my library', onClick: leave },
       })
-    );
-    bodyEl.appendChild(
-      el('div', { style: 'padding:0 16px;display:flex;justify-content:center' },
-        button('Go to my library', { kind: 'secondary', onClick: leave }))
     );
     return;
   }
@@ -63,67 +67,55 @@ function leave() {
   navigate('tonight');
 }
 
+/*
+ * Built once and updated in place. Every per-row Add used to rebuild the whole
+ * page: the header changed height as counts crossed thresholds, the list moved
+ * under the thumb, and the tapped button — destroyed — took focus with it.
+ */
+let summaryEl = null;
+let addAllBtn = null;
+let have = null;
+
 function render() {
   clear(bodyEl);
 
   const mine = store.items();
-  const owned = shelf.filter((f) => f.quality || f.watched === false).length;
 
   bodyEl.appendChild(
-    el('div', { style: 'padding:24px 16px 4px;text-align:center' },
-      el('div', {
-        style: 'font-size:44px;font-weight:650;color:var(--amber);line-height:1',
-        text: String(shelf.length),
-      }))
-  );
-  bodyEl.appendChild(
-    el('div', {
-      style: 'padding:8px 16px 0;text-align:center;font-size:14px;color:var(--silver)',
-      text: shelf.length === 1 ? 'film on their shelf' : 'films on their shelf',
-    })
+    el('div', { class: 'big-figure' }, [
+      el('div', { class: 'big-figure-n', text: String(shelf.length) }),
+      el('div', { class: 'big-figure-l', text: shelf.length === 1 ? 'film on their shelf' : 'films on their shelf' }),
+    ])
   );
 
   /* The set operation, computed entirely on this device. This is the thing
      people mean when they ask for a shared list — what have they got that I
      have not — and it needs no shared state at all. */
-  const have = new Set(mine.map((i) => store.normaliseTitle(i.title)));
-  const newToYou = shelf.filter((f) => !have.has(store.normaliseTitle(f.title)));
-  if (mine.length) {
-    bodyEl.appendChild(
-      el('div', {
-        style: 'padding:10px 16px 0;text-align:center;font-size:13px;color:var(--ash)',
-        text: newToYou.length
-          ? `${newToYou.length} you have not got. ${shelf.length - newToYou.length} you both have.`
-          : 'You already have all of these.',
-      })
-    );
-  }
+  have = new Set(mine.map((i) => store.normaliseTitle(i.title)));
+  summaryEl = el('div', {
+    role: 'status',
+    style: 'padding:var(--s2) var(--s4) 0;text-align:center;font-size:var(--t-sub);color:var(--ash)',
+  });
+  bodyEl.appendChild(summaryEl);
 
-  if (newToYou.length > 1) {
-    bodyEl.appendChild(
-      el('div', { style: 'padding:16px 16px 0;display:flex;justify-content:center' },
-        button(`Add the ${newToYou.length} I am missing`, {
-          kind: 'primary',
-          size: 'sm',
-          onClick: () => addAll(newToYou),
-        }))
-    );
-  }
+  /* The primary action at full size: on the page that works as this app's
+     store listing it was the smaller of the two buttons. */
+  addAllBtn = button('Add all', { kind: 'primary', iconName: 'plus', onClick: () => addAll(missing()) });
+  bodyEl.appendChild(el('div', { style: 'padding:var(--s4) var(--s4) 0;display:flex;justify-content:center' }, addAllBtn));
 
-  const list = el('div', { class: 'lib-list', style: 'margin-top:20px' });
-  for (const film of shelf) {
-    list.appendChild(rowFor(film, have));
-  }
+  const list = el('div', { class: 'lib-list', style: 'margin-top:var(--s5)' });
+  for (const film of shelf) list.appendChild(rowFor(film));
   bodyEl.appendChild(list);
+  refreshSummary();
 
   bodyEl.appendChild(
     el('div', {
-      style: 'padding:24px 16px 8px;text-align:center;font-size:12px;color:var(--faint);line-height:1.6',
+      style: 'padding:var(--s6) var(--s4) var(--s2);text-align:center;font-size:var(--t-meta);color:var(--ash);line-height:1.6',
       text: 'This list came from the link, not from a server — nothing was uploaded and nobody has an account. Watch Next keeps your own films on your own phone.',
     })
   );
   bodyEl.appendChild(
-    el('div', { style: 'padding:8px 16px 40px;display:flex;justify-content:center' },
+    el('div', { style: 'padding:var(--s2) var(--s4) var(--s8);display:flex;justify-content:center' },
       button(mine.length ? 'Back to my library' : 'Start my own library', {
         kind: 'secondary',
         onClick: leave,
@@ -131,7 +123,28 @@ function render() {
   );
 }
 
-function rowFor(film, have) {
+const missing = () => shelf.filter((f) => !have.has(store.normaliseTitle(f.title)));
+
+/* One voice — it is talking to you — and the same sentence whatever the
+   counts, so nothing is inserted above the list as they change. */
+function refreshSummary() {
+  const n = missing().length;
+  const both = shelf.length - n;
+  summaryEl.textContent = !n
+    ? 'You already have all of these.'
+    : !both
+      ? `None of these are in your library yet.`
+      : `${n} you don’t have · ${both} you both have`;
+  addAllBtn.lastElementChild.textContent = n > 1 ? `Add all ${n}` : 'Add all';
+  /* Disabled rather than removed, so the list below never jumps. */
+  addAllBtn.disabled = n < 2;
+}
+
+function inLibrary() {
+  return el('span', { style: 'font-size:var(--t-meta);color:var(--ash)', text: 'In your library' });
+}
+
+function rowFor(film) {
   const already = have.has(store.normaliseTitle(film.title));
   const row = el('div', { class: 'row', style: 'cursor:default' });
 
@@ -148,26 +161,31 @@ function rowFor(film, have) {
   row.appendChild(body);
 
   const end = el('div', { class: 'row-end' });
+  /* "Got it" read as "understood" as much as "you own this". */
   if (already) {
-    end.appendChild(el('span', { style: 'font-size:12px;color:var(--ash)', text: 'Got it' }));
+    end.appendChild(inLibrary());
   } else {
-    end.appendChild(
-      button('Add', {
-        kind: 'secondary',
-        size: 'sm',
-        onClick: () => {
-          const { item, duplicate } = addItem({
-            title: film.title,
-            year: film.year,
-            type: film.type,
-            locked: ['title'],
-          });
-          store.saveNow();
-          toast(duplicate ? `${item.title} is already in your library` : `Added ${item.title}`);
-          render();
-        },
-      })
-    );
+    const add = button('Add', {
+      kind: 'secondary',
+      size: 'sm',
+      onClick: () => {
+        const { item, duplicate } = addItem({
+          title: film.title,
+          year: film.year,
+          type: film.type,
+          locked: ['title'],
+        });
+        store.saveNow();
+        toast(duplicate ? `${item.title} is already in your library` : `Added ${item.title}`);
+        have.add(store.normaliseTitle(film.title));
+        const note = inLibrary();
+        note.setAttribute('tabindex', '-1');
+        add.replaceWith(note);
+        note.focus({ preventScroll: true });
+        refreshSummary();
+      },
+    });
+    end.appendChild(add);
   }
   row.appendChild(end);
   return row;
@@ -186,6 +204,6 @@ function addAll(films) {
   }
   store.saveNow();
   store.emit('item');
-  toast(added ? `Added ${added} titles. Look up their details from Settings.` : 'Nothing new to add');
+  toast(added ? `Added ${plural(added, 'title')}. Look up their details from Settings.` : 'Nothing new to add');
   render();
 }

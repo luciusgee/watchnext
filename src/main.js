@@ -45,8 +45,45 @@ const SHOW = {
 
 let current = 'tonight';
 
-function navigate(id, params = {}) {
+/* Screens you go into rather than across to. They slide in from the right, get
+   a Back that returns to wherever you were, and remember nothing of their own
+   scroll — every visit starts at the top. */
+const PUSHED = new Set(['pick', 'stats', 'settings', 'add']);
+const backStack = [];
+/* A tab keeps its place. iOS does, and losing your position in a 500-title
+   library because you glanced at Tonight is the kind of thing that makes an
+   app feel like a web page. */
+const scrollMemo = new Map();
+const scroller = (id) => document.getElementById(`screen-${id}`)?.querySelector('.scroll');
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function navigate(id, params = {}, { back = false } = {}) {
   if (!document.getElementById(`screen-${id}`)) return;
+
+  /* Tapping the tab you are already on is the platform's scroll-to-top, not a
+     rebuild — re-running the screen flashed it and jumped. */
+  if (id === current && !back && !Object.keys(params).length && document.body.classList.contains('is-ready')) {
+    scroller(id)?.scrollTo({ top: 0, behavior: reduceMotion() ? 'auto' : 'smooth' });
+    return;
+  }
+
+  const from = current;
+  const prev = scroller(from);
+  if (prev) scrollMemo.set(from, prev.scrollTop);
+  if (!back && id !== from) {
+    if (PUSHED.has(id)) {
+      if (from !== id) backStack.push(from);
+    } else {
+      backStack.length = 0; // a tab is a root
+    }
+  }
+
+  const target = document.getElementById(`screen-${id}`);
+  target.classList.remove('is-push', 'is-pop');
+  if (id !== from && document.body.classList.contains('is-ready')) {
+    if (PUSHED.has(id) && !back) target.classList.add('is-push');
+    else if (back || PUSHED.has(from)) target.classList.add('is-pop');
+  }
 
   for (const screen of document.querySelectorAll('.screen')) {
     screen.classList.toggle('is-active', screen.id === `screen-${id}`);
@@ -60,15 +97,18 @@ function navigate(id, params = {}) {
     btn.setAttribute('aria-current', active ? 'page' : 'false');
   }
 
-  const screen = document.getElementById(`screen-${id}`);
-  screen.querySelector('.scroll')?.scrollTo({ top: 0 });
-
   try {
     SHOW[id]?.(params);
   } catch (err) {
     console.error(`[nav] ${id} failed to render`, err);
     toast('Something went wrong opening that screen');
   }
+
+  /* After SHOW, which is what builds the content the offset refers to. The
+     library renders in pages, so a restored offset can clamp to what is on
+     screen — still far better than always starting again at the top. */
+  const sc = scroller(id);
+  if (sc) sc.scrollTop = !PUSHED.has(id) || back ? scrollMemo.get(id) || 0 : 0;
 
   /* Never overwrite a shared-shelf fragment with a screen name — the fragment
      IS the shelf, and rewriting it loses the list the user just opened. */
@@ -94,9 +134,17 @@ function buildTabBar() {
   return bar;
 }
 
+/** Back from a pushed screen, to wherever it was entered from. */
+function goBack() {
+  const to = backStack.pop() || 'tonight';
+  /* Returning to the deck resumes the hand rather than dealing a fresh one —
+     "connect a key" from the pick sheet used to cost the whole session. */
+  navigate(to, to === 'pick' ? { resume: true } : {}, { back: true });
+}
+
 function wireChrome() {
   document.querySelectorAll('[data-nav]').forEach((btn) => {
-    btn.addEventListener('click', () => navigate(btn.dataset.nav));
+    btn.addEventListener('click', () => (btn.dataset.nav === 'back' ? goBack() : navigate(btn.dataset.nav)));
   });
   document.querySelectorAll('[data-icon]').forEach((node) => {
     node.innerHTML = icon(node.dataset.icon, parseInt(node.dataset.iconSize || '21', 10));
@@ -161,7 +209,6 @@ async function boot() {
   measureShortfall();
   syncViewport();
   blockZoom();
-  document.body.classList.add('is-ready');
 }
 
 /**
@@ -382,10 +429,16 @@ function exposeTestHooks() {
   });
 }
 
+/* is-ready fades the shell in, so it is added however boot ends. A failure in
+   any init used to leave #app transparent over black with nothing to say why;
+   the CSS has a timed failsafe for a boot that never settles at all. */
+const start = () =>
+  boot()
+    .catch((e) => console.error('[boot] failed', e))
+    .finally(() => document.body.classList.add('is-ready'));
+
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    boot().catch((e) => console.error('[boot] failed', e));
-  });
+  document.addEventListener('DOMContentLoaded', start);
 } else {
-  boot().catch((e) => console.error('[boot] failed', e));
+  start();
 }

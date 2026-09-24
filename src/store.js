@@ -377,7 +377,12 @@ export async function init(seedFn) {
   state = read();
 
   if (!state.items.length) {
-    const snapshot = await readMirror();
+    /* Bounded. This runs on every fresh install, and an IndexedDB open that
+       never settles would hold the whole app behind its launch fade. */
+    const snapshot = await Promise.race([
+      readMirror().catch(() => null),
+      new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
+    ]);
     if (snapshot?.state?.items?.length) {
       state = migrate(snapshot.state);
       saveNow();
@@ -762,7 +767,10 @@ export function stats() {
        average — an estimate presented as a fact is how a stat stops being
        trusted. */
     hoursUnwatched: Math.round(
-      all.filter((i) => !i.watched).reduce((sum, i) => sum + (i.runtime || 0), 0) / 60
+      /* The pile's hours — owned and never watched — because that is the
+         number it sits under. Summing every unwatched title counted wishlist
+         films against a headline about films you own. */
+      all.filter((i) => i.owned && !i.watched).reduce((sum, i) => sum + (i.runtime || 0), 0) / 60
     ),
     pctWatched: all.length ? Math.round((watched.length / all.length) * 100) : 0,
     fourK: all.filter((i) => i.owned && i.quality === '4K').length,

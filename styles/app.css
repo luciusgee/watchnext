@@ -67,6 +67,11 @@
 
   /* motion */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* Sheets arrive on a long soft curve, the way the platform's own do, and
+     every layer leaves on an accelerating one — a dismissal on an ease-out
+     does most of its travel at once and then crawls the last pixels away. */
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
   --fast: 140ms;
   --med: 240ms;
 
@@ -81,6 +86,22 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+  /* Reduce Motion is about movement. Flattened with everything else, the
+     thinking dots froze into a still ellipsis that read as a stalled page
+     for the several seconds a reply takes; a pulse of opacity is not motion.
+     (0,1,1) !important outranks the (0,0,0) !important above. */
+  .chat-dots i {
+    animation: dotFade 1.2s ease-in-out infinite !important;
+  }
+}
+@keyframes dotFade {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
   }
 }
 
@@ -204,6 +225,17 @@ img {
 body.is-ready #app {
   opacity: 1;
 }
+/* A boot that never settles — an IndexedDB open that hangs — must not hold the
+   shell invisible for good. main.js adds is-ready however boot ends; this is
+   for the case where it does not end. */
+#app {
+  animation: appFailsafe 0s 2.5s forwards;
+}
+@keyframes appFailsafe {
+  to {
+    opacity: 1;
+  }
+}
 
 #app {
   position: fixed;
@@ -247,6 +279,35 @@ body.is-ready #app {
 }
 .screen.is-active {
   display: flex;
+  /* Every tab switch used to be a hard cut, the one place in the app with no
+     motion at all. Tabs cross-fade; screens you go into slide in from the
+     right, and coming back slides the other way. Opacity-only between tabs so
+     the library's absolutely positioned selection bar never finds itself in a
+     transformed container mid-switch. */
+  animation: screenFade 180ms var(--ease);
+}
+.screen.is-active.is-push {
+  animation: screenPush 320ms var(--ease-sheet);
+}
+.screen.is-active.is-pop {
+  animation: screenPop 260ms var(--ease);
+}
+@keyframes screenFade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes screenPush {
+  from {
+    opacity: 0;
+    transform: translateX(32px);
+  }
+}
+@keyframes screenPop {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
 }
 
 .scroll {
@@ -356,6 +417,18 @@ body.is-typing .tabbar {
 }
 .tab[aria-current='page'] .ic {
   color: var(--amber);
+}
+/* The most-tapped control in the app acknowledged nothing, and its icon
+   snapped to amber while its label faded — two halves of one tab animating
+   differently. */
+.tab .ic {
+  transition: color var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.tab:active {
+  color: var(--silver);
+}
+.tab:active .ic {
+  transform: scale(0.88);
 }
 
 /* ============================================================
@@ -714,14 +787,39 @@ body.is-typing .tabbar {
   text-decoration: none;
   white-space: nowrap;
   transition: transform var(--fast) var(--ease), background var(--fast) var(--ease),
-    border-color var(--fast) var(--ease);
+    border-color var(--fast) var(--ease), color var(--fast) var(--ease),
+    opacity var(--fast) var(--ease);
 }
+/* 0.985 on a 46px button was 0.7px — the primary action of every screen barely
+   reacted while a poster card visibly dipped. Scale plus a change of fill. */
 .btn:active {
-  transform: scale(0.985);
+  transform: scale(0.97);
 }
-/* .iconbtn and .composer .send both had a disabled look; .btn never did, so a
-   button that had been switched off still read as live. */
-.btn[disabled] {
+.btn-primary:active {
+  background: #cf8f31;
+}
+.btn-secondary:active {
+  background: var(--overlay);
+}
+.btn-quiet:active {
+  background: var(--surface);
+}
+.btn-danger:active {
+  background: rgba(224, 106, 78, 0.2);
+}
+.btn-on:active {
+  background: rgba(143, 188, 155, 0.2);
+}
+.btn-on-amber:active {
+  background: rgba(232, 163, 61, 0.22);
+}
+/* One disabled language. There were three — .btn faded, .iconbtn swapped to
+   faint, the composer greyed out — and the Add screen's switched-off segments
+   and checkbox did not change at all. */
+.btn[disabled],
+.iconbtn[disabled],
+.pill[disabled],
+.result-row[disabled] {
   opacity: 0.45;
   pointer-events: none;
 }
@@ -744,9 +842,11 @@ body.is-typing .tabbar {
   border: 1px solid var(--hairline);
 }
 .btn-danger {
-  background: transparent;
+  /* Filled, faintly. Transparent with a faint border, "Yes, reset" had exactly
+     the weight of the Cancel beneath it. */
+  background: var(--ember-dim);
   color: var(--ember);
-  border: 1px solid var(--ember-dim);
+  border: 1px solid rgba(224, 106, 78, 0.32);
 }
 .btn-on {
   background: var(--sage-dim);
@@ -763,8 +863,11 @@ body.is-typing .tabbar {
 /* segmented control */
 .seg {
   display: flex;
-  gap: 2px;
-  padding: 2px;
+  /* 44px targets inside a 46px box, the height of every field and full-size
+     button. With 2px padding it was 50, and in Settings it sat directly on a
+     49px key field. */
+  gap: 0;
+  padding: 0;
   background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: var(--r-md);
@@ -777,15 +880,18 @@ body.is-typing .tabbar {
   /* The mode switcher is the first thing a thumb meets on the Add screen and
      was the only control there under 44pt. */
   min-height: 44px;
-  border-radius: 8px;
+  border-radius: calc(var(--r-md) - 1px);
   font-size: var(--t-sub);
   font-weight: 550;
   color: var(--ash);
-  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease),
+    opacity var(--fast) var(--ease);
 }
 .seg button[aria-pressed='true'] {
   background: var(--raised);
   color: var(--bone);
+  /* The inset keeps the chosen segment visibly sitting inside the track. */
+  box-shadow: inset 0 0 0 2px var(--surface);
 }
 /* Controls that cannot work yet — no key, nothing to add — should say so. The
    inputs and segments on the Add screen went dead with no change in look. */
@@ -797,6 +903,7 @@ body.is-typing .tabbar {
   opacity: 0.45;
   pointer-events: none;
 }
+
 
 /* A tappable search result. Three screens hand-rolled the same inline blob,
    none of them with a press state — on the one control that spends a network
@@ -829,9 +936,17 @@ body.is-typing .tabbar {
   align-items: center;
   gap: 10px;
   min-height: 44px;
-  font-size: 14px;
+  font-size: var(--t-sub);
+  font-weight: 550;
   color: var(--silver);
   text-align: left;
+  transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.checkrow:active {
+  opacity: 0.6;
+}
+.checkrow[aria-pressed='true'] {
+  color: var(--amber);
 }
 .checkbox {
   width: 18px;
@@ -889,6 +1004,33 @@ body.is-typing .tabbar {
 .pill[aria-pressed='true']:active {
   background: rgba(232, 163, 61, 0.22);
 }
+/* Muted, in one look everywhere. A muted genre used to be amber-filled with an
+   ember border and text, beside ember-on-clear muted titles in the same card. */
+.pill.is-muted,
+.pill.is-muted[aria-pressed='true'] {
+  background: var(--ember-dim);
+  border-color: rgba(224, 106, 78, 0.36);
+  color: var(--ember);
+}
+.pill.is-muted:active {
+  background: rgba(224, 106, 78, 0.2);
+}
+.pill.is-muted[aria-pressed='true'] .pill-t {
+  text-decoration: line-through;
+  text-decoration-color: rgba(224, 106, 78, 0.6);
+}
+.pill-removable {
+  max-width: 100%;
+}
+.pill-removable .pill-t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pill-removable .ic {
+  flex: none;
+  opacity: 0.8;
+}
 
 /* ============================================================
    inputs
@@ -916,7 +1058,15 @@ body.is-typing .tabbar {
   border-radius: var(--r-md);
   color: var(--bone);
   font-size: var(--t-field);
-  transition: border-color var(--fast) var(--ease);
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease),
+    opacity var(--fast) var(--ease);
+}
+/* Single-line fields at exactly 46. 12px of padding on the inherited 1.45
+   line-height made them 49, so no two controls in a stack lined up. */
+.input:not(textarea),
+.select {
+  height: 46px;
+  padding-block: 0;
 }
 .input::placeholder,
 .textarea::placeholder {
@@ -924,9 +1074,15 @@ body.is-typing .tabbar {
 }
 .input:focus,
 .textarea:focus,
-.select:focus {
+.select:focus,
+.searchbar input:focus,
+.composer textarea:focus {
   outline: none;
-  border-color: var(--amber-line);
+  /* A 1px border moving from hairline to amber-line was 1.56:1 — with four
+     key and token fields stacked in Settings you could not tell which one
+     was live. A full amber edge and a soft halo. */
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px var(--amber-dim);
 }
 .textarea {
   min-height: 150px;
@@ -958,7 +1114,8 @@ body.is-typing .tabbar {
 }
 .searchbar input {
   width: 100%;
-  min-height: 44px;
+  min-height: 46px;
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
   padding: 0 var(--s4) 0 42px;
   background: var(--surface);
   border: 1px solid var(--hairline);
@@ -966,10 +1123,7 @@ body.is-typing .tabbar {
   color: var(--bone);
   font-size: var(--t-field);
 }
-.searchbar input:focus {
-  outline: none;
-  border-color: var(--amber-line);
-}
+
 .searchbar input::placeholder {
   color: var(--faint);
 }
@@ -1009,8 +1163,16 @@ body.is-typing .tabbar {
 .group-item:last-child {
   border-bottom: none;
 }
+.group-item {
+  transition: background var(--fast) var(--ease);
+}
 .group-item:active {
   background: var(--raised);
+}
+/* .group clips its children to round its corners, which cut the sides off a
+   2px ring drawn outside the row. Draw this one inside. */
+.group-item:focus-visible {
+  outline-offset: -2px;
 }
 .group-item .ic {
   color: var(--ash);
@@ -1035,6 +1197,67 @@ body.is-typing .tabbar {
 }
 .group-pad {
   padding: var(--s4);
+}
+/* Helper and status copy under a control. One style, where Settings had a dozen
+   hand-typed copies at four line-heights and three top margins. */
+.group-hint {
+  font-size: var(--t-meta);
+  line-height: 1.5;
+  color: var(--ash);
+  margin-top: var(--s2);
+}
+.group-hint:empty {
+  display: none;
+}
+/* Fields and switches inside a card sit in a well. On --surface over --surface
+   they were a 9% hairline and nothing else, and a focused one barely showed. */
+.group .input,
+.group .seg {
+  background: var(--ink);
+}
+.group .seg button[aria-pressed='true'] {
+  background: var(--overlay);
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+/* Reserve the storage block's first paint, before the first reading lands. */
+[data-region='storage-health'] {
+  min-height: 88px;
+}
+/* A sheet is already a short container; the empty state's optical top padding
+   became a 104px dead band inside one. */
+.sheet .empty {
+  padding: var(--s7) var(--s5);
+}
+
+/* The About footer: calm by default, diagnostics one tap away. */
+.about-diag {
+  margin-top: var(--s2);
+}
+.about-diag > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--s3);
+  color: var(--ash);
+  cursor: pointer;
+  list-style: none;
+}
+.about-diag > summary::-webkit-details-marker {
+  display: none;
+}
+.about-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--s3);
+  color: var(--ash);
+  text-decoration: none;
+  border-radius: var(--r-sm);
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.about-link:active {
+  background: var(--surface);
+  color: var(--bone);
 }
 
 /* ============================================================
@@ -1063,13 +1286,35 @@ body.is-typing .tabbar {
   color: var(--bone);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--med) var(--ease), transform var(--med) var(--ease);
-  z-index: 900;
+  /* Sized to its text. With left:50% and no width, shrink-to-fit resolves
+     against the 50vw left over, so every sentence wrapped into a 195px tower
+     and the max-width below could never be reached. */
+  width: max-content;
+  text-wrap: pretty;
+  /* Hidden for real once it has faded: an invisible toast kept a live,
+     focusable Undo that VoiceOver could still find and that still ran its old
+     action minutes later. */
+  visibility: hidden;
+  transition: opacity 160ms var(--ease-exit), transform 160ms var(--ease-exit),
+    bottom var(--med) var(--ease), top var(--med) var(--ease), visibility 0s linear 160ms;
+  /* Above the scrim (950) and sheets (960). At 900 a toast raised from inside a
+     sheet — "Say what you fancy first" — was drawn underneath it, and the
+     button that raised it looked dead. */
+  z-index: 1000;
 }
 .toast.is-open {
   opacity: 1;
   transform: translate(-50%, 0);
   pointer-events: auto;
+  visibility: visible;
+  transition: opacity var(--med) var(--ease), transform 320ms var(--ease-sheet),
+    bottom var(--med) var(--ease), top var(--med) var(--ease), visibility 0s;
+}
+/* The tab bar hides while a field has focus, so sit just above the keyboard
+   instead — validation toasts fire with a field focused and used to land
+   behind it. */
+body.is-typing .toast {
+  bottom: calc(var(--kb, 0px) + var(--s3));
 }
 /* The overlay covers the tab bar, so a toast raised from it — an Undo, most of
    all — was left hovering over 72px of empty overlay instead of near the
@@ -1078,11 +1323,31 @@ body.is-typing .tabbar {
 .detail.is-open ~ .toast {
   bottom: calc(max(var(--sb), var(--sb-floor, 0px)) + var(--s5));
 }
+/* An open sheet owns the bottom of the screen, so a toast raised over one
+   drops in from the top rather than covering its buttons. */
+body:has(.sheet.is-open) .toast {
+  top: calc(var(--st) + var(--s3));
+  bottom: auto;
+  transform: translate(-50%, -12px);
+}
+body:has(.sheet.is-open) .toast.is-open {
+  transform: translate(-50%, 0);
+}
 .toast-action {
   font-weight: 650;
   color: var(--amber);
-  padding: 4px 2px;
   flex: none;
+  /* Undo is the only way back from a bulk remove, on a timer, where the thumb
+     lands — and it was a 42×27 target. The negative margin grows the hit area
+     into the toast's own padding without making the toast any taller. */
+  min-height: 44px;
+  margin: -12px -8px -12px 0;
+  padding: 0 var(--s3);
+  border-radius: var(--r-sm);
+  transition: opacity var(--fast) var(--ease);
+}
+.toast-action:active {
+  opacity: 0.55;
 }
 
 /* ============================================================
@@ -1097,12 +1362,15 @@ body.is-typing .tabbar {
   -webkit-backdrop-filter: blur(3px);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--med) var(--ease);
+  visibility: hidden;
+  transition: opacity 200ms var(--ease-exit), visibility 0s linear 200ms;
   z-index: 950;
 }
 .scrim.is-open {
   opacity: 1;
   pointer-events: auto;
+  visibility: visible;
+  transition: opacity 300ms var(--ease), visibility 0s;
 }
 
 .sheet {
@@ -1118,7 +1386,12 @@ body.is-typing .tabbar {
   border-radius: var(--r-xl) var(--r-xl) 0 0;
   padding: var(--s5) var(--s4) calc(var(--sb) + var(--s5));
   transform: translateY(100%);
-  transition: transform var(--med) var(--ease), bottom var(--med) var(--ease);
+  /* visibility, so a closed sheet is really closed: the shared one is never
+     removed, and its last "Yes, reset" stayed reachable by Tab and VoiceOver
+     just below the screen. It hides only once the slide-out has finished. */
+  visibility: hidden;
+  transition: transform 200ms var(--ease-exit), bottom var(--med) var(--ease),
+    visibility 0s linear 200ms;
   z-index: 960;
   /* Any sheet that scrolls gets the same treatment as every other scroller in
      the app: no visible track over the rounded corner, no chaining. */
@@ -1131,6 +1404,8 @@ body.is-typing .tabbar {
 }
 .sheet.is-open {
   transform: translateY(0);
+  visibility: visible;
+  transition: transform 360ms var(--ease-sheet), bottom var(--med) var(--ease), visibility 0s;
 }
 .sheet-grip {
   width: 34px;
@@ -1151,6 +1426,20 @@ body.is-typing .tabbar {
   text-align: center;
   line-height: 1.5;
   margin-bottom: var(--s5);
+  /* The no-share fallback puts a whole shelf URL in here, for copying by hand;
+     unbroken, it ran 3,700px off the edge. */
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* A title-only sheet ("Sort by") had its first action 8px under the title;
+   every sheet with a message got 20. */
+.sheet-title + .sheet-actions {
+  margin-top: var(--s3);
+}
+/* Cancel under a list of actions is a way out, not another option. */
+.sheet-actions > .btn-quiet:last-child {
+  border-color: transparent;
 }
 .sheet-actions {
   display: flex;
@@ -1245,6 +1534,17 @@ body.is-typing .tabbar {
   from {
     opacity: 0;
     transform: translateX(14px);
+  }
+}
+/* Back to the previous film comes in from the left — it used to enter from the
+   right, so going back looked like going forward again. */
+.detail-swap.is-back {
+  animation-name: detailSwapBack;
+}
+@keyframes detailSwapBack {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
   }
 }
 
@@ -1411,7 +1711,11 @@ body.is-typing .tabbar {
   grid-area: 1 / 1;
   justify-self: center;
   align-self: center;
+  /* Every card — with a poster, without, still loading, or the one waiting on
+     Claude — has the same footprint, so nothing grows or jumps at a swap. */
+  height: 100%;
   max-height: 100%;
+  -webkit-touch-callout: none;
   display: flex;
   flex-direction: column;
   width: min(100%, 340px);
@@ -1434,8 +1738,44 @@ body.is-typing .tabbar {
   width: 100%;
   border-radius: 0;
   aspect-ratio: auto;
-  flex: 1 1 auto;
+  /* 0 basis: the poster absorbs whatever the card's fixed height leaves after
+     the text. On `auto` its height came from the image — a card with no
+     poster, or one still loading, collapsed to a 90px strip and then grew
+     ~126px when the art arrived. */
+  flex: 1 1 0;
   min-height: 90px;
+}
+/* The card carries its own title, so a posterless card needs only the
+   initials, centred. At 340px wide the container query switched on the
+   fallback's own title too, and the huge initials ran straight through it. */
+.deck-card .poster-fb-t {
+  display: none;
+}
+.deck-card .poster-fb::before {
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+/* A press-and-hold before a slow drag brought up iOS's image menu, or lifted
+   the poster out as a system drag item, instead of moving the card. */
+.deck-card img {
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+/* The card behind scales from its bottom edge, so it peeks out below the
+   front card at any height. Scaled about its centre it lost more at each edge
+   than it moved down, and sat entirely hidden. */
+.deck-card[aria-hidden='true'] {
+  transform-origin: 50% 100%;
+}
+.deck-more {
+  margin-top: var(--s3);
+}
+/* .deck centres its content already; the empty state's optical top padding
+   pushed it ~38px below the middle there. */
+.deck > .empty {
+  padding: 0 var(--s5) var(--s8);
+  animation: reportIn var(--med) var(--ease) both;
 }
 .deck-info {
   padding: var(--s4);
@@ -1636,7 +1976,9 @@ body.is-typing .select-bar {
   gap: var(--s5);
   padding: var(--s4) var(--s4) var(--s5);
   flex: none;
-  transition: opacity var(--fast) var(--ease);
+  /* visibility interpolates as "visible until the end", so the buttons fade
+     out and then hide; without it in the list they vanished on frame one. */
+  transition: opacity var(--fast) var(--ease), visibility var(--fast);
 }
 /* While a hand is being fetched. `hidden` would be display:none, which takes
    ~94px out of a `place-items: center` column and drops the waiting card half
@@ -1688,6 +2030,28 @@ body.is-typing .select-bar {
   color: var(--ash);
   margin-top: var(--s2);
 }
+.deck-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s1);
+}
+.deck-btn-label {
+  font-size: var(--t-micro);
+  font-weight: 550;
+  color: var(--ash);
+}
+/* On Discover the bottom strip is the two answer buttons, and a toast there
+   put its Undo right over ✓ — a quick second "Seen it" undid the first. Drop
+   it in under the progress row instead, where nothing is tappable. */
+body:has(#screen-discover.is-active) .toast {
+  top: calc(var(--st) + 76px);
+  bottom: auto;
+  transform: translate(-50%, -12px);
+}
+body:has(#screen-discover.is-active) .toast.is-open {
+  transform: translate(-50%, 0);
+}
 
 /* ============================================================
    ask (AI)
@@ -1697,10 +2061,38 @@ body.is-typing .select-bar {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* overflow-y:auto makes overflow-x auto too, so one long unbroken word in a
+     bubble made the whole thread scroll sideways. */
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   padding: var(--s4);
   display: flex;
   flex-direction: column;
   gap: var(--s3);
+}
+/* Nothing in a thread is compressible; the thread scrolls instead. */
+.chat > * {
+  flex: none;
+}
+/* Every message, the typing dots and each pick card arrive rather than
+   appearing in one frame — a chat is where motion most clearly says the app
+   is answering you. */
+.chat > .msg,
+.chat > .chat-dots {
+  animation: msgIn var(--med) var(--ease) both;
+}
+.msg-user {
+  transform-origin: bottom right;
+}
+.msg-bot {
+  transform-origin: bottom left;
+}
+@keyframes msgIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
 }
 .chat::-webkit-scrollbar {
   display: none;
@@ -1711,6 +2103,33 @@ body.is-typing .select-bar {
   border-radius: var(--r-lg);
   font-size: var(--t-body);
   line-height: 1.55;
+  /* A pasted link ran out of its bubble and off the screen. pre-line also keeps
+     the paragraph breaks a model sends, which were collapsed into one run. */
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+/* A structured pick in the thread. */
+.pick-card {
+  max-width: 100%;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+}
+.pick-head {
+  display: flex;
+  gap: var(--s3);
+  padding: var(--s4);
+  cursor: pointer;
+  transition: background var(--fast) var(--ease);
+}
+.pick-head:active {
+  background: var(--raised);
+}
+.pick-reason {
+  padding: 0 var(--s4) var(--s4);
+  font-size: var(--t-body);
+  line-height: 1.55;
+  color: var(--silver);
 }
 .msg-user {
   align-self: flex-end;
@@ -1780,19 +2199,19 @@ body.is-typing .select-bar {
   flex: 1;
   min-height: 44px;
   max-height: 120px;
-  padding: var(--s3);
+  /* One row is exactly 44px, level with the send button: 10 + 22 + 10 + 2.
+     With 12px padding on a 1.4 line-height it was 48 beside a 44 button. */
+  padding: 10px var(--s3);
   background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: var(--r-md);
   color: var(--bone);
   font-size: var(--t-field);
   resize: none;
-  line-height: 1.4;
+  line-height: 22px;
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 }
-.composer textarea:focus {
-  outline: none;
-  border-color: var(--amber-line);
-}
+
 .composer textarea::placeholder {
   color: var(--faint);
 }
@@ -1816,25 +2235,19 @@ body.is-typing .select-bar {
   display: flex;
   gap: var(--s2);
   overflow-x: auto;
-  padding: 0 var(--s4) var(--s3);
+  /* 2px of top room so a focus ring is not clipped by the scroller. */
+  padding: 2px var(--s4) var(--s3);
   scrollbar-width: none;
   flex: none;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  /* A fade on the trailing edge: with the scrollbar hidden, nothing said the
+     row went on past the screen. */
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
 }
 .suggestions::-webkit-scrollbar {
   display: none;
-}
-.suggestion {
-  flex: none;
-  min-height: 40px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 var(--s3);
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  font-size: var(--t-sub);
-  color: var(--silver);
-  white-space: nowrap;
 }
 
 /* ============================================================
@@ -2007,11 +2420,91 @@ body.is-typing .select-bar {
   font-size: var(--t-title);
   font-weight: 660;
   letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
 }
 .stat-l {
   font-size: var(--t-micro);
   color: var(--ash);
-  margin-top: 1px;
+  margin-top: 2px;
+}
+
+/* Stats. The big figure is the same treatment the shared shelf uses for its
+   count, from one rule, where the two screens had drifted to different sizes
+   off the type scale. */
+.big-figure {
+  padding: var(--s6) var(--s4) var(--s2);
+  text-align: center;
+}
+.big-figure-n {
+  font-size: 56px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--amber);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.big-figure-l {
+  font-size: var(--t-body);
+  color: var(--silver);
+  margin-top: var(--s2);
+}
+.big-figure-s {
+  font-size: var(--t-sub);
+  color: var(--ash);
+  margin-top: var(--s1);
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--hairline);
+  border-block: 1px solid var(--hairline);
+  margin-top: var(--s6);
+}
+.stat-cell {
+  background: var(--ink);
+  padding: var(--s3) var(--s2);
+  text-align: center;
+}
+.bars {
+  display: grid;
+  grid-template-columns: max-content 1fr 34px;
+  column-gap: 10px;
+  row-gap: var(--s2);
+  align-items: center;
+  padding: var(--s6) var(--s4) 0;
+}
+.bars-title {
+  grid-column: 1 / -1;
+  margin-bottom: var(--s1);
+}
+.bars-l {
+  font-size: var(--t-meta);
+  color: var(--silver);
+}
+.bars-track {
+  height: 8px;
+  background: var(--raised);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bars-fill {
+  height: 100%;
+  background: var(--amber);
+  border-radius: 4px;
+  transform-origin: left center;
+  animation: barGrow 520ms var(--ease-sheet) both;
+}
+@keyframes barGrow {
+  from {
+    transform: scaleX(0);
+  }
+}
+.bars-n {
+  text-align: right;
+  font-size: var(--t-meta);
+  color: var(--ash);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ============================================================

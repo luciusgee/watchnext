@@ -183,15 +183,15 @@ export function shouldNudgeBackup(stats) {
 export async function storageHealth(stats) {
   const persisted = await isPersisted();
   const estimate = await storageEstimate();
-  const mirror = await readMirror();
   const last = lastBackupAt();
 
+  /* No mirror read. It deserialised the whole on-device copy of the library
+     on every Settings render to report a timestamp nothing displays. */
   return {
     persisted,
     supported: !!navigator.storage?.persist,
     usage: estimate?.usage ?? null,
     quota: estimate?.quota ?? null,
-    mirroredAt: mirror?.savedAt ?? null,
     lastBackupAt: last,
     nudge: shouldNudgeBackup(stats),
   };

@@ -84,8 +84,10 @@ export function openDetail(uid, { push = true } = {}) {
   document.getElementById('app').setAttribute('aria-hidden', 'true');
   root.querySelector('.detail-body').scrollTop = 0;
   if (wasOpen) {
-    root.querySelector('.detail-hero')?.classList.add('detail-swap');
-    root.querySelector('.detail-body')?.classList.add('detail-swap');
+    for (const n of root.querySelectorAll('.detail-hero, .detail-body')) {
+      n.classList.add('detail-swap');
+      if (!push) n.classList.add('is-back');
+    }
   }
   /* Focus the dialog, not the back button: the dialog is labelled by the film's
      own <h1>, so the first thing announced is the title rather than "Back". */

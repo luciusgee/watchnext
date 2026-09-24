@@ -197,7 +197,91 @@ function onSheetKey(e) {
  * openSheet({ title, message, actions: [{label, kind, onClick}] })
  * kind: 'primary' | 'danger' | 'secondary' | 'quiet'
  */
-export function openSheet({ title, message, actions = [], dismissLabel = 'Cancel' }) {
+/**
+ * A sheet with real content in it — a search, a form, a list of facets.
+ *
+ * openSheet() only takes a title, a message and a row of buttons, so four
+ * screens hand-rolled their own and two of them had drifted: the match picker
+ * and the review queue popped in already open, vanished in one frame, trapped
+ * nothing and returned focus nowhere. This is the one way to build one.
+ *
+ * The caller fills `panel`, then calls `show()`. `close()` animates out,
+ * restores focus to whatever opened it, and removes both nodes afterwards.
+ */
+export function openPanel({ label, className = '', style = '', onClose = null } = {}) {
+  const lastFocus = document.activeElement;
+  const scrim = el('div', { class: 'scrim' });
+  const panel = el('div', {
+    class: `sheet${className ? ' ' + className : ''}`,
+    role: 'dialog',
+    'aria-modal': 'true',
+    'aria-label': label,
+    tabindex: '-1',
+    style,
+  });
+
+  let closing = false;
+  const close = () => {
+    if (closing) return;
+    closing = true;
+    scrim.classList.remove('is-open');
+    panel.classList.remove('is-open');
+    document.removeEventListener('keydown', onKey);
+    if (lastFocus && document.contains(lastFocus)) lastFocus.focus({ preventScroll: true });
+    onClose?.();
+    setTimeout(() => {
+      scrim.remove();
+      panel.remove();
+    }, 240);
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const f = [...panel.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
+    )].filter((n) => !n.closest('[hidden]'));
+    if (!f.length) return;
+    const first = f[0];
+    const last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+  document.addEventListener('keydown', onKey);
+  scrim.addEventListener('click', close);
+
+  const show = () => {
+    document.body.appendChild(scrim);
+    document.body.appendChild(panel);
+    reveal(scrim, panel);
+  };
+  return { scrim, panel, close, show, isClosing: () => closing };
+}
+
+let closedAt = -Infinity;
+
+export function openSheet(opts) {
+  /* An action that opens a follow-up sheet ("Reset…" → "Clear watch history?")
+     runs in the same task that closed the first one, so the sheet never
+     moved: its content swapped in one frame and the top edge jumped 108px.
+     Let the first one leave, keep the scrim up, then bring the next in. */
+  if (sheetEls && performance.now() - closedAt < 50) {
+    sheetEls.scrim.classList.add('is-open');
+    setTimeout(() => {
+      closedAt = -Infinity;
+      openSheet(opts);
+    }, 200);
+    return;
+  }
+  const { title, message, actions = [], dismissLabel = 'Cancel' } = opts;
   const { scrim, sheet } = ensureSheet();
   lastFocus = document.activeElement;
   clear(sheet);
@@ -246,6 +330,7 @@ export function openSheet({ title, message, actions = [], dismissLabel = 'Cancel
 
 export function closeSheet() {
   if (!sheetEls) return;
+  closedAt = performance.now();
   sheetEls.scrim.classList.remove('is-open');
   sheetEls.sheet.classList.remove('is-open');
   document.removeEventListener('keydown', onSheetKey);

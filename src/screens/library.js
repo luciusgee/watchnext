@@ -19,6 +19,7 @@ import {
   toast,
   confirmDestructive,
   reveal,
+  openPanel,
 } from '../ui.js';
 import { icon } from '../icons.js';
 import { runtime, rating, metaLine } from '../format.js';
@@ -339,50 +340,11 @@ function openSort() {
 /* A single filter surface with four independent facets — the old version put
    type, genre, quality and status into one pill row that claimed to be genre. */
 function openFilters() {
-  const lastFocus = document.activeElement;
-  const scrim = el('div', { class: 'scrim' });
-  const panel = el('div', {
-    class: 'sheet has-pinned',
-    role: 'dialog',
-    'aria-modal': 'true',
-    'aria-label': 'Filter library',
-    tabindex: '-1',
+  const { panel, close, show: showPanel } = openPanel({
+    label: 'Filter library',
+    className: 'has-pinned',
     style: 'max-height:82vh;overflow-y:auto',
   });
-
-  let closing = false;
-  const close = () => {
-    if (closing) return;
-    closing = true;
-    scrim.classList.remove('is-open');
-    panel.classList.remove('is-open');
-    document.removeEventListener('keydown', onKey);
-    if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
-    setTimeout(() => {
-      scrim.remove();
-      panel.remove();
-    }, 240);
-  };
-  const onKey = (e) => {
-    if (e.key === 'Escape') {
-      close();
-      return;
-    }
-    if (e.key !== 'Tab') return;
-    const f = panel.querySelectorAll('button:not([disabled]):not([hidden])');
-    if (!f.length) return;
-    const first = f[0];
-    const last = f[f.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
-  document.addEventListener('keydown', onKey);
-  scrim.addEventListener('click', close);
 
   panel.appendChild(el('div', { class: 'sheet-grip' }));
   panel.appendChild(el('div', { class: 'sheet-title', text: 'Filter' }));
@@ -491,9 +453,7 @@ function openFilters() {
   };
   refresh();
 
-  document.body.appendChild(scrim);
-  document.body.appendChild(panel);
-  reveal(scrim, panel);
+  showPanel();
   /* The panel, not the first pill: landing focus on a filter value made
      "Everything" look chosen. */
   requestAnimationFrame(() => panel.focus({ preventScroll: true }));

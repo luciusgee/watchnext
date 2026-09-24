@@ -9,7 +9,17 @@
 
 import * as store from '../store.js';
 import * as actions from '../actions.js';
-import { el, clear, poster, button, toast, openSheet, confirmDestructive, emptyState } from '../ui.js';
+import {
+  el,
+  clear,
+  poster,
+  button,
+  toast,
+  openSheet,
+  confirmDestructive,
+  emptyState,
+  openPanel,
+} from '../ui.js';
 import { icon } from '../icons.js';
 import * as meta from '../metadata.js';
 import { getProvider, listProviders } from '../providers/index.js';
@@ -17,7 +27,7 @@ import { storageHealth, markBackedUp, requestPersistence } from '../durability.j
 import { BUILD } from '../build.js';
 import { healState, safeAreaInsets } from '../viewport.js';
 import { openMatchPicker } from './match.js';
-import { runtime, relativeTime } from '../format.js';
+import { runtime, relativeTime, plural } from '../format.js';
 import { MODELS, currentModel } from '../ai.js';
 import * as sync from '../sync.js';
 
@@ -26,14 +36,77 @@ let bodyEl = null;
 let navigate = null;
 let sweepController = null;
 let syncWatcher = null;
+/* A message about sync that has to survive the render() that follows the
+   action which produced it. The public-repo warning used to be painted and
+   destroyed in the same tick. */
+let syncNotice = null;
+/* The last storage-health reading, painted synchronously on the next render so
+   the block does not empty and refill — and move everything below it — on
+   every tap. */
+let lastHealth = null;
+let renderPending = false;
+
+/* A field in Settings has focus. A background sync emits 'item' every so often,
+   and a full re-render then destroyed the field mid-token, dropped the
+   keyboard and threw away what had been typed. */
+const editing = () =>
+  root.contains(document.activeElement) && document.activeElement.matches('input, textarea');
 
 export function initSettings({ navigate: nav }) {
   navigate = nav;
   root = document.getElementById('screen-settings');
   bodyEl = root.querySelector('[data-region="body"]');
   store.subscribe((r) => {
-    if (r === 'item' && root.classList.contains('is-active')) render();
+    if (r !== 'item' || !root.classList.contains('is-active')) return;
+    if (editing()) {
+      renderPending = true;
+      return;
+    }
+    render();
   });
+  root.addEventListener('focusout', () =>
+    setTimeout(() => {
+      if (renderPending && !editing()) {
+        renderPending = false;
+        render();
+      }
+    })
+  );
+}
+
+/** Helper copy under a control. One style, where there were four line-heights
+    and three top margins across a dozen hand-typed copies. */
+function hint(text, extra = '') {
+  return el('div', { class: 'group-hint', style: extra, text });
+}
+
+/** A status line that is announced when it changes. */
+function statusLine(extra = '') {
+  return el('div', { class: 'group-hint', role: 'status', style: extra });
+}
+
+/**
+ * Run a network call from a button without letting it be tapped again.
+ *
+ * Save, Turn on sync, Sync now and the storage request all await something,
+ * and stayed live and unchanged while they did — a second tap sent a second
+ * request and raised a second toast.
+ */
+async function busy(btn, label, work) {
+  const t = btn.querySelector('span:last-child');
+  const was = t?.textContent;
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
+  if (t) t.textContent = label;
+  try {
+    return await work();
+  } finally {
+    if (btn.isConnected) {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      if (t) t.textContent = was;
+    }
+  }
 }
 
 export function showSettings(params = {}) {
@@ -52,6 +125,7 @@ export function showSettings(params = {}) {
 }
 
 function render() {
+  renderPending = false;
   clear(bodyEl);
 
   bodyEl.appendChild(groupLabel('Connections'));
@@ -93,8 +167,8 @@ function summaryLine(s) {
   if (s.pending) bits.push(`${s.pending} never looked up`);
   if (s.review) bits.push(`${s.review} need you to choose`);
   if (s.unmatched) bits.push(`${s.unmatched} not found`);
-  if (!bits.length) return `All ${s.total} titles have verified details.`;
-  return `${s.total} titles — ` + bits.join(', ') + '.';
+  if (!bits.length) return s.total === 1 ? 'Your one title has verified details.' : `All ${s.total} titles have verified details.`;
+  return `${plural(s.total, 'title')} — ` + bits.join(', ') + '.';
 }
 
 /* ── connections ── */
@@ -106,16 +180,21 @@ function connectionsGroup() {
   /* Metadata source */
   const active = getProvider(s.provider);
   const box = el('div', { class: 'group-pad' });
-  box.appendChild(el('div', { class: 'group-item-t', text: 'Film database', style: 'margin-bottom:4px' }));
+  box.appendChild(el('div', { class: 'group-item-t', text: 'Film database', style: 'margin-bottom:var(--s1)' }));
   box.appendChild(
     el('div', {
       class: 'group-item-s',
-      style: 'margin-bottom:12px',
+      style: 'margin-bottom:var(--s3)',
       text: 'Where posters, runtimes and descriptions come from. TMDB is the better maintained of the two and the only one whose terms allow a paid app; OMDb is kept for anyone already using it.',
     })
   );
 
-  const seg = el('div', { class: 'seg', style: 'margin-bottom:14px' });
+  const seg = el('div', {
+    class: 'seg',
+    role: 'group',
+    'aria-label': 'Film database',
+    style: 'margin-bottom:var(--s3)',
+  });
   for (const p of listProviders()) {
     seg.appendChild(
       el('button', {
@@ -132,13 +211,21 @@ function connectionsGroup() {
   box.appendChild(seg);
 
   const keys = s.dataKeys || {};
-  const keyRow = el('div', { style: 'display:flex;gap:8px' });
+  /* A form, so the keyboard's Return saves. */
+  const keyRow = el('form', { style: 'display:flex;gap:var(--s2)' });
+  keyRow.addEventListener('submit', (e) => {
+    e.preventDefault();
+    saveBtn.click();
+  });
   const keyInput = el('input', {
     id: 'data-key',
     class: 'input',
     type: 'password',
     autocomplete: 'off',
+    autocapitalize: 'off',
+    autocorrect: 'off',
     spellcheck: 'false',
+    enterkeyhint: 'done',
     placeholder: active.keyPlaceholder,
     value: keys[active.id] || '',
     'aria-label': active.keyLabel,
@@ -149,7 +236,7 @@ function connectionsGroup() {
      how someone ends up discovering their key never worked part-way through a
      500-title sweep — the state we actually want to show is "this key answered
      a request", not "this box is non-empty". */
-  const keyStatus = el('div', { style: 'font-size:12px;margin-top:8px;line-height:1.5' });
+  const keyStatus = statusLine();
 
   const paintStatus = (state, message) => {
     const colour = { ok: 'var(--sage)', bad: 'var(--ember)', busy: 'var(--ash)', idle: 'var(--ash)' }[state];
@@ -165,7 +252,7 @@ function connectionsGroup() {
 
   const saveBtn = button('Save', {
     kind: 'secondary',
-    onClick: async () => {
+    onClick: () => busy(saveBtn, 'Checking…', async () => {
       const value = keyInput.value.trim();
       store.updateSettings({ dataKeys: { ...(store.settings().dataKeys || {}), [active.id]: value } });
 
@@ -206,74 +293,82 @@ function connectionsGroup() {
       } else {
         paintStatus('bad', result.message || 'This key was rejected.');
       }
-    },
+    }),
   });
   keyRow.appendChild(saveBtn);
 
   box.appendChild(keyRow);
-  box.appendChild(
-    el('div', { style: 'font-size:12px;color:var(--ash);margin-top:8px;line-height:1.5', text: active.keyHint })
-  );
+  box.appendChild(hint(active.keyHint));
   box.appendChild(keyStatus);
   g.appendChild(box);
 
   /* Anthropic */
   const ai = el('div', { class: 'group-pad', style: 'border-top:1px solid var(--hairline)' });
-  ai.appendChild(el('div', { class: 'group-item-t', text: 'Assisted picks', style: 'margin-bottom:4px' }));
+  ai.appendChild(el('div', { class: 'group-item-t', text: 'Assisted picks', style: 'margin-bottom:var(--s1)' }));
   ai.appendChild(
     el('div', {
       class: 'group-item-s',
-      style: 'margin-bottom:12px',
+      style: 'margin-bottom:var(--s3)',
       text: 'An Anthropic API key powers the Ask tab and the “say what you fancy” box in the picker. Your key is stored on this device only and sent directly to Anthropic — it never passes through anyone else’s server.',
     })
   );
-  const aiRow = el('div', { style: 'display:flex;gap:8px' });
+  const aiRow = el('form', { style: 'display:flex;gap:var(--s2)' });
   const aiInput = el('input', {
     id: 'ai-key',
     class: 'input',
     type: 'password',
     autocomplete: 'off',
+    autocapitalize: 'off',
+    autocorrect: 'off',
     spellcheck: 'false',
+    enterkeyhint: 'done',
     placeholder: 'sk-ant-…',
     value: s.aiKey || '',
     'aria-label': 'Anthropic API key',
   });
   aiRow.appendChild(aiInput);
-  aiRow.appendChild(
-    button('Save', {
-      kind: 'secondary',
-      onClick: () => {
-        const v = aiInput.value.trim();
-        if (v && !v.startsWith('sk-')) {
-          toast('That does not look like an Anthropic key');
-          return;
-        }
-        store.updateSettings({ aiKey: v });
-        toast(v ? 'Key saved' : 'Key cleared');
-        render();
-      },
-    })
-  );
+  /* Inline, in the same place and colours as the film key's. This one used to
+     say a green "Connected" for any string starting "sk-" — beside a film key
+     that is careful never to claim that without a test request — and put its
+     errors in a toast. */
+  const aiStatus = statusLine();
+  const saveAi = () => {
+    const v = aiInput.value.trim();
+    if (v && !v.startsWith('sk-')) {
+      aiStatus.style.color = 'var(--ember)';
+      aiStatus.textContent = 'That does not look like an Anthropic key — they start sk-ant-.';
+      return;
+    }
+    store.updateSettings({ aiKey: v });
+    toast(v ? 'Key saved' : 'Key cleared');
+    render();
+  };
+  aiRow.addEventListener('submit', (e) => {
+    e.preventDefault();
+    saveAi();
+  });
+  aiRow.appendChild(button('Save', { kind: 'secondary', type: 'submit' }));
   ai.appendChild(aiRow);
+  ai.appendChild(aiStatus);
   if (s.aiKey) {
-    ai.appendChild(el('div', { style: 'font-size:12px;color:var(--sage);margin-top:8px', text: 'Connected' }));
+    aiStatus.style.color = 'var(--ash)';
+    aiStatus.textContent = 'Saved on this phone. It is checked the first time you ask.';
     /* Only once there is a key to spend. Offering a choice of models to
        somebody who cannot call any of them is a decision about nothing.
        The costs are on the pills because it is his bill, not the app's — a
        tier list without prices makes "Best" look free. */
-    ai.appendChild(el('div', { class: 'eyebrow', style: 'margin:18px 0 10px', text: 'Which Claude' }));
+    ai.appendChild(el('div', { class: 'eyebrow', style: 'margin:var(--s5) 0 var(--s3)', text: 'Which Claude' }));
     const chosen = currentModel();
-    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px' });
+    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:var(--s2)' });
     for (const m of MODELS) {
       const active = m.id === chosen.id;
+      /* No inline style: .pill[aria-pressed] draws the chosen state, and an
+         inline background here overrode its press feedback. */
       row.appendChild(
         el('button', {
           class: 'pill',
           type: 'button',
           'aria-pressed': String(active),
-          style: active
-            ? 'border-color:var(--amber-line);color:var(--amber);background:var(--amber-dim)'
-            : '',
           text: m.label,
           onclick: () => {
             store.updateSettings({ aiModel: m.id });
@@ -283,12 +378,7 @@ function connectionsGroup() {
       );
     }
     ai.appendChild(row);
-    ai.appendChild(
-      el('div', {
-        style: 'font-size:12px;color:var(--ash);margin-top:10px;line-height:1.5',
-        text: chosen.note,
-      })
-    );
+    ai.appendChild(hint(chosen.note, 'margin-top:var(--s3)'));
   }
   g.appendChild(ai);
 
@@ -304,11 +394,11 @@ function syncGroup() {
   const cfg = sync.config();
 
   const box = el('div', { class: 'group-pad' });
-  box.appendChild(el('div', { class: 'group-item-t', text: 'Share a library', style: 'margin-bottom:4px' }));
+  box.appendChild(el('div', { class: 'group-item-t', text: 'Share a library', style: 'margin-bottom:var(--s1)' }));
   box.appendChild(
     el('div', {
       class: 'group-item-s',
-      style: 'margin-bottom:12px',
+      style: 'margin-bottom:var(--s3)',
       text:
         'Keep this library in a GitHub repo, so two phones share one shelf and every change is a commit you can roll back to. ' +
         'Films added on either phone appear on the other within about half a minute.',
@@ -317,77 +407,107 @@ function syncGroup() {
   /* Said here rather than discovered on github.com. The repo that serves this
      app has to be public for Pages; the one holding a watch history does not. */
   box.appendChild(
-    el('div', {
-      style: 'font-size:12px;color:var(--amber);margin-bottom:14px;line-height:1.5',
-      text: 'Use a private repo — not the one this app is published from. A public repo means anyone can read what you own and what you have watched.',
-    })
+    hint(
+      'Use a private repo — not the one this app is published from. A public repo means anyone can read what you own and what you have watched.',
+      'color:var(--amber);margin:0 0 var(--s4)'
+    )
   );
 
+  /* Labelled, because once saved one field shows "luke/watchnext-data" and the
+     other a row of dots, and placeholders say nothing then. A form, so Return
+     on the keyboard does what the button does. */
+  const form = el('form');
+  form.appendChild(el('label', { class: 'field-label', for: 'sync-repo', text: 'Repository' }));
   const repo = el('input', {
-    class: 'input', type: 'text', autocomplete: 'off', spellcheck: 'false',
-    placeholder: 'yourname/watchnext-data', value: cfg.repo, 'aria-label': 'Repository, as owner/name',
+    id: 'sync-repo',
+    class: 'input',
+    type: 'text',
+    inputmode: 'url',
+    autocomplete: 'off',
+    /* spellcheck=false does not stop iOS turning "luke/…" into "Luke/…". */
+    autocapitalize: 'off',
+    autocorrect: 'off',
+    spellcheck: 'false',
+    enterkeyhint: 'next',
+    placeholder: 'yourname/watchnext-data',
+    value: cfg.repo,
   });
-  box.appendChild(repo);
-
+  form.appendChild(repo);
+  form.appendChild(
+    el('label', { class: 'field-label', for: 'sync-token', text: 'Access token', style: 'margin-top:var(--s3)' })
+  );
   const token = el('input', {
-    class: 'input', type: 'password', autocomplete: 'off', spellcheck: 'false',
-    placeholder: 'github_pat_…', value: cfg.token, 'aria-label': 'GitHub access token',
-    style: 'margin-top:8px',
+    id: 'sync-token',
+    class: 'input',
+    type: 'password',
+    autocomplete: 'off',
+    autocapitalize: 'off',
+    autocorrect: 'off',
+    spellcheck: 'false',
+    enterkeyhint: 'go',
+    placeholder: 'github_pat_…',
+    value: cfg.token,
   });
-  box.appendChild(token);
-  box.appendChild(
-    el('div', {
-      style: 'font-size:12px;color:var(--ash);margin-top:8px;line-height:1.5',
-      text: 'A fine-grained token with Contents: read and write, on that one repo only. Both phones use the same one. Lose a phone and you revoke it on github.com.',
-    })
+  form.appendChild(token);
+  form.appendChild(
+    hint(
+      'A fine-grained token with Contents: read and write, on that one repo only. Both phones use the same one. Lose a phone and you revoke it on github.com.'
+    )
   );
 
-  const verdict = el('div', { style: 'font-size:12px;margin-top:10px;line-height:1.5' });
-  box.appendChild(verdict);
-
+  /* One line owns sync's state: what the last action concluded, then what the
+     background sync is doing. Two lines used to print "Syncing…" and the same
+     error one above the other. */
+  const verdict = statusLine('margin-top:var(--s3)');
   const say = (text, colour) => {
     verdict.textContent = text;
     verdict.style.color = colour;
   };
+  if (syncNotice) {
+    say(syncNotice.text, syncNotice.colour);
+    syncNotice = null;
+  }
 
-  const row = el('div', { style: 'display:flex;gap:8px;margin-top:12px;flex-wrap:wrap' });
-  row.appendChild(
-    button(cfg.enabled ? 'Save' : 'Turn on sync', {
-      kind: 'primary',
-      onClick: async () => {
-        store.updateSettings({
-          sync: { ...cfg, repo: repo.value.trim(), token: token.value.trim(), enabled: true },
-        });
-        say('Checking…', 'var(--ash)');
-        const result = await sync.check();
-        if (!result.ok) {
-          /* Left switched off rather than saved broken: an enabled sync that
-             cannot write would sit there reporting errors and quietly not
-             backing anything up. */
-          store.updateSettings({ sync: { ...sync.config(), enabled: false } });
-          say(result.message, 'var(--ember)');
-          return;
-        }
-        if (result.warning) say(result.warning, 'var(--amber)');
-        sync.start();
-        toast('Sync on');
+  const row = el('div', { style: 'display:flex;gap:var(--s2);margin-top:var(--s3);flex-wrap:wrap' });
+  /* Amber only for the call to action. Once sync is on, an amber "Save" for
+     fields nobody had changed was the loudest thing on the screen. */
+  const save = button(cfg.enabled ? 'Save' : 'Turn on sync', {
+    kind: cfg.enabled ? 'secondary' : 'primary',
+    type: 'submit',
+  });
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    busy(save, 'Checking…', async () => {
+      store.updateSettings({
+        sync: { ...cfg, repo: repo.value.trim(), token: token.value.trim(), enabled: true },
+      });
+      const result = await sync.check();
+      if (!result.ok) {
+        /* Left switched off rather than saved broken: an enabled sync that
+           cannot write would sit there reporting errors and quietly not
+           backing anything up. Re-rendered, so the group stops offering Sync
+           now and a "Last synced" for a sync that is now off. */
+        store.updateSettings({ sync: { ...sync.config(), enabled: false } });
+        syncNotice = { text: result.message, colour: 'var(--ember)' };
         render();
-      },
-    })
-  );
+        return;
+      }
+      if (result.warning) syncNotice = { text: result.warning, colour: 'var(--amber)' };
+      sync.start();
+      toast(cfg.enabled ? 'Sync settings saved' : 'Sync on');
+      render();
+    });
+  });
+  row.appendChild(save);
   if (cfg.enabled) {
-    row.appendChild(
-      button('Sync now', {
-        kind: 'secondary',
-        onClick: async () => {
-          say('Syncing…', 'var(--ash)');
-          const moved = await sync.syncNow({ note: 'Manual sync' });
-          const st = sync.status();
-          if (st.phase === 'error') say(st.message, 'var(--ember)');
-          else say(moved ? 'Synced.' : 'Already up to date.', 'var(--sage)');
-        },
-      })
-    );
+    const now = button('Sync now', {
+      kind: 'secondary',
+      /* No verdict of its own. syncNow() returns false both for "nothing to
+         do" and for "a sync was already running", so "Already up to date"
+         was sometimes untrue; the live line reports what actually happens. */
+      onClick: () => busy(now, 'Syncing…', () => sync.syncNow({ note: 'Manual sync' })),
+    });
+    row.appendChild(now);
     row.appendChild(
       button('Turn off', {
         kind: 'quiet',
@@ -399,16 +519,21 @@ function syncGroup() {
       })
     );
   }
-  box.appendChild(row);
+  form.appendChild(row);
+  box.appendChild(form);
+  box.appendChild(verdict);
 
   if (cfg.enabled) {
-    const live = el('div', { style: 'font-size:12px;color:var(--ash);margin-top:10px' });
+    const live = statusLine();
     const paint = (st) => {
       live.textContent =
-        st.phase === 'syncing' ? 'Syncing…'
-        : st.phase === 'error' ? st.message
-        : st.at ? `Last synced ${relativeTime(st.at)}`
-        : 'Waiting for the first sync.';
+        st.phase === 'syncing'
+          ? 'Syncing…'
+          : st.phase === 'error'
+            ? st.message
+            : st.at
+              ? `Last synced ${relativeTime(st.at)}`
+              : 'Waiting for the first sync.';
       live.style.color = st.phase === 'error' ? 'var(--ember)' : 'var(--ash)';
     };
     paint(sync.status());
@@ -425,6 +550,12 @@ function syncGroup() {
 
 /* ── metadata ── */
 
+/* The controls a running sweep reports into. Re-bound on every render, so a
+   sweep started before leaving Settings still paints the live bar when you come
+   back, rather than writing progress into a detached element. */
+let sweepUi = null;
+let sweepProgress = null; // { index, total, title }
+
 function dataGroup() {
   const g = el('div', { class: 'group' });
   const summary = meta.enrichmentSummary(store.items());
@@ -432,44 +563,61 @@ function dataGroup() {
   /* Named so Add can send someone straight here after a bulk paste — see
      showSettings({ focus: 'sweep' }). */
   const status = el('div', { class: 'group-pad', 'data-region': 'sweep' });
-  status.appendChild(el('div', { class: 'group-item-s', style: 'margin-bottom:12px', text: summaryLine(summary) }));
+
+  /* An empty library has nothing to report. It used to say "All 0 titles have
+     verified details" above a 0% bar and a button labelled as a status. */
+  if (!summary.total) {
+    status.appendChild(
+      el('div', { class: 'group-item-s', text: 'Posters and details are fetched here once you add titles.' })
+    );
+    g.appendChild(status);
+    return g;
+  }
+
+  status.appendChild(el('div', { class: 'group-item-s', style: 'margin-bottom:var(--s3)', text: summaryLine(summary) }));
   if (summary.stale) {
     status.appendChild(
       el('div', {
         class: 'group-item-s',
-        style: 'margin-bottom:12px;color:var(--amber)',
+        style: 'margin-bottom:var(--s3);color:var(--amber)',
         text: 'These came across from the previous version, where roughly a third of titles had another film’s poster and description attached. Re-checking will correct them.',
       })
     );
   }
 
-  const bar = el('div', { class: 'progress-line', style: 'border-radius:2px;margin-bottom:14px' });
-  bar.appendChild(
-    el('i', { style: `width:${summary.total ? (summary.done / summary.total) * 100 : 0}%` })
-  );
+  const bar = el('div', { class: 'progress-line', style: 'border-radius:2px;margin-bottom:var(--s3)' });
+  const fill = el('i', { style: `width:${(summary.done / summary.total) * 100}%` });
+  bar.appendChild(fill);
   status.appendChild(bar);
 
   const progressText = el('div', {
     'data-region': 'sweep-status',
-    style: 'font-size:12px;color:var(--ash);margin-bottom:12px;min-height:16px',
+    role: 'status',
+    class: 'group-hint',
+    style: 'margin:0 0 var(--s3);min-height:18px',
   });
   status.appendChild(progressText);
 
-  const controls = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' });
-  controls.appendChild(
-    button(summary.todo ? `Check ${summary.todo} titles` : 'Everything is up to date', {
-      kind: summary.todo ? 'primary' : 'quiet',
+  const controls = el('div', { style: 'display:flex;gap:var(--s2);flex-wrap:wrap' });
+  let checkBtn = null;
+  if (summary.todo || sweepController) {
+    checkBtn = button(`Check ${plural(summary.todo, 'title')}`, {
+      kind: 'primary',
       iconName: 'search',
-      size: 'sm',
-      onClick: () => runSweep({ force: false }, progressText),
-    })
-  );
+      onClick: () => (sweepController ? stopSweep() : runSweep({ force: false })),
+    });
+    controls.appendChild(checkBtn);
+  } else if (!summary.review) {
+    /* A status, said as one — not a bordered button that toasts "Nothing
+       needs looking up" when pressed. */
+    progressText.style.color = 'var(--sage)';
+    progressText.textContent = 'Everything is up to date.';
+  }
   if (summary.review) {
     controls.appendChild(
       button(`Review ${summary.review}`, {
         kind: 'secondary',
         iconName: 'warning',
-        size: 'sm',
         onClick: openReviewQueue,
       })
     );
@@ -478,19 +626,17 @@ function dataGroup() {
     button('Re-check everything', {
       kind: 'quiet',
       iconName: 'refresh',
-      size: 'sm',
       onClick: () =>
         openSheet({
           title: 'Re-check every title?',
-          message:
-            'This looks up all ' +
-            summary.total +
-            ' titles again. It only replaces details you have not edited yourself, but it uses your daily API allowance.',
+          message: `This looks up all ${plural(summary.total, 'title')} again. It only replaces details you have not edited yourself, but it uses your daily API allowance.`,
           actions: [
             {
               label: 'Re-check everything',
               kind: 'primary',
-              onClick: () => runSweep({ force: true }, progressText),
+              /* Restarts rather than toggling: during a sweep this used to hit
+                 the stop branch and cancel the run it was meant to replace. */
+              onClick: () => runSweep({ force: true }, { restart: true }),
             },
           ],
         }),
@@ -498,10 +644,36 @@ function dataGroup() {
   );
   status.appendChild(controls);
   g.appendChild(status);
+
+  sweepUi = { text: progressText, bar: fill, btn: checkBtn, done: summary.done, total: summary.total };
+  if (sweepController) paintSweep();
   return g;
 }
 
-async function runSweep(opts, statusEl) {
+/** Repaint the live sweep controls from the current progress. */
+function paintSweep() {
+  const ui = sweepUi;
+  if (!ui || !ui.text.isConnected) return;
+  if (ui.btn) {
+    ui.btn.className = 'btn btn-quiet';
+    ui.btn.querySelector('span:last-child').textContent = 'Stop';
+  }
+  if (!sweepProgress) {
+    ui.text.textContent = 'Starting…';
+    return;
+  }
+  const { index, total, title } = sweepProgress;
+  ui.text.style.color = 'var(--ash)';
+  ui.text.textContent = `Looking up ${title} — ${index + 1} of ${total}`;
+  /* The bar used to be set once at render and sit frozen for the whole run. */
+  ui.bar.style.width = `${Math.min(100, ((ui.done + index + 1) / ui.total) * 100)}%`;
+}
+
+function stopSweep() {
+  sweepController?.abort();
+}
+
+async function runSweep(opts, { restart = false } = {}) {
   const settings = store.settings();
   const provider = getProvider(settings.provider);
   const key = (settings.dataKeys || {})[provider.id];
@@ -513,7 +685,7 @@ async function runSweep(opts, statusEl) {
   if (sweepController) {
     sweepController.abort();
     sweepController = null;
-    return;
+    if (!restart) return;
   }
 
   const list = store.items()
@@ -541,15 +713,19 @@ async function runSweep(opts, statusEl) {
   }
 
   const budget = new meta.RequestBudget(provider.dailyLimit, provider.id);
-  sweepController = new AbortController();
+  const controller = new AbortController();
+  sweepController = controller;
+  sweepProgress = null;
+  paintSweep();
 
   const result = await meta.sweep(list, {
     provider,
     key,
     budget,
-    signal: sweepController.signal,
+    signal: controller.signal,
     onProgress: ({ index, total, item }) => {
-      statusEl.textContent = `Looking up ${item.title} — ${index + 1} of ${total}`;
+      sweepProgress = { index, total, title: item.title };
+      paintSweep();
     },
     apply: (item, res) => {
       if (res.status === 'matched' && res.chosen) {
@@ -577,12 +753,15 @@ async function runSweep(opts, statusEl) {
     },
   });
 
+  /* A restart has already replaced this run; its tail must not clear the new
+     one's controller or report over it. */
+  if (sweepController !== controller) return;
   sweepController = null;
+  sweepProgress = null;
   store.saveNow();
   store.emit('item');
 
   if (result.error?.code === 'auth') {
-    statusEl.textContent = '';
     /* The provider's own message says what to do about it; the generic
        "rejected" left people requesting a second key they cannot be issued. */
     toast(result.error.message || `That ${provider.label} key was rejected`, { duration: 9000 });
@@ -596,16 +775,33 @@ async function runSweep(opts, statusEl) {
     return;
   }
   if (result.error?.code === 'budget') {
-    statusEl.textContent = '';
     toast('Daily API limit reached — try again tomorrow');
+    render();
     return;
   }
 
-  statusEl.textContent = '';
   const bits = [`${result.matched} matched`];
   if (result.review) bits.push(`${result.review} need checking`);
   if (result.unmatched) bits.push(`${result.unmatched} not found`);
   toast(result.stopped ? 'Stopped' : bits.join(' · '));
+  render();
+}
+
+/**
+ * A pill you tap to remove something: the label truncates, the close icon never
+ * does. Long titles used to overflow the card with the text ✕ — the one part
+ * that said the pill was tappable — clipped off the end.
+ */
+function removablePill(label, aria, onclick, { muted = false } = {}) {
+  const b = el('button', {
+    class: `pill pill-removable${muted ? ' is-muted' : ''}`,
+    type: 'button',
+    'aria-label': aria,
+    onclick,
+  });
+  b.appendChild(el('span', { class: 'pill-t', text: label }));
+  b.appendChild(el('span', { html: icon('close', 14), 'aria-hidden': 'true' }).firstChild);
+  return b;
 }
 
 /* ── household ──
@@ -623,7 +819,7 @@ function peopleGroup() {
   box.appendChild(
     el('div', {
       class: 'group-item-s',
-      style: 'margin-bottom:12px',
+      style: 'margin-bottom:var(--s3)',
       text: list.length
         ? 'Everyone here shares the shelf but keeps their own watch history. Tonight answers for whoever is watching.'
         : 'Watching with someone else? Add both of you and the app will keep separate watch histories on the same shelf. Everything already marked watched becomes the first person’s.',
@@ -631,45 +827,42 @@ function peopleGroup() {
   );
 
   if (list.length) {
-    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px' });
+    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:var(--s2);margin-bottom:var(--s4)' });
     for (const p of list) {
       const seen = store.items().filter((i) => store.seenBy(i, p.id)).length;
       row.appendChild(
-        el('button', {
-          class: 'pill',
-          type: 'button',
-          text: `${p.name} · ${seen} ✕`,
-          'aria-label': `Remove ${p.name}`,
-          onclick: () =>
-            confirmDestructive({
-              title: `Remove ${p.name}?`,
-              message: `Their watch marks go with them. The ${seen} films stay in your library.`,
-              confirmLabel: 'Remove',
-              onConfirm: () => {
-                store.removePerson(p.id);
-                store.emit('item');
-                render();
-              },
-            }),
-        })
+        removablePill(`${p.name} · ${seen} seen`, `Remove ${p.name}`, () =>
+          confirmDestructive({
+            title: `Remove ${p.name}?`,
+            message: seen
+              ? `Their ${plural(seen, 'watch mark')} go with them. Every film stays in your library.`
+              : 'Every film stays in your library.',
+            confirmLabel: 'Remove',
+            onConfirm: () => {
+              store.removePerson(p.id);
+              store.emit('item');
+              render();
+            },
+          })
+        )
       );
     }
     box.appendChild(row);
   }
 
-  const form = el('form', { style: 'display:flex;gap:8px' });
+  const form = el('form', { style: 'display:flex;gap:var(--s2)' });
   const input = el('input', {
     class: 'input',
     type: 'text',
     placeholder: list.length ? 'Another name' : 'Your name',
     'aria-label': 'Add a person',
     autocomplete: 'off',
+    autocapitalize: 'words',
+    enterkeyhint: 'done',
     maxlength: '24',
   });
   form.appendChild(input);
-  const add = button('Add', { kind: 'secondary' });
-  add.type = 'submit';
-  form.appendChild(add);
+  form.appendChild(button('Add', { kind: 'secondary', type: 'submit' }));
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const person = store.addPerson(input.value);
@@ -702,7 +895,7 @@ function tasteGroup() {
   box.appendChild(
     el('div', {
       class: 'group-item-s',
-      style: 'margin-bottom:12px',
+      style: 'margin-bottom:var(--s3)',
       text: 'Mute a genre you never watch, or a franchise you are done with. Nothing is deleted — muted titles stay in your library and still show up in search.',
     })
   );
@@ -711,24 +904,30 @@ function tasteGroup() {
      list — a mute for a genre you do not own is noise. */
   const genres = store.genresInUse().slice(0, 14);
   if (genres.length) {
-    box.appendChild(el('div', { class: 'eyebrow', style: 'margin:6px 0 8px', text: 'Genres' }));
-    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px' });
+    box.appendChild(el('div', { class: 'eyebrow', style: 'margin:var(--s2) 0', text: 'Genres' }));
+    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:var(--s2);margin-bottom:var(--s4)' });
     for (const gname of genres) {
       const off = prefs.genres.includes(gname);
+      /* Struck through in ember, at the same width. The label used to grow
+         " — muted", which widened the pill ~60px and reshuffled the row under
+         the finger, and the pressed amber fill mixed with an ember border. */
       row.appendChild(
-        el('button', {
-          class: 'pill',
-          type: 'button',
-          'aria-pressed': String(off),
-          style: off ? 'border-color:var(--ember);color:var(--ember)' : '',
-          text: off ? `${gname} — muted` : gname,
-          onclick: () => {
+        el(
+          'button',
+          {
+            class: off ? 'pill is-muted' : 'pill',
+            type: 'button',
+            'aria-pressed': String(off),
+            'aria-label': off ? `${gname}, muted` : gname,
+            onclick: () => {
             store.setTaste('genres', gname, !off);
             store.saveNow();
             store.emit('item');
             render();
           },
-        })
+          },
+          el('span', { class: 'pill-t', text: gname })
+        )
       );
     }
     box.appendChild(row);
@@ -737,19 +936,20 @@ function tasteGroup() {
   /* Franchises are a substring on the title, which is crude and is the right
      amount of machinery: "Marvel" is not a field, and nobody wants to build a
      franchise database to stop being shown Fast & Furious. */
-  box.appendChild(el('div', { class: 'eyebrow', style: 'margin:6px 0 8px', text: 'Titles containing' }));
-  const addRow = el('form', { style: 'display:flex;gap:8px;margin-bottom:10px' });
+  box.appendChild(el('div', { class: 'eyebrow', style: 'margin:var(--s2) 0', text: 'Titles containing' }));
+  const addRow = el('form', { style: 'display:flex;gap:var(--s2);margin-bottom:var(--s3)' });
   const input = el('input', {
     class: 'input',
     type: 'text',
     placeholder: 'e.g. Fast & Furious',
     'aria-label': 'Mute titles containing',
     autocomplete: 'off',
+    autocorrect: 'off',
+    enterkeyhint: 'done',
+    maxlength: '60',
   });
   addRow.appendChild(input);
-  const addBtn = button('Mute', { kind: 'secondary' });
-  addBtn.type = 'submit';
-  addRow.appendChild(addBtn);
+  addRow.appendChild(button('Mute', { kind: 'secondary', type: 'submit' }));
   addRow.addEventListener('submit', (e) => {
     e.preventDefault();
     const v = input.value.trim();
@@ -762,22 +962,20 @@ function tasteGroup() {
   box.appendChild(addRow);
 
   if (prefs.franchises.length) {
-    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px' });
+    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:var(--s2);margin-bottom:var(--s4)' });
     for (const f of prefs.franchises) {
       row.appendChild(
-        el('button', {
-          class: 'pill',
-          type: 'button',
-          style: 'border-color:var(--ember);color:var(--ember)',
-          text: `${f} ✕`,
-          'aria-label': `Stop muting titles containing ${f}`,
-          onclick: () => {
+        removablePill(
+          f,
+          `Stop muting titles containing ${f}`,
+          () => {
             store.setTaste('franchises', f, false);
             store.saveNow();
             store.emit('item');
             render();
           },
-        })
+          { muted: true }
+        )
       );
     }
     box.appendChild(row);
@@ -788,24 +986,22 @@ function tasteGroup() {
   const never = prefs.never.map((uid) => store.byUid(uid)).filter(Boolean);
   if (never.length) {
     box.appendChild(
-      el('div', { class: 'eyebrow', style: 'margin:6px 0 8px', text: `Not suggested (${never.length})` })
+      el('div', { class: 'eyebrow', style: 'margin:var(--s2) 0', text: `Not suggested (${never.length})` })
     );
-    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px' });
+    const row = el('div', { style: 'display:flex;flex-wrap:wrap;gap:var(--s2)' });
     for (const item of never) {
       row.appendChild(
-        el('button', {
-          class: 'pill',
-          type: 'button',
-          style: 'border-color:var(--ember);color:var(--ember)',
-          text: `${item.title} ✕`,
-          'aria-label': `Suggest ${item.title} again`,
-          onclick: () => {
+        removablePill(
+          item.title,
+          `Suggest ${item.title} again`,
+          () => {
             store.setTaste('never', item.uid, false);
             store.saveNow();
             store.emit('item');
             render();
           },
-        })
+          { muted: true }
+        )
       );
     }
     box.appendChild(row);
@@ -818,26 +1014,16 @@ function tasteGroup() {
 /* ── review queue ── */
 
 function openReviewQueue() {
-  const queue = store.items().filter((i) => i.meta?.status === 'review' || i.meta?.status === 'unmatched');
-
-  const scrim = el('div', { class: 'scrim is-open' });
-  const panel = el('div', {
-    class: 'sheet is-open',
-    role: 'dialog',
-    'aria-modal': 'true',
-    'aria-label': 'Confirm matches',
+  /* Built on openPanel, so it slides like every other sheet. It used to be
+     inserted already open and removed outright — and since every choice
+     closed and reopened it, each decision made the whole screen blink. It
+     now stays put while the resolved title folds out of the list. */
+  const { panel, close, show } = openPanel({
+    label: 'Confirm matches',
+    className: 'has-pinned',
     style: 'max-height:88vh;overflow-y:auto',
+    onClose: () => render(),
   });
-
-  const close = () => {
-    scrim.remove();
-    panel.remove();
-    document.removeEventListener('keydown', onKey);
-    render();
-  };
-  const onKey = (e) => e.key === 'Escape' && close();
-  document.addEventListener('keydown', onKey);
-  scrim.addEventListener('click', close);
 
   panel.appendChild(el('div', { class: 'sheet-grip' }));
   panel.appendChild(el('div', { class: 'sheet-title', text: 'Confirm matches' }));
@@ -849,31 +1035,54 @@ function openReviewQueue() {
   );
 
   const list = el('div');
-  if (!queue.length) {
-    list.appendChild(
-      emptyState({ iconName: 'check', title: 'Nothing to confirm', message: 'Every title matched cleanly.' })
-    );
-  }
-  for (const item of queue) list.appendChild(reviewCard(item, close));
   panel.appendChild(list);
 
-  panel.appendChild(
-    el('div', { class: 'sheet-actions' }, button('Done', { kind: 'primary', block: true, onClick: close }))
-  );
+  const fill = () => {
+    clear(list);
+    const queue = store.items().filter((i) => i.meta?.status === 'review' || i.meta?.status === 'unmatched');
+    if (!queue.length) {
+      list.appendChild(
+        emptyState({ iconName: 'check', title: 'Nothing to confirm', message: 'Every title matched cleanly.' })
+      );
+      return;
+    }
+    for (const item of queue) list.appendChild(reviewCard(item, handlers));
+  };
+  const handlers = {
+    resolved(card) {
+      card.style.transition = 'opacity var(--fast) var(--ease)';
+      card.style.opacity = '0';
+      setTimeout(() => {
+        card.remove();
+        if (!list.querySelector('[data-review]')) fill();
+      }, 160);
+    },
+    reroute(item) {
+      close();
+      openMatchPicker(store.byUid(item.uid) || item, { onDone: openReviewQueue });
+    },
+  };
+  fill();
 
-  document.body.appendChild(scrim);
-  document.body.appendChild(panel);
-  requestAnimationFrame(() => panel.querySelector('button')?.focus());
+  panel.appendChild(
+    el(
+      'div',
+      { class: 'sheet-actions is-pinned' },
+      button('Done', { kind: 'primary', block: true, onClick: close })
+    )
+  );
+  show();
 }
 
-function reviewCard(item, closeAll) {
+function reviewCard(item, { resolved, reroute }) {
   const card = el('div', {
-    style: 'padding:14px 0;border-bottom:1px solid var(--hairline)',
+    'data-review': item.uid,
+    style: 'padding:var(--s4) 0;border-bottom:1px solid var(--hairline)',
   });
   card.appendChild(el('div', { style: 'font-weight:620;margin-bottom:2px', text: item.title }));
   card.appendChild(
     el('div', {
-      style: 'font-size:12px;color:var(--ash);margin-bottom:12px',
+      style: 'font-size:var(--t-meta);color:var(--ash);margin-bottom:var(--s3)',
       text: [item.year, item.type === 'tv' ? 'Series' : 'Film'].filter(Boolean).join(' · '),
     })
   );
@@ -881,16 +1090,25 @@ function reviewCard(item, closeAll) {
   const candidates = item.meta?.candidates || [];
   if (!candidates.length) {
     card.appendChild(
-      el('div', { style: 'font-size:13px;color:var(--ash)', text: 'No candidates found for this title.' })
+      el('div', {
+        style: 'font-size:var(--t-sub);color:var(--ash);margin-bottom:var(--s3)',
+        text: 'No candidates found for this title.',
+      })
     );
   }
 
   for (const c of candidates) {
+    const b = el('div', { style: 'flex:1;min-width:0' });
     const row = el('button', {
       type: 'button',
-      style:
-        'display:flex;gap:10px;align-items:center;width:100%;padding:8px;border-radius:10px;border:1px solid var(--hairline);margin-bottom:8px;text-align:left',
+      class: 'result-row',
       onclick: async () => {
+        /* Say which one was chosen while the details come back, and stop a
+           second tap landing on a different candidate. */
+        for (const r of card.querySelectorAll('button')) r.disabled = true;
+        row.style.opacity = '1';
+        b.appendChild(el('div', { style: 'font-size:11px;color:var(--amber)', text: 'Saving…' }));
+
         const settings = store.settings();
         const provider = getProvider(settings.provider);
         const key = (settings.dataKeys || {})[provider.id];
@@ -917,22 +1135,23 @@ function reviewCard(item, closeAll) {
             /* the choice is saved either way; details fill in on the next sweep */
           }
         }
+        store.saveNow();
         store.emit('item');
         toast(`${item.title} matched`);
-        closeAll();
-        openReviewQueue();
+        resolved(card);
       },
     });
 
     row.appendChild(
       poster({ title: c.title, poster: c.poster && c.poster !== 'N/A' ? c.poster : null }, { width: 38 })
     );
-    const b = el('div', { style: 'flex:1;min-width:0' });
-    b.appendChild(el('div', { style: 'font-size:14px;font-weight:550', text: c.title }));
+    b.appendChild(el('div', { style: 'font-size:var(--t-body);font-weight:550', text: c.title }));
     b.appendChild(
       el('div', {
-        style: 'font-size:12px;color:var(--ash)',
-        text: [c.year, c.type === 'series' ? 'Series' : 'Film'].filter(Boolean).join(' · '),
+        style: 'font-size:var(--t-meta);color:var(--ash)',
+        /* Providers call a series "tv"; this checked for "series", so every
+           series in the queue was labelled Film. */
+        text: [c.year, c.type === 'tv' || c.type === 'series' ? 'Series' : 'Film'].filter(Boolean).join(' · '),
       })
     );
     row.appendChild(b);
@@ -944,33 +1163,31 @@ function reviewCard(item, closeAll) {
      long before the 1979 one. This opens the same picker with an editable
      search box. */
   card.appendChild(
-    el('button', {
-      type: 'button',
-      class: 'btn btn-quiet btn-sm',
-      text: 'Search for a different film',
-      style: 'width:100%;margin-bottom:8px',
-      onclick: () => {
-        closeAll();
-        openMatchPicker(store.byUid(item.uid) || item, { onDone: openReviewQueue });
-      },
-    })
+    el(
+      'div',
+      { class: 'btn-pair', style: 'margin-top:var(--s1)' },
+      [
+        button('Leave it alone', {
+          kind: 'quiet',
+          size: 'sm',
+          onClick: () => {
+            store.update(item.uid, {
+              meta: { ...(item.meta || {}), v: meta.META_VERSION, status: 'skipped', at: Date.now() },
+            });
+            store.saveNow();
+            store.emit('item');
+            resolved(card);
+          },
+        }),
+        button('Search for another', {
+          kind: 'secondary',
+          size: 'sm',
+          iconName: 'search',
+          onClick: () => reroute(item),
+        }),
+      ]
+    )
   );
-
-  const skip = el('button', {
-    type: 'button',
-    class: 'btn btn-quiet btn-sm',
-    text: 'None of these — leave it alone',
-    style: 'width:100%',
-    onclick: () => {
-      store.update(item.uid, {
-        meta: { ...(item.meta || {}), v: meta.META_VERSION, status: 'skipped', at: Date.now() },
-      });
-      store.emit('item');
-      closeAll();
-      openReviewQueue();
-    },
-  });
-  card.appendChild(skip);
   return card;
 }
 
@@ -978,15 +1195,30 @@ function reviewCard(item, closeAll) {
 
 /* Filled in asynchronously — the storage APIs are promise-based and this
    should never hold up rendering the rest of Settings. */
+/**
+ * The storage-health block. Painted from the last reading in the same frame as
+ * render(), then refreshed — it used to rebuild empty and fill in later, so on
+ * every tap in Settings everything below it jumped up under the finger and
+ * dropped back.
+ */
 async function refreshStorageHealth() {
   const slot = bodyEl.querySelector('[data-region="storage-health"]');
   if (!slot) return;
+  if (lastHealth) paintHealth(slot, lastHealth);
   const h = await storageHealth(store.stats());
+  lastHealth = h;
+  if (slot.isConnected) paintHealth(slot, h);
+}
+
+const size = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB` : `${(n / 1048576).toFixed(1)} MB`);
+
+function paintHealth(slot, h) {
   clear(slot);
 
   const line = (text, tone) =>
     el('div', {
-      style: `font-size:12px;line-height:1.55;color:var(--${tone || 'ash'})`,
+      class: 'group-hint',
+      style: `margin:0;color:var(--${tone || 'ash'})`,
       text,
     });
 
@@ -1001,40 +1233,37 @@ async function refreshStorageHealth() {
     );
     const ask = button('Ask to keep my data', {
       kind: 'secondary',
-      size: 'sm',
-      onClick: async () => {
-        const { persisted } = await requestPersistence();
-        toast(persisted ? 'Your library is now protected' : 'The browser declined — export a backup instead');
-        refreshStorageHealth();
-      },
+      onClick: () =>
+        busy(ask, 'Asking…', async () => {
+          const { persisted } = await requestPersistence();
+          toast(persisted ? 'Your library is now protected' : 'The browser declined — export a backup instead');
+          refreshStorageHealth();
+        }),
     });
-    slot.appendChild(el('div', { style: 'margin-top:10px' }, ask));
+    slot.appendChild(el('div', { style: 'margin-top:var(--s3)' }, ask));
   }
 
   if (h.usage) {
-    const mb = (n) => `${(n / 1048576).toFixed(1)} MB`;
     slot.appendChild(
-      el('div', {
-        style: 'font-size:12px;color:var(--faint);margin-top:8px',
-        text: h.quota ? `Using ${mb(h.usage)} of about ${mb(h.quota)} available.` : `Using ${mb(h.usage)}.`,
-      })
+      line(h.quota ? `Using ${size(h.usage)} of about ${size(h.quota)} available.` : `Using ${size(h.usage)}.`)
     );
+    slot.lastChild.style.marginTop = 'var(--s2)';
   }
 
   /* Stated either way. "Last export never" is the case that matters most and
      was the one case this said nothing at all about — a silent absence reads as
-     "fine" rather than "you have no copy of this anywhere". */
-  const stale = h.nudge;
-  slot.appendChild(
-    el('div', {
-      style: `font-size:12px;margin-top:6px;font-weight:${stale ? '600' : '400'};color:var(--${
-        stale ? 'amber' : 'faint'
-      })`,
-      text: h.lastBackupAt
-        ? `Last export ${relative(h.lastBackupAt)}.${stale ? ' Worth doing another.' : ''}`
-        : 'You have never exported a copy. Nothing outside this device holds your library.',
-    })
+     "fine" rather than "you have no copy of this anywhere". It was painted in
+     the grey kept for decoration whenever the nudge was off. */
+  const warn = h.nudge || !h.lastBackupAt;
+  const last = line(
+    h.lastBackupAt
+      ? `Last export ${relativeTime(h.lastBackupAt)}.${h.nudge ? ' Worth doing another.' : ''}`
+      : 'You have never exported a copy. Nothing outside this device holds your library.',
+    warn ? 'amber' : 'ash'
   );
+  last.style.marginTop = 'var(--s2)';
+  last.style.fontWeight = warn ? '600' : '400';
+  slot.appendChild(last);
 }
 
 function backupGroup() {
@@ -1077,7 +1306,7 @@ function backupGroup() {
       }
       openSheet({
         title: 'Restore from backup',
-        message: `This file has ${incoming.length} titles. Merge keeps what you already have.`,
+        message: `This file has ${plural(incoming.length, 'title')}. Merge keeps what you already have.`,
         actions: [
           {
             label: 'Merge into my library',
@@ -1094,7 +1323,7 @@ function backupGroup() {
             onClick: () => {
               const r = store.importPayload(payload, 'replace');
               store.emit('item');
-              toast(`Restored ${r.added} titles`);
+              toast(`Restored ${plural(r.added, 'title')}`);
             },
           },
         ],
@@ -1121,7 +1350,11 @@ function activityGroup() {
 
   if (!entries.length) {
     g.appendChild(
-      el('div', { class: 'group-pad', style: 'color:var(--ash);font-size:13px', text: 'Nothing yet.' })
+      el('div', {
+        class: 'group-pad',
+        style: 'color:var(--ash);font-size:var(--t-sub)',
+        text: 'Nothing yet. Marking a film watched shows up here, with a way to undo it.',
+      })
     );
     return g;
   }
@@ -1144,7 +1377,7 @@ function activityGroup() {
     body.appendChild(
       el('div', {
         class: 'group-item-s',
-        text: `${labels[entry.kind] || entry.kind} · ${relative(entry.at)}`,
+        text: `${labels[entry.kind] || entry.kind} · ${relativeTime(entry.at)}`,
       })
     );
     row.appendChild(body);
@@ -1166,16 +1399,6 @@ function activityGroup() {
   return g;
 }
 
-function relative(ts) {
-  const mins = Math.round((Date.now() - ts) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} min ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs} hr ago`;
-  const days = Math.round(hrs / 24);
-  return days === 1 ? 'yesterday' : `${days} days ago`;
-}
-
 /* ── danger ── */
 
 function dangerGroup() {
@@ -1194,6 +1417,7 @@ function dangerGroup() {
             { label: 'Reset Discover', kind: 'secondary', onClick: confirmReset('discover') },
             { label: 'Reset everything', kind: 'danger', onClick: confirmReset('all') },
           ],
+          dismissLabel: 'Cancel',
         }),
       true
     )
@@ -1202,17 +1426,29 @@ function dangerGroup() {
 }
 
 function confirmReset(kind) {
+  /* The confirm says what it does. "Yes, reset" under "Clear watch history?"
+     made you work out that it meant clear. */
   const spec = {
-    watched: ['Clear watch history?', 'Every title will be marked unwatched. This cannot be undone.', actions.clearWatched],
-    discover: ['Reset Discover?', 'Every title will appear in Discover again.', actions.resetDiscover],
-    all: ['Reset everything?', 'Watch history and Discover progress will both be cleared. This cannot be undone.', actions.resetEverything],
+    watched: [
+      'Clear watch history?',
+      'Every title will be marked unwatched, for everyone here. This cannot be undone.',
+      actions.clearWatched,
+      'Clear history',
+    ],
+    discover: ['Reset Discover?', 'Everything you have not watched will come back to sort.', actions.resetDiscover, 'Reset Discover'],
+    all: [
+      'Reset everything?',
+      'Watch history and Discover progress will both be cleared, for everyone here. This cannot be undone.',
+      actions.resetEverything,
+      'Reset everything',
+    ],
   }[kind];
 
   return () =>
     confirmDestructive({
       title: spec[0],
       message: spec[1],
-      confirmLabel: 'Yes, reset',
+      confirmLabel: spec[3],
       onConfirm: spec[2],
     });
 }
@@ -1236,12 +1472,15 @@ function aboutBlock() {
   const s = store.stats();
   const active = getProvider(store.settings().provider);
   const box = el('div', {
-    style: 'padding:24px 16px 40px;text-align:center;font-size:12px;color:var(--faint);line-height:1.7',
+    style:
+      'padding:var(--s6) var(--s4) var(--s8);text-align:center;font-size:var(--t-meta);color:var(--ash);line-height:1.6',
   });
-  box.appendChild(el('div', { text: `Watch Next · ${s.total} titles, ${s.owned} in your collection` }));
+  box.appendChild(
+    el('div', { text: `Watch Next · ${plural(s.total, 'title')}, ${s.owned} in your collection` })
+  );
   box.appendChild(
     el('div', {
-      style: 'margin-top:6px;user-select:text;-webkit-user-select:text',
+      style: 'margin-top:var(--s1);user-select:text;-webkit-user-select:text',
       text: `Build ${BUILD}`,
     })
   );
@@ -1300,18 +1539,22 @@ function aboutBlock() {
 
   const diag = el('div', {
     style:
-      'margin-top:10px;font-size:11px;color:var(--faint);line-height:1.6;' +
+      'margin-top:var(--s2);font-size:var(--t-micro);color:var(--ash);line-height:1.6;' +
       'user-select:text;-webkit-user-select:text',
     text: bits.join(' · '),
   });
-  box.appendChild(diag);
+
+  /* Folded away. The line always ends "⚠ 59pt off screen" on iOS 26 — a
+     documented platform shortfall, not a fault — and as the last thing on the
+     screen it read as a bug report on a phone being handed to someone else. It
+     is one tap away for the day it is needed. */
+  const more = el('details', { class: 'about-diag' });
+  more.appendChild(el('summary', { text: 'Diagnostics' }));
+  more.appendChild(diag);
 
   const copyBtn = el('button', {
     type: 'button',
-    class: 'link-btn',
-    style:
-      'margin-top:10px;font-size:12px;color:var(--ash);background:none;border:0;' +
-      'padding:8px 12px;text-decoration:underline;cursor:pointer',
+    class: 'about-link',
     text: 'Copy build info',
     onclick: async () => {
       try {
@@ -1328,7 +1571,8 @@ function aboutBlock() {
       }
     },
   });
-  box.appendChild(copyBtn);
+  more.appendChild(copyBtn);
+  box.appendChild(more);
 
   /* Attribution is a condition of use for both sources, so it is rendered
      rather than buried in a readme. */
@@ -1337,10 +1581,10 @@ function aboutBlock() {
       href: active.attribution.url,
       target: '_blank',
       rel: 'noopener noreferrer',
-      style: 'display:block;margin-top:10px;color:var(--ash);text-decoration:none',
+      class: 'about-link',
       text: active.attribution.text,
     });
-    box.appendChild(a);
+    box.appendChild(el('div', {}, a));
   }
   return box;
 }

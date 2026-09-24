@@ -28,6 +28,14 @@ let root = null;
 let listEl = null;
 let navigate = null;
 let pending = false;
+/* The send button reflects both the box and whether a reply is in flight.
+   Only the input event used to update it, so after every send it sat amber
+   over an empty field, and a follow-up typed while waiting vanished silently. */
+let syncSend = () => {};
+/* Whether the thread is scrolled to its end. When the keyboard opens the
+   thread gets shorter from the bottom and the reply you were reading slid
+   behind the composer; while pinned, it stays at the end. */
+let pinned = true;
 
 const constraints = {
   minutes: null, // 90 | 120 | null
@@ -43,19 +51,27 @@ export function initAsk({ navigate: nav }) {
   const form = root.querySelector('[data-region="composer"]');
   const input = root.querySelector('#ask-input');
 
+  const sendBtn = root.querySelector('[data-action="send"]');
+  syncSend = () => {
+    sendBtn.disabled = pending || !input.value.trim();
+  };
+
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const text = input.value.trim();
     if (!text || pending) return;
     input.value = '';
     input.style.height = '';
+    syncSend();
     send(text);
   });
 
   input.addEventListener('input', () => {
     input.style.height = 'auto';
-    input.style.height = Math.min(120, input.scrollHeight) + 'px';
-    root.querySelector('[data-action="send"]').disabled = !input.value.trim();
+    /* scrollHeight leaves out the border on a border-box element, so the field
+       shrank 2px on the first keystroke and its one line became scrollable. */
+    input.style.height = Math.min(120, input.scrollHeight + input.offsetHeight - input.clientHeight) + 'px';
+    syncSend();
   });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -63,6 +79,19 @@ export function initAsk({ navigate: nav }) {
       form.requestSubmit();
     }
   });
+
+  listEl.addEventListener(
+    'scroll',
+    () => {
+      pinned = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 24;
+    },
+    { passive: true }
+  );
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => {
+      if (pinned) listEl.scrollTop = listEl.scrollHeight;
+    }).observe(listEl);
+  }
 
   renderConstraints();
   greet();
@@ -89,51 +118,55 @@ export function showAsk() {
 
 /* ── constraint chips ── */
 
+/*
+ * The same .pill as every other toggle in the app, toggled in place. These were
+ * a one-off control — 40px, a different fill and weight, the on state an inline
+ * style that snapped — and every tap rebuilt the row, which scrolled it back to
+ * the start (hiding the chip just set) and dropped focus on <body>.
+ */
 function renderConstraints() {
   const bar = root.querySelector('[data-region="constraints"]');
+  const left = bar.scrollLeft;
   clear(bar);
 
-  const group = (label, options, key) => {
+  /* First, because it is the one on by default. Built last, it started
+     off-screen, and nothing said a filter was limiting every answer. */
+  const owned = store.items().filter((i) => i.owned).length;
+  if (owned) {
+    const b = el('button', {
+      class: 'pill',
+      type: 'button',
+      'aria-pressed': String(constraints.ownedOnly),
+      text: 'Only what I own',
+    });
+    b.addEventListener('click', () => {
+      constraints.ownedOnly = !constraints.ownedOnly;
+      b.setAttribute('aria-pressed', String(constraints.ownedOnly));
+    });
+    bar.appendChild(b);
+  }
+
+  const group = (options, key) => {
     for (const [value, text] of options) {
-      const active = constraints[key] === value;
-      bar.appendChild(
-        el('button', {
-          class: 'suggestion',
-          type: 'button',
-          'aria-pressed': String(active),
-          style: active
-            ? 'border-color:var(--amber-line);color:var(--amber);background:var(--amber-dim)'
-            : '',
-          text,
-          onclick: () => {
-            constraints[key] = active ? null : value;
-            renderConstraints();
-          },
-        })
-      );
+      const b = el('button', {
+        class: 'pill',
+        type: 'button',
+        'aria-pressed': String(constraints[key] === value),
+        'data-key': key,
+        text,
+      });
+      b.addEventListener('click', () => {
+        constraints[key] = constraints[key] === value ? null : value;
+        for (const sib of bar.querySelectorAll(`[data-key="${key}"]`)) sib.setAttribute('aria-pressed', 'false');
+        b.setAttribute('aria-pressed', String(constraints[key] === value));
+      });
+      bar.appendChild(b);
     }
   };
 
-  group('Time', [[90, 'Under 90 min'], [120, 'Under 2 hours']], 'minutes');
-  group('Company', [['partner', 'Two of us'], ['friends', 'With friends'], ['family', 'Family']], 'company');
-
-  const owned = store.items().filter((i) => i.owned).length;
-  if (owned) {
-    const active = constraints.ownedOnly;
-    bar.appendChild(
-      el('button', {
-        class: 'suggestion',
-        type: 'button',
-        'aria-pressed': String(active),
-        style: active ? 'border-color:var(--amber-line);color:var(--amber);background:var(--amber-dim)' : '',
-        text: 'Only what I own',
-        onclick: () => {
-          constraints.ownedOnly = !constraints.ownedOnly;
-          renderConstraints();
-        },
-      })
-    );
-  }
+  group([[90, 'Under 90 min'], [120, 'Under 2 hours']], 'minutes');
+  group([['partner', 'Two of us'], ['friends', 'With friends'], ['family', 'Family']], 'company');
+  bar.scrollLeft = left;
 }
 
 /* Marks the "no key yet" prompt so it can be told apart from real
@@ -143,6 +176,10 @@ const NO_KEY = 'data-no-key';
 function greet() {
   clear(listEl);
   const key = store.settings().aiKey;
+  /* Without a key nothing below the prompt can work, and Send used to wipe
+     what you had typed and jump to Settings with no word of why. */
+  root.querySelector('[data-region="composer"]').hidden = !key;
+  root.querySelector('[data-region="constraints"]').hidden = !key;
   if (!key) {
     const prompt = emptyState({
       iconName: 'ask',
@@ -163,23 +200,33 @@ function greet() {
 
 /* ── messages ── */
 
-function addMessage(role, text) {
+function addMessage(role, text, { scroll = true } = {}) {
   const node = el('div', {
     class: `msg msg-${role === 'user' ? 'user' : 'bot'}`,
     text,
   });
   listEl.appendChild(node);
-  listEl.scrollTop = listEl.scrollHeight;
+  if (scroll) toEnd();
   return node;
 }
 
+function toEnd() {
+  pinned = true;
+  listEl.scrollTo({ top: listEl.scrollHeight, behavior: reduceMotion() ? 'auto' : 'smooth' });
+}
+
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 function addTyping() {
-  const dots = el('div', { class: 'chat-dots', 'aria-label': 'Thinking' });
+  /* Text for the live region: aria-label on a role-less div reaches no one,
+     so a VoiceOver user heard nothing between sending and the reply. */
+  const dots = el('div', { class: 'chat-dots' });
+  dots.appendChild(el('span', { class: 'sr-only', text: 'Thinking…' }));
   dots.appendChild(el('i'));
   dots.appendChild(el('i'));
   dots.appendChild(el('i'));
   listEl.appendChild(dots);
-  listEl.scrollTop = listEl.scrollHeight;
+  toEnd();
   return dots;
 }
 
@@ -189,10 +236,14 @@ function addTyping() {
  * cannot conjure a film that isn't yours.
  */
 function addPick(pick, item) {
-  const card = el('div', { class: 'msg msg-bot', style: 'max-width:100%;width:100%;padding:0;overflow:hidden' });
+  /* .pick-card is flex:none. As a shrinkable flex child with overflow:hidden
+     its minimum height was 0, so the thread squashed it to fit instead of
+     scrolling — after a second ask only the poster's top edge and the title
+     were left, the reason clipped away. */
+  const card = el('div', { class: 'msg msg-bot pick-card' });
 
   const head = el('div', {
-    style: 'display:flex;gap:12px;padding:14px;cursor:pointer',
+    class: 'pick-head',
     role: 'button',
     tabindex: '0',
     'aria-label': `Open ${item.title}`,
@@ -211,10 +262,10 @@ function addPick(pick, item) {
   const meta = el('div', { style: 'flex:1;min-width:0' });
   meta.appendChild(el('div', { style: 'font-weight:620;line-height:1.25', text: item.title }));
   const bits = [item.year, item.genre, runtime(item.runtime)].filter(Boolean).join(' · ');
-  meta.appendChild(el('div', { style: 'font-size:12px;color:var(--ash);margin-top:3px', text: bits }));
+  meta.appendChild(el('div', { style: 'font-size:var(--t-meta);color:var(--ash);margin-top:var(--s1)', text: bits }));
   if (item.owned) {
     const own = el('div', {
-      style: 'display:flex;align-items:center;gap:4px;font-size:12px;color:var(--sage);margin-top:6px',
+      style: 'display:flex;align-items:center;gap:var(--s1);font-size:var(--t-meta);color:var(--sage);margin-top:var(--s2)',
     });
     own.appendChild(el('span', { html: icon('drive', 13) }).firstChild);
     own.appendChild(el('span', { text: item.quality ? `You have this in ${item.quality}` : 'In your collection' }));
@@ -223,16 +274,9 @@ function addPick(pick, item) {
   head.appendChild(meta);
   card.appendChild(head);
 
-  if (pick.reason) {
-    card.appendChild(
-      el('p', {
-        style: 'padding:0 14px 14px;font-size:14px;line-height:1.55;color:var(--silver)',
-        text: pick.reason,
-      })
-    );
-  }
+  if (pick.reason) card.appendChild(el('p', { class: 'pick-reason', text: pick.reason }));
   listEl.appendChild(card);
-  listEl.scrollTop = listEl.scrollHeight;
+  return card;
 }
 
 /* ── the call ── */
@@ -246,6 +290,7 @@ async function send(text) {
 
   addMessage('user', text);
   pending = true;
+  syncSend();
   const typing = addTyping();
 
   try {
@@ -253,23 +298,33 @@ async function send(text) {
     if (!candidates.length) {
       typing.remove();
       addMessage('bot', 'There is nothing unwatched left that matches those constraints. Try relaxing one.');
-      pending = false;
       return;
     }
 
     const result = await callModel(text, candidates);
     typing.remove();
 
-    if (result.message) addMessage('bot', result.message);
-    for (const p of result.picks) addPick(p, p.item);
+    /* The start of the reply is brought into view, not its end. Jumping to
+       scrollHeight after each node landed the answer on the last line of the
+       second pick's reason, past the film's title and the lead-in. */
+    const first = listEl.childElementCount;
+    if (result.message) addMessage('bot', result.message, { scroll: false });
+    result.picks.forEach((p, i) => {
+      const card = addPick(p, p.item);
+      /* Each card follows the one before it rather than landing with it. */
+      card.style.animationDelay = `${(i + (result.message ? 1 : 0)) * 70}ms`;
+    });
     if (!result.picks.length && !result.message) {
-      addMessage('bot', 'I could not settle on one. Try telling me a bit more about the mood.');
+      addMessage('bot', 'I could not settle on one. Try telling me a bit more about the mood.', { scroll: false });
     }
+    pinned = false;
+    listEl.children[first]?.scrollIntoView({ block: 'start', behavior: reduceMotion() ? 'auto' : 'smooth' });
   } catch (err) {
     typing.remove();
     addMessage('bot', ai.friendlyError(err));
   } finally {
     pending = false;
+    syncSend();
   }
 }
 

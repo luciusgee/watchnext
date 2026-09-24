@@ -35,7 +35,7 @@
 import * as store from '../store.js';
 import * as ai from '../ai.js';
 import { rank, tasteProfile } from '../recommend.js';
-import { el, clear, poster, button, emptyState, toast, reveal } from '../ui.js';
+import { el, clear, poster, button, emptyState, toast, openPanel } from '../ui.js';
 import { icon } from '../icons.js';
 import { runtime as fmtRuntime, rating as fmtRating } from '../format.js';
 import { attachSwipe, playDecision, FLING_MS } from '../deck.js';
@@ -575,58 +575,13 @@ function decide(direction) {
    know exists. */
 
 export function openPickSheet() {
-  const lastFocus = document.activeElement;
-  /* Built without is-open; reveal() gives it the class once the closed style
-     exists. Inserted with the class already on, .sheet's translateY never ran
-     and the sheet that matters most popped instead of sliding. */
-  const scrim = el('div', { class: 'scrim' });
-  const panel = el('div', {
-    class: 'sheet has-pinned',
-    role: 'dialog',
-    'aria-modal': 'true',
-    'aria-label': 'What do you fancy?',
-    /* --kb so a tall sheet is not pushed off the top when the keyboard, which
-       this sheet always summons, takes the bottom of the screen. */
+  /* --kb so a tall sheet is not pushed off the top when the keyboard, which
+     this sheet summons, takes the bottom of the screen. */
+  const { panel, close, show } = openPanel({
+    label: 'What do you fancy?',
+    className: 'has-pinned',
     style: 'max-height:calc(86vh - var(--kb, 0px));overflow-y:auto',
   });
-
-  let closing = false;
-  const close = () => {
-    if (closing) return;
-    closing = true;
-    scrim.classList.remove('is-open');
-    panel.classList.remove('is-open');
-    document.removeEventListener('keydown', onKey);
-    if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
-    setTimeout(() => {
-      scrim.remove();
-      panel.remove();
-    }, 240);
-  };
-  const onKey = (e) => {
-    if (e.key === 'Escape') {
-      close();
-      return;
-    }
-    /* aria-modal claims everything behind the scrim is inert; without a trap
-       Tab walked straight out into it. Same behaviour as the shared sheet. */
-    if (e.key !== 'Tab') return;
-    const f = panel.querySelectorAll(
-      'button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
-    if (!f.length) return;
-    const first = f[0];
-    const last = f[f.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
-  document.addEventListener('keydown', onKey);
-  scrim.addEventListener('click', close);
 
   /* Toggling a chip refreshes the count and nothing else. This used to close
      and rebuild the whole sheet, which reset its scrollTop — so tapping the
@@ -822,9 +777,7 @@ export function openPickSheet() {
   };
   refreshCount();
 
-  document.body.appendChild(scrim);
-  document.body.appendChild(panel);
-  reveal(scrim, panel);
+  show();
   requestAnimationFrame(() => input.focus({ preventScroll: true }));
 }
 

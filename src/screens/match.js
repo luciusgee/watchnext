@@ -18,7 +18,7 @@
 import * as store from '../store.js';
 import * as meta from '../metadata.js';
 import { getProvider } from '../providers/index.js';
-import { el, clear, poster, button, toast } from '../ui.js';
+import { el, clear, poster, button, toast, openPanel } from '../ui.js';
 
 /** "Alien 1979" / "Alien (1979)" → { title: 'Alien', year: 1979 } */
 function parseQuery(text) {
@@ -42,25 +42,16 @@ export function openMatchPicker(item, { onDone } = {}) {
   const provider = getProvider(settings.provider);
   const key = (settings.dataKeys || {})[provider.id];
 
-  const scrim = el('div', { class: 'scrim is-open' });
-  const panel = el('div', {
-    class: 'sheet is-open',
-    role: 'dialog',
-    'aria-modal': 'true',
-    'aria-label': 'Choose the right film',
-    style: 'max-height:88vh;overflow-y:auto',
-  });
-
   let controller = null;
-  const close = () => {
-    controller?.abort();
-    scrim.remove();
-    panel.remove();
-    document.removeEventListener('keydown', onKey);
-  };
-  const onKey = (e) => e.key === 'Escape' && close();
-  document.addEventListener('keydown', onKey);
-  scrim.addEventListener('click', close);
+  /* It used to be inserted already open and removed outright, so it cut in
+     over the detail overlay with a full scrim and vanished in one frame. */
+  const { panel, close, show: showPanel } = openPanel({
+    label: 'Choose the right film',
+    className: 'has-pinned',
+    /* --kb: it opens with its search field focused. */
+    style: 'max-height:calc(88vh - var(--kb, 0px));overflow-y:auto',
+    onClose: () => controller?.abort(),
+  });
 
   panel.appendChild(el('div', { class: 'sheet-grip' }));
   panel.appendChild(el('div', { class: 'sheet-title', text: 'Choose the right film' }));
@@ -69,18 +60,18 @@ export function openMatchPicker(item, { onDone } = {}) {
      otherwise you are picking from a list with no idea what you are replacing. */
   const current = el('div', {
     style:
-      'display:flex;gap:10px;align-items:center;padding:10px;margin-bottom:14px;' +
-      'border-radius:10px;background:var(--raised)',
+      'display:flex;gap:10px;align-items:center;padding:var(--s3);margin-bottom:var(--s4);' +
+      'border-radius:var(--r-md);background:var(--raised)',
   });
   current.appendChild(poster(item, { width: 42 }));
   const curBody = el('div', { style: 'flex:1;min-width:0' });
   curBody.appendChild(el('div', { class: 'eyebrow', text: 'Currently showing' }));
   curBody.appendChild(
-    el('div', { style: 'font-size:14px;font-weight:550;margin-top:2px', text: item.title })
+    el('div', { style: 'font-size:var(--t-body);font-weight:550;margin-top:2px', text: item.title })
   );
   curBody.appendChild(
     el('div', {
-      style: 'font-size:12px;color:var(--ash)',
+      style: 'font-size:var(--t-meta);color:var(--ash)',
       text: [item.year, item.imdbId || 'no IMDb id'].filter(Boolean).join(' · '),
     })
   );
@@ -88,7 +79,7 @@ export function openMatchPicker(item, { onDone } = {}) {
   panel.appendChild(current);
 
   /* search */
-  const form = el('form', { style: 'display:flex;gap:8px;margin-bottom:14px' });
+  const form = el('form', { style: 'display:flex;gap:var(--s2);margin-bottom:var(--s4)' });
   const input = el('input', {
     class: 'input',
     type: 'search',
@@ -99,19 +90,39 @@ export function openMatchPicker(item, { onDone } = {}) {
     value: [item.title, item.year].filter(Boolean).join(' '),
   });
   form.appendChild(input);
-  const searchBtn = button('Search', { kind: 'secondary' });
-  searchBtn.type = 'submit';
-  form.appendChild(searchBtn);
+  form.appendChild(button('Search', { kind: 'secondary', type: 'submit' }));
   panel.appendChild(form);
 
-  const results = el('div');
+  const results = el('div', { style: 'transition:opacity var(--fast) var(--ease)' });
   panel.appendChild(results);
 
+  /* A search in flight dims the rows that are there rather than clearing them.
+     The sheet is bottom-anchored, so collapsing ten rows to one line of
+     "Searching…" dropped its top edge — and the field you had just typed in —
+     about 500px, then shot it back up when results came. */
+  const setBusy = (on) => {
+    results.style.opacity = on ? '0.4' : '';
+    results.style.pointerEvents = on ? 'none' : '';
+    results.setAttribute('aria-busy', String(on));
+  };
   const say = (text, tone = 'var(--ash)') => {
+    setBusy(false);
     clear(results);
     results.appendChild(
-      el('div', { style: `font-size:13px;color:${tone};padding:12px 0;line-height:1.5`, text })
+      el('div', {
+        role: 'status',
+        style: `font-size:var(--t-sub);color:${tone};padding:var(--s3) 0;line-height:1.5`,
+        text,
+      })
     );
+  };
+  const skeleton = () => {
+    clear(results);
+    for (let i = 0; i < 3; i++) {
+      results.appendChild(
+        el('div', { class: 'skeleton', style: 'height:62px;border-radius:var(--r-md);margin-bottom:var(--s2)' })
+      );
+    }
   };
 
   async function apply(c) {
@@ -162,6 +173,7 @@ export function openMatchPicker(item, { onDone } = {}) {
   }
 
   function show(list) {
+    setBusy(false);
     clear(results);
     if (!list.length) {
       say('Nothing found. Try the title on its own, or a different spelling.');
@@ -171,17 +183,22 @@ export function openMatchPicker(item, { onDone } = {}) {
       const isCurrent = c.sourceId && c.sourceId === item.meta?.sourceId;
       const row = el('button', {
         type: 'button',
-        style:
-          'display:flex;gap:10px;align-items:center;width:100%;padding:8px;border-radius:10px;' +
-          `border:1px solid ${isCurrent ? 'var(--amber-line)' : 'var(--hairline)'};margin-bottom:8px;text-align:left`,
-        onclick: () => apply(c),
+        class: isCurrent ? 'result-row is-dupe' : 'result-row',
+        onclick: () => {
+          /* Saving and the details fetch can take a moment on a phone; say so
+             on the row that was chosen and stop a second tap. */
+          for (const r of results.querySelectorAll('.result-row')) r.disabled = true;
+          row.style.opacity = '1';
+          b.appendChild(el('div', { style: 'font-size:11px;color:var(--amber)', text: 'Saving…' }));
+          apply(c);
+        },
       });
       row.appendChild(
         poster({ title: c.title, poster: c.poster && c.poster !== 'N/A' ? c.poster : null }, { width: 38 })
       );
       const b = el('div', { style: 'flex:1;min-width:0' });
-      b.appendChild(el('div', { style: 'font-size:14px;font-weight:550', text: c.title }));
-      b.appendChild(el('div', { style: 'font-size:12px;color:var(--ash)', text: describe(c) }));
+      b.appendChild(el('div', { style: 'font-size:var(--t-body);font-weight:550', text: c.title }));
+      b.appendChild(el('div', { style: 'font-size:var(--t-meta);color:var(--ash)', text: describe(c) }));
       if (isCurrent) b.appendChild(el('div', { style: 'font-size:11px;color:var(--amber)', text: 'Currently attached' }));
       row.appendChild(b);
       results.appendChild(row);
@@ -195,12 +212,13 @@ export function openMatchPicker(item, { onDone } = {}) {
     }
     controller?.abort();
     controller = new AbortController();
-    say('Searching…');
     const q = parseQuery(input.value);
     if (!q.title) {
       say('Type something to search for.');
       return;
     }
+    if (results.querySelector('.result-row')) setBusy(true);
+    else skeleton();
     try {
       const found = await provider.search(
         { title: q.title, year: q.year, type: item.type },
@@ -231,12 +249,11 @@ export function openMatchPicker(item, { onDone } = {}) {
   panel.appendChild(
     el(
       'div',
-      { class: 'sheet-actions' },
-      button('Done', { kind: 'primary', block: true, onClick: close })
+      { class: 'sheet-actions is-pinned' },
+      button('Done', { kind: 'secondary', block: true, onClick: close })
     )
   );
 
-  document.body.appendChild(scrim);
-  document.body.appendChild(panel);
-  requestAnimationFrame(() => input.focus());
+  showPanel();
+  requestAnimationFrame(() => input.focus({ preventScroll: true }));
 }

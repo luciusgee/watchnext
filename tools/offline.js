@@ -36,9 +36,11 @@ const server = http.createServer((req, res) => {
   /* Stamp the build marker into main.js so the page can report which build it
      is actually running. */
   if (rel === 'src/main.js') {
+    /* An expression, not a statement: boot now adds is-ready inside a
+       .finally(), and a statement-shaped replacement stopped matching. */
     body = Buffer.from(body.toString().replace(
-      "document.body.classList.add('is-ready');",
-      `window.__build = '${marker}'; document.body.classList.add('is-ready');`));
+      /document\.body\.classList\.add\('is-ready'\)/,
+      `(window.__build = '${marker}', document.body.classList.add('is-ready'))`));
   }
   res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-cache' });
   res.end(body);

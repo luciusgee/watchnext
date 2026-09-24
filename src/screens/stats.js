@@ -17,7 +17,8 @@
  */
 
 import * as store from '../store.js';
-import { el, clear, toast } from '../ui.js';
+import { el, clear, toast, emptyState } from '../ui.js';
+import { plural } from '../format.js';
 import { icon } from '../icons.js';
 
 let root = null;
@@ -39,10 +40,13 @@ function render() {
 
   const s = store.stats();
   if (!s.total) {
+    /* The app's empty state, with a way forward, not a bare grey sentence. */
     bodyEl.appendChild(
-      el('div', {
-        style: 'padding:40px 20px;text-align:center;color:var(--ash);font-size:14px',
-        text: 'Add some titles and this will have something to say.',
+      emptyState({
+        iconName: 'film',
+        title: 'Nothing to count yet',
+        message: 'Add some titles and this will have something to say.',
+        action: { label: 'Add titles', onClick: () => navigate('add') },
       })
     );
     return;
@@ -55,7 +59,8 @@ function render() {
     headline(
       String(s.pile),
       s.pile === 1 ? 'film you own and have never watched' : 'films you own and have never watched',
-      s.hoursUnwatched ? `${s.hoursUnwatched} hours of it` : null
+      /* "about", as the card says: titles with no runtime add nothing. */
+      s.hoursUnwatched ? `about ${plural(s.hoursUnwatched, 'hour')} of it` : null
     )
   );
 
@@ -85,14 +90,27 @@ function render() {
 
   /* Share */
   const actions = el('div', { style: 'padding:24px 16px 8px;display:flex;gap:8px;flex-wrap:wrap' });
+  const label = el('span', { text: 'Make a card' });
+  /* Busy while it draws. There is a visible pause before the share sheet, and a
+     second tap in it started another share — which the platform rejects, and
+     which then fell through to a surprise download beside the sheet. */
   const shareBtn = el('button', {
     class: 'btn btn-primary',
     type: 'button',
     style: 'flex:1',
-    onclick: () => shareCard(s),
+    onclick: async () => {
+      shareBtn.disabled = true;
+      label.textContent = 'Drawing…';
+      try {
+        await shareCard(s);
+      } finally {
+        shareBtn.disabled = false;
+        label.textContent = 'Make a card';
+      }
+    },
   });
   shareBtn.appendChild(el('span', { html: icon('upload', 17) }).firstChild);
-  shareBtn.appendChild(el('span', { text: 'Make a card' }));
+  shareBtn.appendChild(label);
   actions.appendChild(shareBtn);
   bodyEl.appendChild(actions);
   bodyEl.appendChild(
@@ -105,33 +123,19 @@ function render() {
 /* ── pieces ── */
 
 function headline(big, label, sub) {
-  const box = el('div', { style: 'padding:28px 16px 8px;text-align:center' });
-  box.appendChild(
-    el('div', {
-      style: 'font-size:56px;font-weight:650;letter-spacing:-0.03em;color:var(--amber);line-height:1',
-      text: big,
-    })
-  );
-  box.appendChild(el('div', { style: 'font-size:14px;color:var(--silver);margin-top:8px', text: label }));
-  if (sub) box.appendChild(el('div', { style: 'font-size:13px;color:var(--ash);margin-top:4px', text: sub }));
+  const box = el('div', { class: 'big-figure' });
+  box.appendChild(el('div', { class: 'big-figure-n', text: big }));
+  box.appendChild(el('div', { class: 'big-figure-l', text: label }));
+  if (sub) box.appendChild(el('div', { class: 'big-figure-s', text: sub }));
   return box;
 }
 
 function grid(pairs) {
-  const wrap = el('div', {
-    style:
-      'display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--hairline);' +
-      'border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline);margin-top:24px',
-  });
+  const wrap = el('div', { class: 'stat-grid' });
   for (const [value, label] of pairs) {
-    const cell = el('div', { style: 'background:var(--ink);padding:14px 10px;text-align:center' });
-    cell.appendChild(
-      el('div', {
-        style: 'font-size:20px;font-weight:600;font-variant-numeric:tabular-nums',
-        text: String(value),
-      })
-    );
-    cell.appendChild(el('div', { style: 'font-size:11px;color:var(--ash);margin-top:3px', text: label }));
+    const cell = el('div', { class: 'stat-cell' });
+    cell.appendChild(el('div', { class: 'stat-n', text: String(value) }));
+    cell.appendChild(el('div', { class: 'stat-l', text: label }));
     wrap.appendChild(cell);
   }
   return wrap;
@@ -139,35 +143,31 @@ function grid(pairs) {
 
 function note(text) {
   return el('div', {
-    style: 'padding:14px 16px 0;font-size:12px;color:var(--ash);line-height:1.55;text-align:center',
+    style: 'padding:var(--s3) var(--s4) 0;font-size:var(--t-meta);color:var(--ash);line-height:1.55;text-align:center',
     text,
   });
 }
 
+/* One grid for the whole chart, so every track starts after the longest label.
+   A fixed 56px label box let "Documentary" run into its own bar. The bars grow
+   in once, staggered — this is the showpiece screen, and it used to arrive
+   fully drawn. */
 function bars(title, pairs) {
-  const sec = el('section', { style: 'padding:28px 16px 0' });
-  sec.appendChild(el('h2', { class: 'eyebrow', style: 'margin-bottom:12px', text: title }));
+  const sec = el('section', { class: 'bars' });
+  sec.appendChild(el('h2', { class: 'eyebrow bars-title', text: title }));
   const max = Math.max(...pairs.map(([, n]) => n), 1);
-  for (const [label, n] of pairs) {
-    const row = el('div', { style: 'display:flex;align-items:center;gap:10px;margin-bottom:7px' });
-    row.appendChild(
-      el('div', { style: 'width:56px;font-size:12px;color:var(--silver);flex:none', text: label })
-    );
-    const track = el('div', {
-      style: 'flex:1;height:8px;background:var(--raised);border-radius:4px;overflow:hidden',
-    });
+  pairs.forEach(([label, n], i) => {
+    sec.appendChild(el('div', { class: 'bars-l', text: label }));
+    const track = el('div', { class: 'bars-track' });
     track.appendChild(
-      el('div', { style: `width:${(n / max) * 100}%;height:100%;background:var(--amber);border-radius:4px` })
-    );
-    row.appendChild(track);
-    row.appendChild(
       el('div', {
-        style: 'width:34px;text-align:right;font-size:12px;color:var(--ash);font-variant-numeric:tabular-nums',
-        text: String(n),
+        class: 'bars-fill',
+        style: `width:${(n / max) * 100}%;animation-delay:${i * 40}ms`,
       })
     );
-    sec.appendChild(row);
-  }
+    sec.appendChild(track);
+    sec.appendChild(el('div', { class: 'bars-n', text: String(n) }));
+  });
   return sec;
 }
 
@@ -246,9 +246,16 @@ async function shareCard(s) {
     [`${s.pctWatched}%`, 'of the way through'],
     [String(s.fourK), 'owned in 4K'],
     ...(s.datesAreHistory ? [[String(s.watchedThisYear), `watched in ${year}`]] : []),
-  ].filter(([v]) => v !== '0');
+    /* Every zero, including "0%" — which was the one it let through, and the
+       one that reads worst on a card you are about to send someone. */
+  ].filter(([v]) => !/^0%?$/.test(v));
 
-  let y = 830;
+  /* Fitted between a fixed top and the divider. At a fixed 84px step the sixth
+     row — the one a long-time user gets — was drawn over the footer. */
+  const top = 830;
+  const bottom = H - 150 - 40;
+  const step = rows.length > 1 ? Math.min(84, (bottom - top) / (rows.length - 1)) : 0;
+  let y = top;
   for (const [value, label] of rows) {
     g.font = `600 54px ${sans}`;
     g.fillStyle = bone;
@@ -258,7 +265,7 @@ async function shareCard(s) {
     g.font = `400 34px ${sans}`;
     g.fillStyle = ash;
     g.fillText(label, 84 + w + 18, y);
-    y += 84;
+    y += step;
   }
 
   g.strokeStyle = 'rgba(247,244,239,0.12)';
@@ -281,8 +288,8 @@ async function shareCard(s) {
       return;
     } catch (err) {
       /* Cancelling the share sheet is not a failure, and must not fall through
-         to a surprise download. */
-      if (err?.name === 'AbortError') return;
+         to a surprise download — nor must a share already in progress. */
+      if (err?.name === 'AbortError' || err?.name === 'InvalidStateError') return;
     }
   }
 

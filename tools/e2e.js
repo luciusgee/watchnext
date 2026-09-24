@@ -665,7 +665,8 @@ function check(name, cond, detail = '') {
   check('with the films on it', /The Thing/.test(shown.text), shown.text.slice(0, 120));
   check('and nothing is added to your own library until you say so',
     shown.count === beforeShelf, `${beforeShelf} -> ${shown.count}`);
-  check('it says which ones you have not got', /have not got|already have all/.test(shown.text), shown.text.slice(0, 200));
+  check('it says which ones you have not got',
+    /you don’t have|none of these are in your library|already have all/i.test(shown.text), shown.text.slice(0, 200));
   /* The recipient may not have the app, so the page has to explain itself. */
   check('and explains that nothing was uploaded', /nothing was uploaded/i.test(shown.text));
 
@@ -865,6 +866,8 @@ function check(name, cond, detail = '') {
   /* The row keeps its space now — collapsing it dropped the waiting card half
      a button-row and made the deck jump when a hand arrived — so what is
      measured is that nothing there can be seen or hit, not that it is gone. */
+  /* They fade out before they hide, so give the fade its 140ms. */
+  await page.waitForTimeout(250);
   const controlsGone = await page.evaluate(() => {
     const c = document.querySelector('#screen-pick [data-region="controls"]');
     const b = c.querySelector('[data-action="no"]');

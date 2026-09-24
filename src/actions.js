@@ -5,7 +5,7 @@
 
 import * as store from './store.js';
 import { toast } from './ui.js';
-import { cleanTitleLine, stripListMarkers } from './format.js';
+import { cleanTitleLine, stripListMarkers, plural } from './format.js';
 
 /** Snapshot only the fields an action touches, so undo is precise. */
 function snapshot(item, fields) {
@@ -160,33 +160,39 @@ export function addMany(lines, type) {
 export function clearWatched() {
   let n = 0;
   store.bulk((i) => {
-    if (i.watched) {
-      n += 1;
-      return { watched: false, watchedAt: null };
-    }
-    return null;
+    /* watchedBy too. In a household, Tonight and the deck read who has seen
+       what from it, so clearing only the shared flag changed nothing for
+       either person — the same films stayed hidden, and the person pill kept
+       its count straight after "every title will be marked unwatched". */
+    const marked = i.watched || (i.watchedBy && Object.keys(i.watchedBy).length);
+    if (!marked) return null;
+    n += 1;
+    return { watched: false, watchedAt: null, watchedBy: {} };
   });
   store.emit('item');
-  toast(n ? `Reset ${n} titles to unwatched` : 'Nothing was marked watched');
+  toast(n ? `Reset ${plural(n, 'title')} to unwatched` : 'Nothing was marked watched');
 }
 
 export function resetDiscover() {
   let n = 0;
   store.bulk((i) => {
     if (i.seen) {
-      n += 1;
+      /* Only what will actually come back: watched titles stay out of the deck,
+         and counting them promised a number of cards that never appeared. */
+      if (!i.watched) n += 1;
       return { seen: false, seenAt: null };
     }
     return null;
   });
   store.emit('item');
-  toast(n ? `${n} titles will appear in Discover again` : 'Discover was already reset');
+  toast(n ? `${plural(n, 'title')} will appear in Discover again` : 'Discover was already reset');
 }
 
 export function resetEverything() {
   store.bulk(() => ({
     watched: false,
     watchedAt: null,
+    watchedBy: {},
     seen: false,
     seenAt: null,
     /* Retired with the watchlist. Nothing reads these any more, but "clear
