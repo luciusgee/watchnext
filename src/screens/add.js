@@ -220,10 +220,11 @@ function searchForm() {
     controller = new AbortController();
     say('Searching…');
     try {
-      const found = await provider.search(
-        /* `precise` says the year came off a keyboard rather than out of the
-           library, which is what lets the providers spend a request narrowing
-           on it. The sweep does not set it. */
+      /* searchPrecise is the interactive search: it trusts the type off the
+         toggle, uses a typed year, and may spend an extra request to do it.
+         search() stays exactly as the matcher needs it. */
+      const ask = provider.searchPrecise ? provider.searchPrecise.bind(provider) : provider.search.bind(provider);
+      const found = await ask(
         { title, year, type, precise: true },
         {
           key,

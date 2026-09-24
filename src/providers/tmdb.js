@@ -158,39 +158,45 @@ export const tmdb = {
       ];
     }
 
-    /*
-     * A year the user typed on purpose.
-     *
-     * /search/multi takes no year, and its one page of results is ordered by
-     * popularity — so for a franchise it is entirely possible for the exact
-     * film somebody is asking for to be off the end of it. The typed endpoints
-     * do take a year, so when one has been given deliberately they are asked
-     * as well and the answers merged.
-     *
-     * Additive, never subtractive: this only ever puts more candidates in
-     * front of the caller. And gated on `precise`, because the metadata sweep
-     * also passes a year — on a 500-title library making this the default
-     * would triple the request count against a daily limit.
-     */
-    if (query.precise && query.year) {
-      const [movies, shows] = await Promise.all([
-        call('/search/movie', { query: query.title, primary_release_year: query.year }, ctx),
-        call('/search/tv', { query: query.title, first_air_date_year: query.year }, ctx),
-      ]);
-      const extra = [
-        ...(movies?.results || []).map((r) => ({ ...r, media_type: 'movie' })),
-        ...(shows?.results || []).map((r) => ({ ...r, media_type: 'tv' })),
-      ];
-      const seen = new Set(rows.map((r) => `${r.media_type}:${r.id}`));
-      for (const r of extra) {
-        const k = `${r.media_type}:${r.id}`;
-        if (seen.has(k)) continue;
-        seen.add(k);
-        rows.push(r);
-      }
-    }
-
     return rows.map((r) => toRecord(r)).filter(Boolean);
+  },
+
+  /**
+   * A search somebody typed, where the type came off a button and a year — if
+   * there is one — came off a keyboard.
+   *
+   * This exists because /search/multi is the wrong endpoint for it. Multi is
+   * one page of TMDB's cross-entity relevance, and for a franchise that page
+   * fills with fan films, commercials and behind-the-scenes featurettes.
+   * Checked against TMDB on 2026-09-23: "Resident Evil" on /search/movie
+   * returns the 2026 film FIRST, while twenty rows of /search/multi do not
+   * contain it anywhere. No amount of re-sorting the app's end fixes that —
+   * the film was never in the reply.
+   *
+   * So a deliberate search asks the typed endpoint, which knows what a film is
+   * and accepts a year, and only falls back to multi when that comes back
+   * empty. Usually one request, same as before; two when the typed endpoint
+   * has nothing and a cross-type answer is better than none.
+   *
+   * Kept separate from search() rather than folded into it with a flag,
+   * because the matcher must keep using multi: a stored type is the least
+   * reliable field the app holds, and narrowing the matcher on it is what
+   * produced the 1899 failure.
+   */
+  async searchPrecise(query, ctx) {
+    const tv = query.type === 'tv';
+    const path = tv ? '/search/tv' : '/search/movie';
+    const params = tv
+      ? { query: query.title, first_air_date_year: query.year || undefined }
+      : { query: query.title, primary_release_year: query.year || undefined };
+
+    const typed = await call(path, params, ctx);
+    const rows = (typed?.results || []).map((r) => ({ ...r, media_type: tv ? 'tv' : 'movie' }));
+    if (rows.length) return rows.map((r) => toRecord(r)).filter(Boolean);
+
+    /* Nothing of that type under that name. Ask the broad endpoint rather than
+       report an empty result — the screen can say it relaxed the filter. */
+    return this.search({ ...query, precise: false }, ctx);
   },
 
   /**

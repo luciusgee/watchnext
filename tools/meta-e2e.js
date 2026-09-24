@@ -44,7 +44,7 @@ const CATALOG = [
   { key: 'reDea',   title: 'Resident Evil: Death Island',       year: 2023, type: 'movie', imdb: 'tt16116174', tmdb: 1585, genre: 'Animation', runtime: 90, rating: 6.1, plot: 'Animated Alcatraz.' },
   { key: 'reDark',  title: 'Resident Evil: Infinite Darkness',  year: 2021, type: 'tv',    imdb: 'tt10727276', tmdb: 1586, genre: 'Animation', runtime: 25, rating: 6.0, plot: 'Animated series.' },
   { key: 'reTv',    title: 'Resident Evil',                     year: 2022, type: 'tv',    imdb: 'tt11235142', tmdb: 1587, genre: 'Horror', runtime: 60,  rating: 5.0, plot: 'New Raccoon City.' },
-  { key: 're26',    title: 'Resident Evil',                     year: 2026, type: 'movie', imdb: 'tt35538033', tmdb: 1588, genre: 'Horror', runtime: 95,  rating: 7.2, plot: 'A medical courier and one bad night.' },
+  { key: 're26',    title: 'Resident Evil',                     year: 2026, type: 'movie', imdb: 'tt35538033', tmdb: 1588, genre: 'Horror', runtime: 95,  rating: 7.2, plot: 'A medical courier and one bad night.', missingFromMulti: true },
 ];
 
 /* ── OMDb-shaped mock ── */
@@ -101,21 +101,29 @@ function tmdbRoute(route, hits) {
   const p = u.pathname;
   if (p.startsWith('/3/search/multi')) {
     const q = (u.searchParams.get('query') || '').toLowerCase();
-    return j({ page: 1, results: CATALOG.filter((c) => c.title.toLowerCase().includes(q)).map(lite) });
+    /* Multi is modelled the way the real endpoint actually behaved, checked
+       against TMDB on 2026-09-23: one page of cross-entity relevance in which
+       a franchise's newest film does not appear at all, while the same query
+       on /search/movie returns it first. Without that asymmetry the mock is
+       kinder than TMDB is and the reported bug cannot reproduce. */
+    const rows = CATALOG.filter((c) => c.title.toLowerCase().includes(q) && !c.missingFromMulti);
+    return j({ page: 1, results: rows.slice(0, 20).map(lite) });
   }
   if (p.startsWith('/3/search/movie')) {
     const q = (u.searchParams.get('query') || '').toLowerCase();
     const y = u.searchParams.get('primary_release_year');
-    return j({ page: 1, results: CATALOG
-      .filter((c) => c.type === 'movie' && c.title.toLowerCase().includes(q) && (!y || String(c.year) === y))
-      .map(lite) });
+    const rows = CATALOG
+      .filter((c) => c.type === 'movie' && c.title.toLowerCase().includes(q) && (!y || String(c.year) === y));
+    /* The typed endpoint ranks the newest release first, as TMDB's does. */
+    rows.sort((a, b) => (b.missingFromMulti ? 1 : 0) - (a.missingFromMulti ? 1 : 0));
+    return j({ page: 1, results: rows.slice(0, 20).map(lite) });
   }
   if (p.startsWith('/3/search/tv')) {
     const q = (u.searchParams.get('query') || '').toLowerCase();
     const y = u.searchParams.get('first_air_date_year');
     return j({ page: 1, results: CATALOG
       .filter((c) => c.type === 'tv' && c.title.toLowerCase().includes(q) && (!y || String(c.year) === y))
-      .map(lite) });
+      .slice(0, 20).map(lite) });
   }
   if (p.startsWith('/3/find/')) {
     const id = p.split('/').pop();

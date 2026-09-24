@@ -173,6 +173,48 @@ export const omdb = {
     return results;
   },
 
+  /**
+   * A search somebody typed, as opposed to one the sweep generated.
+   *
+   * `s=` returns ten results and no more unless you ask for a page, and the
+   * app never did. For a franchise that is not enough to reach the end:
+   * "Resident Evil" fills all ten slots with films from 2002 to 2017, and a
+   * film released last week is simply not in the reply — so the screen could
+   * not have shown it however it sorted.
+   *
+   * Here the type the user tapped is trusted (it came off a button, not out of
+   * a record), a second page is fetched when the first comes back full, and a
+   * typed year gets its own query. One to three requests instead of one, which
+   * is the right trade for an interactive search and the wrong one for a
+   * 500-title sweep — which is why this is a separate method the matcher never
+   * calls.
+   */
+  async searchPrecise(query, ctx) {
+    const { key, budget, signal } = ctx;
+    const attempt = async (params) => {
+      const data = unwrap(await requestJson(url(params, key), { budget, signal, providerName: 'OMDb' }));
+      return data?.Search ? data.Search.map((r) => toRecord(r)) : [];
+    };
+
+    const base = { s: query.title };
+    if (query.type) base.type = query.type === 'tv' ? 'series' : 'movie';
+
+    let rows = await attempt(base);
+    /* A full page means there is probably another one behind it. */
+    if (rows.length >= 10) rows = rows.concat(await attempt({ ...base, page: 2 }));
+
+    if (query.year) {
+      const dated = await attempt({ ...base, y: query.year });
+      const held = new Set(dated.map((r) => r.imdbId).filter(Boolean));
+      rows = [...dated, ...rows.filter((r) => !r.imdbId || !held.has(r.imdbId))];
+    }
+
+    if (rows.length) return dedupe(rows);
+    /* Nothing of that type under that name — the broad search rather than an
+       empty result the user can see is wrong. */
+    return this.search({ ...query, precise: false }, ctx);
+  },
+
   /** Full record for one id. Costs 1 request. */
   async details(sourceId, _type, { key, budget, signal }) {
     const data = unwrap(
