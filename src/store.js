@@ -14,6 +14,7 @@
 
 import { writeMirror, readMirror } from './durability.js';
 import { cleanTitleLine, looksNumberedList } from './format.js';
+import { collapseDuplicates } from './merge.js';
 
 const KEY = 'wn.state.v3';
 const LEGACY_KEY = 'wn_lib2';
@@ -233,6 +234,38 @@ function readLegacy() {
 /* Titles migrate() repaired on this load, so init() can write the fix out
    rather than repeating it in memory on every launch. */
 let repairedOnLoad = 0;
+/* How many duplicate records that repair folded away, so main.js can say so. */
+let collapsedOnLoad = 0;
+
+/** Read once: the count of duplicates merged on this load, then zero. */
+export function takeCollapsed() {
+  const n = collapsedOnLoad;
+  collapsedOnLoad = 0;
+  return n;
+}
+
+/* Fold duplicates in the live library. Returns how many records went. */
+function collapseHere() {
+  const out = collapseDuplicates({ items: state.items, tombstones: state.tombstones || [] });
+  if (!out.collapsed) return 0;
+  state.items = out.items;
+  state.tombstones = out.tombstones;
+  return out.collapsed;
+}
+
+/* Does another record already hold this film? */
+function heldElsewhere(item) {
+  return (
+    !!item?.imdbId &&
+    state.items.some((o) => o !== item && o.uid !== item.uid && o.imdbId === item.imdbId && o.type === item.type)
+  );
+}
+
+/* After a fold, the record a caller asked about may be the one that went.
+   Hand back whichever record now stands for that film. */
+function standingFor(item) {
+  return byUid(item.uid) || state.items.find((i) => i.imdbId === item.imdbId && i.type === item.type) || null;
+}
 
 function migrate(s) {
   /* Settings gained a provider choice; anyone who already saved an OMDb key
@@ -264,6 +297,16 @@ function migrate(s) {
       item.title = clean;
       item.sortTitle = sortableTitle(clean);
       repairedOnLoad += 1;
+    }
+
+    /* Two records of one film, folded into one. The library brought over
+       from the old app carried seven; see collapseDuplicates. */
+    const out = collapseDuplicates({ items: s.items, tombstones: s.tombstones });
+    if (out.collapsed) {
+      s.items = out.items;
+      s.tombstones = out.tombstones;
+      repairedOnLoad += out.collapsed;
+      collapsedOnLoad += out.collapsed;
     }
   }
 
@@ -444,6 +487,7 @@ export function indexOfUid(id) {
 export function update(id, patch) {
   const idx = indexOfUid(id);
   if (idx < 0) return null;
+  const prev = state.items[idx];
   const next =
     typeof patch === 'function'
       ? { ...state.items[idx], ...patch(state.items[idx]) }
@@ -453,6 +497,14 @@ export function update(id, patch) {
   }
   next.updatedAt = Date.now();
   state.items[idx] = next;
+  /* A lookup — or picking the right match by hand — can give a record the
+     IMDb id of a film already here: a misspelt title resolving to the one
+     spelt properly. That is the moment it becomes a duplicate, so fold it. */
+  if (next.imdbId !== prev.imdbId && heldElsewhere(next)) {
+    collapseHere();
+    save();
+    return standingFor(next);
+  }
   save();
   return next;
 }
@@ -473,6 +525,11 @@ export function isLocked(item, field) {
 export function add(partial) {
   const item = makeItem(partial);
   state.items.push(item);
+  if (heldElsewhere(item)) {
+    collapseHere();
+    save();
+    return standingFor(item);
+  }
   save();
   return item;
 }
@@ -656,8 +713,9 @@ export function importPayload(payload, mode = 'merge') {
         state.settings.aiModel = incomingSettings.aiModel;
       }
     }
+    const folded = collapseHere();
     saveNow();
-    return { added: incoming.length, merged: 0, skipped: 0 };
+    return { added: incoming.length - folded, merged: folded, skipped: 0 };
   }
   /* Merging someone else's library into yours is not a reason to take their
      name or their view preference, so settings are deliberately ignored below. */
@@ -691,8 +749,12 @@ export function importPayload(payload, mode = 'merge') {
       added += 1;
     }
   }
+  /* The loop above checks each incoming title against the library, not
+     against the others arriving with it — a backup carrying the same film
+     twice put both in. */
+  const folded = collapseHere();
   saveNow();
-  return { added, merged, skipped: 0 };
+  return { added: added - folded, merged: merged + folded, skipped: 0 };
 }
 
 /* ── sync ──

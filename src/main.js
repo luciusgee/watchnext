@@ -199,6 +199,15 @@ async function boot() {
   initSettings({ navigate });
   initAdd({ navigate });
 
+  /* Said once, on the load that did it: seven titles quietly leaving a library
+     of five hundred looks like data loss unless something says why. */
+  const folded = store.takeCollapsed();
+  if (folded) {
+    toast(`Merged ${folded} duplicate ${folded === 1 ? 'title' : 'titles'} — each film is in your library once now`, {
+      duration: 6000,
+    });
+  }
+
   /* Android back / browser back closes the overlay before leaving the app. */
   window.addEventListener('popstate', () => {
     if (isDetailOpen()) {

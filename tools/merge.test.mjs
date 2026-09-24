@@ -6,7 +6,7 @@
  * back, an edit that gets overwritten by an older one, a film added on the
  * other phone that never arrives.
  */
-import { mergeLibraries, fingerprint, TOMBSTONE_DAYS } from '../src/merge.js';
+import { mergeLibraries, fingerprint, collapseDuplicates, TOMBSTONE_DAYS } from '../src/merge.js';
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -121,6 +121,60 @@ console.log('\n─── the fingerprint decides whether to spend a write ──
   const twice = mergeLibraries(once, b, NOW);
   check('merging is idempotent, so syncing settles instead of ping-ponging',
     fingerprint(once) === fingerprint(twice));
+}
+
+
+console.log('\n─── one film, two records ───');
+{
+  const film = (uid, addedAt, extra = {}) => ({
+    uid, title: 'Incendies', year: 2010, type: 'movie', imdbId: 'tt1255953', addedAt, updatedAt: addedAt,
+    watched: false, owned: false, quality: null, watchedBy: {}, locked: [], meta: { status: 'matched' }, ...extra,
+  });
+  const lib = {
+    items: [
+      film('b', 20, { title: 'Insendies', owned: true, meta: { status: 'skipped' } }),
+      film('a', 10, { quality: '1080p', watchedBy: { luke: 5 } }),
+      film('c', 30, { watched: true, watchedAt: 99, watchedBy: { partner: 7 } }),
+      { uid: 'z', title: 'Other', imdbId: 'tt0000001', type: 'movie', addedAt: 1, updatedAt: 1 },
+    ],
+    tombstones: [],
+  };
+  const r = collapseDuplicates(lib, NOW);
+  const kept = r.items.find((i) => i.imdbId === 'tt1255953');
+  check('three copies become one', r.items.filter((i) => i.imdbId === 'tt1255953').length === 1 && r.collapsed === 2);
+  check('the older, looked-up copy is the one kept — spelt properly', kept.uid === 'a' && kept.title === 'Incendies', kept.title);
+  check('every yes survives: watched, owned', kept.watched && kept.owned);
+  check('and who has seen it, from both copies', kept.watchedBy.luke === 5 && kept.watchedBy.partner === 7, JSON.stringify(kept.watchedBy));
+  check('what the survivor lacked is filled in, what it had is kept', kept.watchedAt === 99 && kept.quality === '1080p');
+  check('the survivor is stamped, so it wins on the other phone', kept.updatedAt === NOW);
+  check('the others are buried, so a sync deletes them there too',
+    ['b', 'c'].every((u) => r.tombstones.some((t) => t.uid === u && t.at === NOW)));
+  check('other films are untouched', r.items.some((i) => i.uid === 'z' && i.updatedAt === 1));
+  check('nothing to do returns the same object', collapseDuplicates({ items: [lib.items[3]] }, NOW).items.length === 1 &&
+    collapseDuplicates(r, NOW) === r);
+  check('a film and a series sharing an id are not merged',
+    collapseDuplicates({ items: [film('a', 1), film('b', 2, { type: 'tv' })] }, NOW).items.length === 2);
+  /* The old matcher's damage: two different films carrying one id. */
+  const wrongId = collapseDuplicates({ items: [
+    film('p', 1, { title: '28 Days Later', year: 2002, imdbId: 'tt0289879' }),
+    film('q', 2, { title: 'The Butterfly Effect', year: 2004, imdbId: 'tt0289879' }),
+  ] }, NOW);
+  check('two different films wrongly sharing an id are both kept', wrongId.items.length === 2);
+  check('nor are a film and its remake with the same id but years apart',
+    collapseDuplicates({ items: [film('p', 1, { year: 1982 }), film('q', 2, { year: 2011 })] }, NOW).items.length === 2);
+  check('records with no id are never guessed at',
+    collapseDuplicates({ items: [{ uid: 'p', title: 'Dune' }, { uid: 'q', title: 'Dune' }] }, NOW).items.length === 2);
+
+  /* Both phones add the same film before either syncs: two uids. */
+  const mine = { items: [film('m', 10, { owned: true })] };
+  const theirs = { items: [film('t', 12, { watched: true })] };
+  const once = mergeLibraries(mine, theirs, NOW);
+  check('the same film added on both phones merges into one', once.items.length === 1 && once.items[0].owned && once.items[0].watched);
+  const back = mergeLibraries(theirs, mine, NOW);
+  check('and both phones pick the same survivor', back.items[0].uid === once.items[0].uid);
+  check('and the result is canonical, so it can be written as-is', !('collapsed' in once));
+  const again = mergeLibraries(once, theirs, NOW + 1000);
+  check('after which syncing settles', fingerprint(again) === fingerprint(once), fingerprint(again));
 }
 
 console.log(`\n══════════  ${pass} passed, ${fail} failed  ══════════`);
