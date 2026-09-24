@@ -216,7 +216,18 @@ export async function findMatch(item, ctx) {
   /* Fast path: an id this matcher verified itself. An id lookup is exact —
      no fuzzy matching, no chance of drifting onto a different film. */
   if (item.meta?.status === 'matched' && item.meta?.sourceId) {
-    const held = await provider.details(item.meta.sourceId, item.type, ctx);
+    /* The id belongs to whichever database matched it. Someone who switched
+       from OMDb to TMDB holds OMDb ids ("tt…") that TMDB's /movie/{id} cannot
+       resolve, so every title would have paid for a full search again when
+       its record expired. The IMDb id is the same film on both, and verified
+       when it was matched, so it stands in. */
+    const sid = String(item.meta.sourceId);
+    const fits = provider.id === 'omdb' ? /^tt\d+$/.test(sid) : /^\d+$/.test(sid);
+    const held = fits
+      ? await provider.details(sid, item.type, ctx)
+      : item.imdbId && provider.byImdbId
+        ? await provider.byImdbId(item.imdbId, ctx)
+        : null;
     if (held) {
       return { status: 'matched', confidence: 1, chosen: held, candidates: [held], reasons: ['known id'] };
     }

@@ -210,6 +210,26 @@ const CATALOG = [
   check('and lands on the film the user chose, not the one it first guessed',
     resweep.id === 'tt0078748', String(resweep.id));
 
+  /* Switching database. The record holds an OMDb id ("tt…"), which TMDB's
+     /movie/{id} cannot resolve; the IMDb id is the same film on both. */
+  const switched = await page.evaluate(async (u) => {
+    const meta = await import('./src/metadata.js');
+    const store = await import('./src/store.js');
+    const calls = [];
+    const tmdb = {
+      id: 'tmdb',
+      details: async (sid) => { calls.push(`details ${sid}`); return null; },
+      byImdbId: async (id) => { calls.push(`find ${id}`); return { title: 'Alien', year: 1979, type: 'movie', imdbId: id, sourceId: '348' }; },
+      search: async () => { calls.push('search'); return []; },
+    };
+    const res = await meta.findMatch(store.byUid(u), { provider: tmdb, key: 'k', budget: new meta.RequestBudget(Infinity, 'tmdb') });
+    return { reason: res.reasons?.[0], id: res.chosen?.imdbId, calls };
+  }, uid);
+  check('after switching to TMDB, a title OMDb matched is found by its IMDb id',
+    switched.reason === 'known id' && switched.id === 'tt0078748', JSON.stringify(switched));
+  check('in one request, without searching its title again',
+    switched.calls.length === 1 && switched.calls[0] === 'find tt0078748', JSON.stringify(switched.calls));
+
   console.log('\n─── the choice survives a failed details fetch ───');
   const uid2 = await page.evaluate(async () => {
     const store = await import('./src/store.js');
