@@ -97,6 +97,11 @@ export function render() {
   };
   const pick = tonightPick(items, opts);
 
+  /* Spotlight first: what the two of you are deciding from, and where the
+     other person's comments turn up. Only when there is something in it. */
+  const spot = store.spotlit();
+  if (spot.length) body.appendChild(spotlightRail(spot));
+
   if (pick) {
     body.appendChild(heroBlock(pick));
     /* Only when there is a pick to be an alternative to. Offering "find
@@ -450,6 +455,39 @@ function rail(title, items, onSeeAll) {
      it was while giving the list its items. */
   for (const item of items) {
     list.appendChild(el('div', { role: 'listitem', style: 'display:contents' }, cardFor(item)));
+  }
+  sec.appendChild(list);
+  return sec;
+}
+
+function spotlightRail(items) {
+  const sec = el('section', { class: 'section spotlight' });
+  const head = el('div', { class: 'section-head' });
+  const title = el('h2', { class: 'eyebrow spotlight-eyebrow' });
+  title.appendChild(el('span', { html: icon('starFill', 13) }).firstChild);
+  title.appendChild(el('span', { text: 'Spotlight' }));
+  head.appendChild(title);
+  const unread = items.reduce((n, i) => n + store.unreadFor(i), 0);
+  if (unread) head.appendChild(el('span', { class: 'spotlight-new', text: `${unread} new` }));
+  sec.appendChild(head);
+  const list = el('div', { class: 'rail', role: 'list' });
+  for (const item of items) {
+    const card = cardFor(item);
+    const notes = store.notesFor(item).length;
+    const fresh = store.unreadFor(item);
+    const mine = item.spotlight.device === store.me().device;
+    const by = mine ? 'You' : item.spotlight.by || 'Them';
+    const sub = card.querySelector('.card-s');
+    /* One line, so every poster in the row sits level. */
+    sub.textContent = fresh
+      ? `${fresh} new`
+      : notes
+        ? `${notes} comment${notes === 1 ? '' : 's'}`
+        : mine
+          ? 'From you'
+          : `From ${by}`;
+    if (fresh) card.classList.add('has-unread');
+    list.appendChild(el('div', { role: 'listitem', style: 'display:contents' }, card));
   }
   sec.appendChild(list);
   return sec;

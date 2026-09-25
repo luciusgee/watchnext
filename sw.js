@@ -55,6 +55,10 @@ const SHELL = [
   './src/merge.js',
   './src/haptics.js',
   './src/swipeback.js',
+  './src/feed.js',
+  './src/screens/feed.js',
+  './src/screens/thread.js',
+  './src/notify.js',
   './src/providers/index.js',
   './src/providers/shared.js',
   './src/providers/omdb.js',
@@ -254,4 +258,44 @@ self.addEventListener('message', (event) => {
       })()
     );
   }
+});
+
+/* ── notifications ──
+   Sent by the GitHub Action in the sync repo (src/notify.js) when the other
+   phone comments or puts something in Spotlight. iOS revokes a subscription
+   whose push does not show a notification, so every push shows one, even if
+   the payload is unreadable. */
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : '' };
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Watch Next', {
+      body: data.body || '',
+      tag: data.tag || undefined,
+      icon: './assets/icon-192.png',
+      badge: './assets/icon-192.png',
+      data: { url: data.url || './' },
+    })
+  );
+});
+
+/* Open the app at the film — or, if it is already open, tell it to go
+   there. */
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url || './', self.registration.scope).href;
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const w of windows) {
+        w.postMessage({ type: 'open', url });
+        if ('focus' in w) return w.focus();
+      }
+      return self.clients.openWindow(url);
+    })()
+  );
 });

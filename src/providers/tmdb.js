@@ -62,6 +62,12 @@ function call(path, params, { key, budget, signal }) {
   });
 }
 
+/** A raw TMDB request, for the feed — which needs lists and credits the
+    matcher never asks for. Same key handling and budget as everything else. */
+export function tmdbGet(path, params, ctx) {
+  return call(path, params, ctx);
+}
+
 export function posterUrl(path, size = POSTER_SIZE) {
   if (!path) return null;
   return `${IMAGE_BASE}${size}${path.startsWith('/') ? path : '/' + path}`;
@@ -71,7 +77,7 @@ export function posterUrl(path, size = POSTER_SIZE) {
  * Map a search result or a details payload onto the neutral Record shape.
  * Handles both the movie and tv field spellings.
  */
-function toRecord(d, typeHint) {
+export function toRecord(d, typeHint) {
   if (!d) return null;
 
   const type =

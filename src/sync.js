@@ -197,6 +197,85 @@ async function failure(res) {
   return err;
 }
 
+/* ── other files in the repo ──
+   The library is one file; notifications need a few more beside it — each
+   phone's push address, the Action that sends them, and an outbox. Same
+   token, same repo. */
+
+function contentsUrl(path) {
+  const c = config();
+  return `${API}/repos/${c.repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+function headers(extra = {}) {
+  return {
+    accept: 'application/vnd.github+json',
+    authorization: `Bearer ${config().token}`,
+    'x-github-api-version': '2022-11-28',
+    ...extra,
+  };
+}
+
+/** Read a file in the sync repo: its text, or null when it is not there. */
+export async function readRepoFile(path) {
+  const res = await fetch(`${contentsUrl(path)}?ts=${Date.now()}`, { headers: headers(), cache: 'no-store' });
+  if (res.status === 404) return null;
+  if (!res.ok) throw await failure(res);
+  const body = await res.json();
+  return { text: decode(body.content || ''), sha: body.sha };
+}
+
+/**
+ * Create or replace a file in the sync repo. Leaves it alone if it already
+ * says exactly this — every write is a commit, and a commit can start an
+ * Action. Errors carry the HTTP status: a 403 on .github/workflows means the
+ * token lacks the Workflows permission.
+ */
+export async function putRepoFile(path, text, message) {
+  if (!config().repo || !config().token) throw Object.assign(new Error('Sync is not set up'), { code: 'nosync' });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const held = await readRepoFile(path);
+    if (held && held.text === text) return { changed: false };
+    const res = await fetch(contentsUrl(path), {
+      method: 'PUT',
+      headers: headers({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ message, content: encode(text), ...(held ? { sha: held.sha } : {}) }),
+    });
+    if (res.status === 409 || res.status === 422) continue;
+    if (!res.ok) throw await failure(res);
+    return { changed: true };
+  }
+  throw new Error('Kept colliding with the other phone.');
+}
+
+export async function deleteRepoFile(path, message) {
+  const held = await readRepoFile(path).catch(() => null);
+  if (!held) return false;
+  const res = await fetch(contentsUrl(path), {
+    method: 'DELETE',
+    headers: headers({ 'content-type': 'application/json' }),
+    body: JSON.stringify({ message, sha: held.sha }),
+  });
+  return res.ok;
+}
+
+/* What this phone has done that the other should hear about — a comment, a
+   Spotlight — goes up after the library, as a small outbox file whose commit
+   message carries [notify]. The Action in the repo runs on that and sends
+   the push; see notify.js. After the library, so the comment is already
+   there when the other phone opens to read it. */
+async function flushNotify() {
+  const events = store.pendingNotify();
+  if (!events.length) return;
+  const first = events[0].payload?.title || 'Watch Next';
+  await putRepoFile(
+    'notify/last.json',
+    JSON.stringify({ at: Date.now(), events }, null, 1),
+    `[notify] ${first}${events.length > 1 ? ` (+${events.length - 1})` : ''}`
+  );
+  store.clearNotify(events.length);
+}
+
 /* ── the loop ── */
 
 /**
@@ -225,11 +304,13 @@ export async function syncNow({ note = 'Update library' } = {}) {
       if (changedHere) store.applySync(merged);
 
       if (!changedThere) {
+        await flushNotify().catch(() => {});
         setStatus('idle', changedHere ? 'Updated from the other device' : '');
         return changedHere;
       }
 
       if (await writeRemote(merged, sha, note)) {
+        await flushNotify().catch(() => {});
         setStatus('idle', '');
         return true;
       }

@@ -2854,3 +2854,469 @@ body.is-typing .select-bar {
   color: var(--amber);
   border: 1px solid var(--amber-line);
 }
+
+/* ============================================================
+   feed — one film per screen (screens/feed.js)
+   ============================================================ */
+
+.feed-screen {
+  position: relative;
+  background: var(--ink);
+}
+.feed-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: scroll;
+  overscroll-behavior-y: contain;
+  /* One film per flick: mandatory snapping, and a stop on every card so a
+     hard flick cannot sail past five of them. */
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.feed-scroll::-webkit-scrollbar {
+  display: none;
+}
+.feed-card {
+  position: relative;
+  height: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: var(--surface);
+}
+.feed-art {
+  position: absolute;
+  inset: 0;
+}
+.feed-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  display: block;
+}
+/* Dark enough under the words to read them on any poster, clear enough at
+   the top to see the poster. */
+.feed-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(11, 10, 9, 0.55) 0%,
+    rgba(11, 10, 9, 0) 16%,
+    rgba(11, 10, 9, 0) 36%,
+    rgba(11, 10, 9, 0.78) 62%,
+    rgba(11, 10, 9, 0.96) 82%,
+    var(--ink) 100%
+  );
+  pointer-events: none;
+}
+.feed-body {
+  position: relative;
+  padding: 0 84px var(--s5) var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.feed-meta {
+  font-size: var(--t-meta);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--silver);
+}
+.feed-title {
+  font-size: 28px;
+  line-height: 1.12;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--bone);
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.5);
+}
+.feed-tagline:empty,
+.feed-genres:empty,
+.feed-credits:empty {
+  display: none;
+}
+.feed-tagline {
+  font-size: var(--t-sub);
+  font-style: italic;
+  color: var(--silver);
+}
+.feed-genres {
+  font-size: var(--t-meta);
+  font-weight: 600;
+  color: var(--amber);
+}
+.feed-overview {
+  font-size: var(--t-sub);
+  line-height: 1.5;
+  color: var(--bone);
+  opacity: 0.92;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+}
+/* Tap the synopsis for all of it. */
+.feed-overview.is-open {
+  -webkit-line-clamp: unset;
+  display: block;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.feed-credits {
+  font-size: var(--t-meta);
+  line-height: 1.5;
+  color: var(--ash);
+}
+.feed-imdb {
+  display: inline-block;
+  margin-left: var(--s2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #f5c518;
+  color: #000;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  vertical-align: 1px;
+}
+
+.feed-rail {
+  position: absolute;
+  right: 10px;
+  bottom: var(--s6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  align-items: center;
+}
+.feed-act {
+  width: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--bone);
+}
+.feed-act[hidden] {
+  display: none;
+}
+.feed-act-icon {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(11, 10, 9, 0.5);
+  border: 1px solid rgba(247, 244, 239, 0.14);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  transition: transform var(--fast) var(--ease), background var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+}
+.feed-act:active .feed-act-icon {
+  transform: scale(0.9);
+}
+.feed-act-label {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+.feed-act.is-on .feed-act-icon {
+  color: var(--amber);
+  border-color: var(--amber-line);
+  background: rgba(11, 10, 9, 0.62);
+}
+.feed-act[data-act='add'].is-on .feed-act-icon {
+  color: var(--sage);
+  border-color: rgba(143, 188, 155, 0.35);
+}
+.feed-act.has-unread .feed-act-icon {
+  position: relative;
+}
+.feed-act.has-unread .feed-act-icon::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+
+.feed-filters {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  gap: var(--s2);
+  overflow-x: auto;
+  padding: var(--s3) var(--s4) var(--s5);
+  background: linear-gradient(to bottom, rgba(11, 10, 9, 0.7), rgba(11, 10, 9, 0));
+  scrollbar-width: none;
+}
+.feed-filters::-webkit-scrollbar {
+  display: none;
+}
+.feed-filter {
+  flex: none;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 17px;
+  font-size: var(--t-sub);
+  font-weight: 600;
+  color: var(--bone);
+  background: rgba(11, 10, 9, 0.42);
+  border: 1px solid rgba(247, 244, 239, 0.16);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  white-space: nowrap;
+}
+.feed-filter[aria-pressed='true'] {
+  background: var(--bone);
+  color: var(--ink);
+  border-color: var(--bone);
+}
+
+.feed-note {
+  justify-content: center;
+  align-items: center;
+  background: var(--ink);
+}
+.feed-loading {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--hairline-strong);
+  border-top-color: var(--amber);
+  animation: feedSpin 0.8s linear infinite;
+}
+@keyframes feedSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* The double-tap star. */
+.feed-burst {
+  position: absolute;
+  z-index: 3;
+  color: var(--amber);
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.4);
+  animation: feedBurst 700ms var(--ease) forwards;
+  filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.5));
+}
+@keyframes feedBurst {
+  25% {
+    transform: translate(-50%, -50%) scale(1.15);
+    opacity: 1;
+  }
+  60% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -70%) scale(1);
+    opacity: 0;
+  }
+}
+
+/* ============================================================
+   comments (screens/thread.js)
+   ============================================================ */
+
+.thread-sheet {
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+}
+.thread-head {
+  display: flex;
+  gap: var(--s3);
+  align-items: center;
+  padding: 0 var(--s4) var(--s3);
+  border-bottom: 1px solid var(--hairline);
+}
+.thread-sub {
+  font-size: var(--t-meta);
+  color: var(--ash);
+  margin-top: 2px;
+}
+.thread-list {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  padding: var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.thread-empty {
+  margin: auto 0;
+  text-align: center;
+  font-size: var(--t-sub);
+  line-height: 1.5;
+  color: var(--ash);
+  padding: var(--s4);
+}
+.note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 84%;
+}
+.note.is-own {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.note-bubble {
+  padding: 9px 13px;
+  border-radius: 16px 16px 16px 5px;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  font-size: var(--t-body);
+  line-height: 1.4;
+  color: var(--bone);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.note.is-own .note-bubble {
+  border-radius: 16px 16px 5px 16px;
+  background: var(--amber-dim);
+  border-color: var(--amber-line);
+}
+.note-meta {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+  margin-top: 4px;
+  font-size: var(--t-micro);
+  color: var(--ash);
+}
+.note-delete {
+  font-size: var(--t-micro);
+  color: var(--ash);
+  text-decoration: underline;
+  min-height: 24px;
+  padding: 0 4px;
+}
+.thread-compose {
+  padding: var(--s3) var(--s4) calc(var(--s3) + max(var(--sb), var(--sb-floor, 0px)));
+  border-top: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.thread-name-hint {
+  font-size: var(--t-meta);
+  color: var(--ash);
+}
+.thread-compose-row {
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-end;
+}
+.thread-input {
+  flex: 1;
+  min-height: 44px;
+  max-height: 120px;
+  resize: none;
+  line-height: 1.4;
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+.thread-send {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--amber);
+  color: var(--ink);
+}
+.thread-send:disabled {
+  background: var(--raised);
+  color: var(--faint);
+}
+
+/* ── Spotlight (Tonight's rail, a film's page) ── */
+.spotlight-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--amber);
+}
+.spotlight-new {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--amber);
+  border-radius: 9px;
+  padding: 2px 8px;
+}
+.card.has-unread .poster {
+  box-shadow: 0 0 0 2px var(--amber);
+}
+.card.has-unread .card-s {
+  color: var(--amber);
+  font-weight: 600;
+}
+.detail-spot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin: 0 0 var(--s5);
+}
+.detail-spot-note {
+  font-size: var(--t-meta);
+  color: var(--ash);
+}
+.detail-spot-last {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  padding: var(--s3);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+}
+.detail-spot-who {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  color: var(--ash);
+}
+.detail-spot-text {
+  font-size: var(--t-sub);
+  line-height: 1.45;
+  color: var(--bone);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.detail-spot .detail-actions {
+  margin-bottom: 0;
+}
+.notify-trouble {
+  margin: 0 0 var(--s3);
+  padding: var(--s3);
+  border-radius: var(--r-md);
+  background: var(--amber-dim);
+  border: 1px solid var(--amber-line);
+}

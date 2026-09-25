@@ -192,7 +192,7 @@ const LEGACY_ACTIVITY = [{ type:'watched', title:'Hokum', at: 1730000000000 }];
     rendered: document.querySelectorAll('#screen-tonight [data-region="body"] *').length,
   }));
   check('and the app boots and renders on top of it',
-    usable.tabs === 4 && usable.rendered > 0, JSON.stringify(usable));
+    usable.tabs === 5 && usable.rendered > 0, JSON.stringify(usable));
 
   console.log(`\n══════════  ${pass} passed, ${fail} failed  ══════════`);
   if (F.length) { console.log('\nFailures:'); F.forEach(f=>console.log('  · '+f)); }

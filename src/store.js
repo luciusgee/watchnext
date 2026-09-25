@@ -89,6 +89,10 @@ export function makeItem(partial = {}) {
     updatedAt: partial.updatedAt ?? partial.addedAt ?? Date.now(),
     locked: partial.locked || [],
     meta: partial.meta || { v: 0, status: 'pending', at: null, confidence: null },
+    /* In the shared shortlist — "this weekend" — and who put it there:
+       { at, by, device }, or null. Declared here, like every field, so a
+       backup read through makeItem keeps it. */
+    spotlight: partial.spotlight && typeof partial.spotlight === 'object' ? partial.spotlight : null,
   };
 }
 
@@ -122,8 +126,22 @@ function emptyState() {
        device has never heard of look identical without this, so a sync would
        hand back everything the other person threw away. Pruned in merge.js. */
     tombstones: [],
+    /* Comments on films, shared through sync: { id, uid, film, text, by,
+       device, at }. Kept apart from the items because two phones commenting
+       on the same film at once would otherwise overwrite each other — items
+       merge last-write-wins, notes merge as a union. */
+    notes: [],
     settings: {
+      /* What this phone's comments are signed with. Per phone, never synced. */
       name: '',
+      /* Which phone a comment or a Spotlight came from, so the other one
+         knows it is news. Made on first load. */
+      deviceId: '',
+      /* uid -> when this phone last read that film's comments. */
+      threadSeen: {},
+      /* Things this phone did that the other phone should hear about, waiting
+         for the next sync to carry them. See sync.js and notify.js. */
+      pendingNotify: [],
       provider: 'tmdb',
       dataKeys: {},      // { tmdb: '…', omdb: '…' } — one per source
       keyStatus: {},     // { omdb: { ok, message, at } } — did the key actually answer?
@@ -282,6 +300,12 @@ function migrate(s) {
   /* Added with sync. Absent on every state saved before it, and read on every
      merge, so it is defaulted here rather than guarded at each use. */
   if (!Array.isArray(s.tombstones)) s.tombstones = [];
+  if (!Array.isArray(s.notes)) s.notes = [];
+  if (s.settings) {
+    if (!s.settings.deviceId) s.settings.deviceId = 'd' + uid();
+    if (!s.settings.threadSeen || typeof s.settings.threadSeen !== 'object') s.settings.threadSeen = {};
+    if (!Array.isArray(s.settings.pendingNotify)) s.settings.pendingNotify = [];
+  }
 
   /* Titles pasted from a bulleted list kept the bullet — "•\tThe Power" was
      stored, displayed and exported that way. Repaired on every load rather
@@ -638,6 +662,7 @@ export function exportPayload() {
     exportedAt: new Date().toISOString(),
     items: state.items,
     activity: state.activity,
+    notes: state.notes || [],
     /* API keys are deliberately excluded — a backup file should never
        carry a secret the user may share or sync to cloud storage. */
     settings: {
@@ -691,6 +716,7 @@ export function importPayload(payload, mode = 'merge') {
     }
     state.items = incoming;
     state.activity = Array.isArray(payload.activity) ? payload.activity : [];
+    takeNotes(payload.notes);
     /* Put back the settings the backup actually carries. exportPayload has
        always written these and nothing ever read them, so a full restore
        silently dropped your name and your list/grid choice.
@@ -749,6 +775,7 @@ export function importPayload(payload, mode = 'merge') {
       added += 1;
     }
   }
+  takeNotes(payload.notes);
   /* The loop above checks each incoming title against the library, not
      against the others arriving with it — a backup carrying the same film
      twice put both in. */
@@ -840,6 +867,7 @@ export function syncSnapshot() {
     items: state.items,
     tombstones: Array.isArray(state.tombstones) ? state.tombstones : [],
     people: Array.isArray(state.settings.people) ? state.settings.people : [],
+    notes: Array.isArray(state.notes) ? state.notes : [],
   };
 }
 
@@ -854,6 +882,7 @@ export function applySync(snapshot) {
   if (!snapshot || !Array.isArray(snapshot.items)) return false;
   state.items = snapshot.items;
   state.tombstones = Array.isArray(snapshot.tombstones) ? snapshot.tombstones : [];
+  if (Array.isArray(snapshot.notes)) state.notes = snapshot.notes;
   if (Array.isArray(snapshot.people)) {
     state.settings.people = snapshot.people;
     /* The person this phone was answering for may have been removed on the
@@ -866,6 +895,154 @@ export function applySync(snapshot) {
   saveNow();
   emit('item');
   return true;
+}
+
+/* ── comments and Spotlight ── */
+
+/* Comments from a file: added if new, never duplicated, never trusted
+   further than their shape. */
+function takeNotes(list) {
+  if (!Array.isArray(list)) return;
+  const have = new Set(state.notes.map((n) => n.id));
+  for (const n of list) {
+    if (!n || typeof n.id !== 'string' || typeof n.text !== 'string' || have.has(n.id)) continue;
+    state.notes.push({
+      id: n.id,
+      uid: String(n.uid || ''),
+      film: typeof n.film === 'string' ? n.film : null,
+      text: n.text.slice(0, 2000),
+      by: typeof n.by === 'string' ? n.by.slice(0, 40) : '',
+      device: typeof n.device === 'string' ? n.device : '',
+      at: Number(n.at) || 0,
+    });
+    have.add(n.id);
+  }
+}
+
+export function me() {
+  return { name: state.settings.name || '', device: state.settings.deviceId || '' };
+}
+
+export function setName(name) {
+  state.settings.name = String(name || '').trim().slice(0, 40);
+  saveNow();
+}
+
+/* A film's comments follow it by IMDb id as well as by uid: the same film
+   added separately on each phone has two uids until the duplicates fold, and
+   a comment must not go missing in between. */
+export function notesFor(item) {
+  if (!item) return [];
+  const key = item.imdbId || null;
+  return (state.notes || [])
+    .filter((n) => n.uid === item.uid || (key && n.film === key))
+    .sort((a, b) => a.at - b.at);
+}
+
+/** Comments from the other phone this phone has not opened yet. */
+export function unreadFor(item) {
+  const seen = state.settings.threadSeen?.[item.uid] || 0;
+  const mine = state.settings.deviceId;
+  return notesFor(item).filter((n) => n.device !== mine && n.at > seen).length;
+}
+
+export function unreadTotal() {
+  return (state.items || []).reduce((sum, i) => sum + unreadFor(i), 0);
+}
+
+export function markThreadSeen(uidValue) {
+  state.settings.threadSeen = { ...(state.settings.threadSeen || {}), [uidValue]: Date.now() };
+  save();
+}
+
+/* Something the other phone should hear about, worded here — where the
+   film and the name are known — so the thing that sends it (a GitHub Action
+   in the private repo, see notify.js) only has to pass it on. Carried by the
+   next sync; see sync.js. */
+function queueNotify(kind, item, text = '') {
+  const who = state.settings.name || 'Someone';
+  const payload =
+    kind === 'comment'
+      ? { title: `${who} on ${item.title}`, body: text.length > 180 ? text.slice(0, 177) + '…' : text, url: `./#thread=${item.uid}`, tag: `thread-${item.uid}` }
+      : kind === 'spotlight'
+        ? { title: `${who} put ${item.title} in Spotlight`, body: 'Have a look — it is on Tonight.', url: `./#film=${item.uid}`, tag: `spot-${item.uid}` }
+        : { title: 'Watch Next', body: 'Notifications are working on this phone.', url: './', tag: 'test' };
+  const q = Array.isArray(state.settings.pendingNotify) ? state.settings.pendingNotify : [];
+  q.push({ kind, from: state.settings.deviceId, includeSelf: kind === 'test', at: Date.now(), payload });
+  state.settings.pendingNotify = q.slice(-10);
+}
+
+/** A notification to this phone as well as the other, to prove the path. */
+export function queueTestNotify() {
+  queueNotify('test', null);
+  saveNow();
+}
+
+export function pendingNotify() {
+  return (state.settings.pendingNotify || []).slice();
+}
+
+/** The first `count` have been carried; drop them. */
+export function clearNotify(count) {
+  state.settings.pendingNotify = (state.settings.pendingNotify || []).slice(count);
+  /* Now, not on the save timer: an app closed in between would send the
+     same notification again on its next launch. */
+  saveNow();
+}
+
+/**
+ * Comment on a film. Anything talked about joins Spotlight — the list the
+ * two of you are deciding from — so a comment on a film nobody starred still
+ * lands where the other person will see it.
+ */
+export function addNote(uidValue, text) {
+  const item = byUid(uidValue);
+  const body = String(text || '').trim().slice(0, 2000);
+  if (!item || !body) return null;
+  const note = {
+    id: 'n' + uid(),
+    uid: item.uid,
+    film: item.imdbId || null,
+    text: body,
+    by: state.settings.name || '',
+    device: state.settings.deviceId || '',
+    at: Date.now(),
+  };
+  state.notes.push(note);
+  if (!item.spotlight) {
+    update(item.uid, { spotlight: { at: Date.now(), by: state.settings.name || '', device: state.settings.deviceId } });
+  }
+  state.settings.threadSeen = { ...(state.settings.threadSeen || {}), [item.uid]: Date.now() };
+  queueNotify('comment', item, body);
+  saveNow();
+  return note;
+}
+
+export function removeNote(id) {
+  const idx = (state.notes || []).findIndex((n) => n.id === id);
+  if (idx < 0) return false;
+  state.notes.splice(idx, 1);
+  bury(id);
+  saveNow();
+  return true;
+}
+
+export function setSpotlight(uidValue, on) {
+  const item = byUid(uidValue);
+  if (!item) return null;
+  const next = update(uidValue, {
+    spotlight: on ? { at: Date.now(), by: state.settings.name || '', device: state.settings.deviceId } : null,
+  });
+  if (on) queueNotify('spotlight', item);
+  saveNow();
+  return next;
+}
+
+/** The shortlist: starred and not yet watched, newest first. */
+export function spotlit() {
+  return (state.items || [])
+    .filter((i) => i.spotlight && !i.watched)
+    .sort((a, b) => (b.spotlight.at || 0) - (a.spotlight.at || 0));
 }
 
 /* ── derived selectors ── */

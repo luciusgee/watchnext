@@ -82,6 +82,16 @@ export function mergeLibraries(mine, theirs, now = Date.now()) {
     }
   }
 
+  /* Comments never change once written, so two copies of one are the same
+     comment, and a union loses nothing. A deleted one has a tombstone like a
+     deleted film, and a tombstone always wins: there is no later version of a
+     comment that could mean it came back. */
+  const notes = new Map();
+  for (const n of [...(mine.notes || []), ...(theirs.notes || [])]) {
+    if (n?.id && !notes.has(n.id)) notes.set(n.id, n);
+  }
+  for (const id of graves.keys()) notes.delete(id);
+
   /* A tombstone only has to outlive the slowest device. Past that it is just
      weight in a file both phones download. */
   const cutoff = now - TOMBSTONE_DAYS * 24 * 3600 * 1000;
@@ -105,6 +115,7 @@ export function mergeLibraries(mine, theirs, now = Date.now()) {
       items: [...items.values()].sort((a, b) => String(a.uid).localeCompare(String(b.uid))),
       tombstones,
       people: [...people.values()],
+      notes: [...notes.values()].sort((a, b) => (a.at || 0) - (b.at || 0) || String(a.id).localeCompare(String(b.id))),
     },
     now
   );
@@ -112,6 +123,7 @@ export function mergeLibraries(mine, theirs, now = Date.now()) {
     items: out.items,
     tombstones: [...out.tombstones].sort((a, b) => a.uid.localeCompare(b.uid)),
     people: out.people,
+    notes: out.notes,
   };
 }
 
@@ -136,7 +148,11 @@ export function fingerprint(snapshot = {}) {
     .filter((p) => p?.id)
     .map((p) => p.id)
     .sort();
-  return JSON.stringify({ items, graves, people });
+  const notes = [...(snapshot.notes || [])]
+    .filter((n) => n?.id)
+    .map((n) => n.id)
+    .sort();
+  return JSON.stringify({ items, graves, people, notes });
 }
 
 /* ── duplicates ──

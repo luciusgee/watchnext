@@ -30,6 +30,7 @@ import { openMatchPicker } from './match.js';
 import { runtime, relativeTime, plural } from '../format.js';
 import { MODELS, currentModel } from '../ai.js';
 import * as sync from '../sync.js';
+import * as notify from '../notify.js';
 import * as haptics from '../haptics.js';
 
 let root = null;
@@ -115,6 +116,9 @@ export function showSettings(params = {}) {
   render();
   if (params.focus === 'ai') {
     root.querySelector('#ai-key')?.focus();
+  } else if (params.focus === 'data') {
+    /* From the feed, which needs a TMDB key: straight to the box it goes in. */
+    root.querySelector('#data-key')?.scrollIntoView({ block: 'center' });
   } else if (params.focus === 'review') {
     openReviewQueue();
   } else if (params.focus === 'sweep') {
@@ -1664,7 +1668,147 @@ function deviceGroup() {
   });
   row.appendChild(sw);
   g.appendChild(row);
+  g.appendChild(nameRow());
+  g.appendChild(notifyRow());
   return g;
+}
+
+/* What this phone's comments are signed with. */
+function nameRow() {
+  const pad = el('div', { class: 'group-pad' });
+  pad.appendChild(el('label', { class: 'field-label', for: 'my-name', text: 'Your name' }));
+  const input = el('input', {
+    id: 'my-name',
+    class: 'input',
+    type: 'text',
+    value: store.me().name,
+    placeholder: 'Your name',
+    autocomplete: 'given-name',
+    autocapitalize: 'words',
+    maxlength: '40',
+    enterkeyhint: 'done',
+  });
+  const save = () => {
+    if (input.value.trim() === store.me().name) return;
+    store.setName(input.value);
+    toast('Saved');
+  };
+  input.addEventListener('change', save);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') input.blur();
+  });
+  pad.appendChild(input);
+  pad.appendChild(hint('On your comments, so the other phone knows who wrote them.'));
+  return pad;
+}
+
+/* The last thing that went wrong turning notifications on, kept across the
+   re-render that follows it. */
+let notifyTrouble = null;
+
+function notifyRow() {
+  const pad = el('div', { class: 'group-pad', 'data-region': 'notify' });
+  const head = el('div', { style: 'display:flex;gap:var(--s3);align-items:center;margin-bottom:var(--s2)' });
+  head.appendChild(el('span', { html: icon('bell', 20) }).firstChild);
+  head.appendChild(el('div', { class: 'group-item-t', text: 'Notifications' }));
+  pad.appendChild(head);
+
+  const st = notify.state();
+  const push = store.settings().push || {};
+  const say = (text, colour = 'ash') => pad.appendChild(hint(text, `color:var(--${colour});margin:0 0 var(--s3)`));
+  const controls = el('div', { style: 'display:flex;gap:var(--s2);flex-wrap:wrap' });
+
+  if (st === 'home-screen') {
+    say('Open Watch Next from its Home Screen icon to turn these on. A Safari tab cannot receive them.');
+  } else if (st === 'unsupported') {
+    say('This phone cannot receive them. They need iOS 16.4 or later.');
+  } else if (st === 'no-sync') {
+    say('Turn on Sync first, above — notifications travel through your repo.');
+  } else if (st === 'denied') {
+    say('Turned off for Watch Next in the iPhone’s Settings → Notifications. Turn them on there, then come back.');
+  } else if (st === 'off') {
+    say('A buzz on this phone when the other one comments on a film or puts it in Spotlight.');
+    notify.prepare();
+    controls.appendChild(
+      button('Turn on', {
+        kind: 'primary',
+        size: 'sm',
+        iconName: 'bell',
+        onClick: async () => {
+          const r = await notify.enable();
+          notifyTrouble = r.ok ? null : r;
+          if (r.ok) toast('Notifications are on');
+          render();
+        },
+      })
+    );
+  } else {
+    say(
+      push.sender
+        ? 'On. You will hear when the other phone comments on a film or puts it in Spotlight.'
+        : 'On for this phone — one step left to finish, below.',
+      push.sender ? 'sage' : 'amber'
+    );
+    if (push.sender) {
+      controls.appendChild(
+        button('Send a test', {
+          kind: 'secondary',
+          size: 'sm',
+          onClick: async () => {
+            await notify.test();
+            toast('Sent — it should arrive in under a minute');
+          },
+        })
+      );
+    }
+    controls.appendChild(
+      button('Turn off', {
+        kind: 'quiet',
+        size: 'sm',
+        onClick: async () => {
+          await notify.disable();
+          notifyTrouble = null;
+          render();
+        },
+      })
+    );
+  }
+
+  /* The step GitHub turned down, and exactly what to do about it. */
+  const trouble = notifyTrouble || (st === 'on' && !push.sender ? { step: 'workflow' } : null);
+  if (trouble && (st === 'on' || st === 'off')) {
+    const box = el('div', { class: 'notify-trouble' });
+    if (trouble.step === 'workflow') {
+      box.appendChild(el('div', { class: 'group-item-t', style: 'font-size:var(--t-sub)', text: 'One more permission for your token' }));
+      box.appendChild(
+        hint(
+          'The notifier is a small GitHub Action in your private repo, and adding it needs one extra tick on the token: ' +
+            'github.com → Settings → Developer settings → Fine-grained tokens → your Watch Next token → Edit → ' +
+            'Repository permissions → Workflows → Read and write → Update. Then tap Finish setting up.',
+          'margin:var(--s1) 0 var(--s3)'
+        )
+      );
+      box.appendChild(
+        button('Finish setting up', {
+          kind: 'primary',
+          size: 'sm',
+          onClick: async () => {
+            const r = await notify.installSender();
+            notifyTrouble = r.ok ? null : r;
+            toast(r.ok ? 'All set — notifications are on' : 'GitHub still said no — check the Workflows permission');
+            render();
+          },
+        })
+      );
+    } else if (trouble.step === 'permission') {
+      box.appendChild(hint('The iPhone said no. Turn notifications on for Watch Next in Settings → Notifications, then try again.'));
+    } else {
+      box.appendChild(hint(`That did not work: ${trouble.error || 'something went wrong'}. Try again in a moment.`));
+    }
+    pad.appendChild(box);
+  }
+  if (controls.childElementCount) pad.appendChild(controls);
+  return pad;
 }
 
 function settingsRow(iconName, title, sub, onClick, danger = false) {

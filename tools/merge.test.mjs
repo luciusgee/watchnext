@@ -177,6 +177,26 @@ console.log('\n─── one film, two records ───');
   check('after which syncing settles', fingerprint(again) === fingerprint(once), fingerprint(again));
 }
 
+
+console.log('\n─── comments ───');
+{
+  const n = (id, at, text = id) => ({ id, uid: 'a', film: 'tt1', text, by: 'x', device: 'd', at });
+  const mine = { items: [item('a', 10)], notes: [n('n1', 1), n('n2', 2)] };
+  const theirs = { items: [item('a', 10)], notes: [n('n2', 2), n('n3', 3)] };
+  const r = mergeLibraries(mine, theirs, NOW);
+  check('comments from both phones are all kept, once each', r.notes.map((x) => x.id).join(',') === 'n1,n2,n3', r.notes.map((x) => x.id).join(','));
+  check('in the order they were written', r.notes.every((x, i, a) => !i || a[i - 1].at <= x.at));
+  const deleted = mergeLibraries({ ...mine, notes: [n('n1', 1)], tombstones: [{ uid: 'n2', at: NOW - 1000 }] }, theirs, NOW);
+  check('a deleted comment stays deleted when the other phone still has it', !deleted.notes.some((x) => x.id === 'n2'), deleted.notes.map((x) => x.id).join(','));
+  check('and its tombstone is kept to tell the next phone', deleted.tombstones.some((t) => t.uid === 'n2'));
+  const a1 = mergeLibraries(mine, theirs, NOW);
+  const a2 = mergeLibraries(a1, theirs, NOW);
+  check('merging comments settles', fingerprint(a1) === fingerprint(a2));
+  check('a new comment is a change worth syncing', fingerprint(mine) !== fingerprint({ ...mine, notes: [...mine.notes, n('n9', 9)] }));
+  const old = mergeLibraries({ items: [item('a', 10)] }, theirs, NOW);
+  check('a phone that has never seen a comment takes them all', old.notes.length === 2);
+}
+
 console.log(`\n══════════  ${pass} passed, ${fail} failed  ══════════`);
 if (failures.length) { console.log('\nFailures:'); failures.forEach((f) => console.log('  · ' + f)); }
 process.exit(fail ? 1 : 0);

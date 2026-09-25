@@ -14,10 +14,13 @@ import * as haptics from './haptics.js';
 import { el, toast } from './ui.js';
 import { initSwipeBack, cancelSwipe } from './swipeback.js';
 
-import { initDetail, closeDetail, isDetailOpen, detailDepth } from './screens/detail.js';
+import { initDetail, openDetail, closeDetail, isDetailOpen, detailDepth } from './screens/detail.js';
+import { openThread } from './screens/thread.js';
+import { paintBadge } from './notify.js';
 import { initTonight, showTonight } from './screens/tonight.js';
 import { initLibrary, showLibrary } from './screens/library.js';
 import { initDiscover, showDiscover } from './screens/discover.js';
+import { initFeed, showFeed } from './screens/feed.js';
 import { initAsk, showAsk } from './screens/ask.js';
 import { initPick, showPick } from './screens/pick.js';
 import { initStats, showStats } from './screens/stats.js';
@@ -28,6 +31,7 @@ import { initAdd, showAdd } from './screens/add.js';
 
 const TABS = [
   { id: 'tonight', label: 'Tonight', icon: 'tonight' },
+  { id: 'feed', label: 'Feed', icon: 'feed' },
   { id: 'discover', label: 'Discover', icon: 'discover' },
   { id: 'library', label: 'Library', icon: 'library' },
   { id: 'ask', label: 'Ask', icon: 'ask' },
@@ -35,6 +39,7 @@ const TABS = [
 
 const SHOW = {
   tonight: showTonight,
+  feed: showFeed,
   discover: showDiscover,
   library: showLibrary,
   ask: showAsk,
@@ -250,6 +255,7 @@ async function boot() {
   initTonight({ navigate });
   initLibrary({ navigate });
   initDiscover({ navigate });
+  initFeed({ navigate });
   initAsk({ navigate });
   initPick({ navigate });
   initStats({ navigate });
@@ -285,6 +291,8 @@ async function boot() {
   /* A shared shelf arrives as a fragment, not a screen name, so it is checked
      before the hash is treated as routing — otherwise `#l=1.…` looks like a
      request for a screen called "l=1.…" and silently does nothing. */
+  /* A notification opens the app at a film — see openFromLink. */
+  const link = /^#(film|thread)=/.test(location.hash) ? location.hash : null;
   if (isSharedShelf(location.hash)) {
     navigate('shelf');
   } else {
@@ -298,6 +306,16 @@ async function boot() {
   /* After the screens exist: adopting the other phone's changes emits 'item',
      and the handlers for that are wired up in the init calls above. */
   startSync();
+  if (link) openFromLink(link);
+  /* Tapped while the app was already open: the service worker says where. */
+  navigator.serviceWorker?.addEventListener('message', (e) => {
+    if (e.data?.type === 'open') openFromLink(new URL(e.data.url, location.href).hash);
+  });
+  /* Unread comments from the other phone, on the app icon. */
+  paintBadge();
+  store.subscribe((reason) => {
+    if (reason === 'item') paintBadge();
+  });
   clearRetiredKeys();
   applyHomeIndicatorFloor();
   /* Before syncViewport: it decides whether the blank-and-reflow fallback is
@@ -305,6 +323,32 @@ async function boot() {
   measureShortfall();
   syncViewport();
   blockZoom();
+}
+
+/**
+ * Open a film from a notification: #film=<uid> for a Spotlight, #thread=<uid>
+ * for a comment, which opens the comments too. The notification can arrive
+ * before this phone's sync has pulled the film in, so if it is not here yet,
+ * wait — briefly — for the sync to bring it.
+ */
+function openFromLink(hash) {
+  const m = /^#(film|thread)=([\w-]+)/.exec(hash || '');
+  if (!m) return false;
+  const [, kind, uid] = m;
+  history.replaceState(null, '', `${location.pathname}${location.search}#${current}`);
+  const go = () => {
+    if (!store.byUid(uid)) return false;
+    openDetail(uid);
+    if (kind === 'thread') openThread(uid);
+    return true;
+  };
+  if (!go()) {
+    const stop = store.subscribe((reason) => {
+      if (reason === 'item' && go()) stop();
+    });
+    setTimeout(stop, 20000);
+  }
+  return true;
 }
 
 /**

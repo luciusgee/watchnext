@@ -23,6 +23,7 @@ import {
 } from '../format.js';
 import { similarTo } from '../recommend.js';
 import { openMatchPicker } from './match.js';
+import { openThread } from './thread.js';
 /* A cycle (tonight imports this module too), and a safe one: neither uses the
    other at load time, only when something is rendered. */
 import { cardFor } from './tonight.js';
@@ -134,6 +135,50 @@ export function closeDetail({ swiped = false } = {}) {
   lastFocus = null;
 }
 
+/* Spotlight and the comments: the shortlist the two of you are deciding
+   from, and what you have said about this one. The last comment is shown
+   here so the thread does not have to be opened to know what it says. */
+function spotlightBlock(item) {
+  const box = el('section', { class: 'detail-spot' });
+  /* The same pair layout as Mark watched / I own this just above. */
+  const row = el('div', { class: 'detail-actions' });
+  const on = !!item.spotlight;
+  row.appendChild(
+    button(on ? 'In Spotlight' : 'Spotlight', {
+      kind: on ? 'on-amber' : 'secondary',
+      iconName: on ? 'starFill' : 'star',
+      onClick: () => {
+        store.setSpotlight(item.uid, !on);
+        store.emit('item');
+        if (!on) toast(`${item.title} is in Spotlight`);
+      },
+    })
+  );
+  const notes = store.notesFor(item);
+  const unread = store.unreadFor(item);
+  const talk = button(notes.length ? `Comments · ${notes.length}` : 'Comment', {
+    kind: unread ? 'on-amber' : 'secondary',
+    iconName: 'comment',
+    onClick: () => openThread(item.uid),
+  });
+  row.appendChild(talk);
+  box.appendChild(row);
+
+  if (on) {
+    const by = item.spotlight.device === store.me().device ? 'you' : item.spotlight.by || 'them';
+    box.appendChild(el('div', { class: 'detail-spot-note', text: `In Spotlight since ${relativeTime(item.spotlight.at)}, from ${by}.` }));
+  }
+  const last = notes[notes.length - 1];
+  if (last) {
+    const own = last.device === store.me().device;
+    const quote = el('button', { class: 'detail-spot-last', type: 'button', onclick: () => openThread(item.uid) });
+    quote.appendChild(el('span', { class: 'detail-spot-who', text: `${own ? 'You' : last.by || 'Them'} · ${relativeTime(last.at)}` }));
+    quote.appendChild(el('span', { class: 'detail-spot-text', text: last.text }));
+    box.appendChild(quote);
+  }
+  return box;
+}
+
 /** How many films deep the overlay is: 0 when Back leaves it. */
 export function detailDepth() {
   return historyStack.length;
@@ -207,6 +252,7 @@ function render(item) {
     })
   );
   body.appendChild(acts);
+  body.appendChild(spotlightBlock(item));
 
   /* external links */
   const links = el('div', { class: 'detail-links' });
