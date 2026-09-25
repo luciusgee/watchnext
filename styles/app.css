@@ -1309,6 +1309,96 @@ body.is-typing .tabbar {
   padding: 0 var(--s4) var(--s2);
   margin-top: var(--s6);
 }
+
+/* Settings, folded: a short list of parts, each one row that opens. */
+.fold {
+  margin: 0 var(--s4) var(--s2);
+}
+.fold:first-child {
+  margin-top: var(--s4);
+}
+.fold-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  min-height: 64px;
+  padding: var(--s3) var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  text-align: left;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.fold-head:active {
+  background: var(--raised);
+}
+.fold.is-open .fold-head {
+  border-color: var(--hairline-strong);
+}
+.fold-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--amber);
+}
+.fold-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.fold-title {
+  font-size: var(--t-body);
+  font-weight: 600;
+  color: var(--bone);
+}
+.fold-status {
+  font-size: var(--t-meta);
+  color: var(--ash);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fold-status.is-attention {
+  color: var(--amber);
+}
+.fold-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+.fold-chevron {
+  flex: none;
+  color: var(--ash);
+  transition: transform var(--med) var(--ease);
+}
+.fold.is-open .fold-chevron {
+  transform: rotate(180deg);
+}
+.fold-body {
+  padding: var(--s3) 0 var(--s4);
+}
+/* Inside a part, its groups sit flush with the row above, and a part made
+   of two keeps a small label between them. */
+.fold-body .group {
+  margin: 0 0 var(--s3);
+}
+.fold-body .group-label {
+  margin-top: var(--s4);
+  padding-left: var(--s2);
+}
+.fold-body .group-label:first-child {
+  margin-top: 0;
+}
+
 .group-item {
   display: flex;
   align-items: center;

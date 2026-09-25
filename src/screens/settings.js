@@ -178,6 +178,55 @@ function groupLabel(text) {
   return el('h2', { class: 'eyebrow group-label', text });
 }
 
+/* ── folds ──
+   Settings as a short list: each part is one row — what it is, and how it
+   stands ("Synced 3 min ago", "All 529 verified") — that opens to show
+   everything in it. One open at a time, and the one open stays open while
+   the page repaints under it (render() runs on every library change). */
+let openFold = null;
+
+function fold(id, { iconName, title, status = '', attention = false }, bodies) {
+  const open = openFold === id;
+  const wrap = el('section', { class: `fold${open ? ' is-open' : ''}`, 'data-section': id });
+  const head = el('button', {
+    class: 'fold-head',
+    type: 'button',
+    'aria-expanded': String(open),
+    'aria-controls': `fold-${id}`,
+  });
+  head.appendChild(el('span', { class: 'fold-icon', html: icon(iconName, 20) }));
+  const text = el('span', { class: 'fold-text' });
+  text.appendChild(el('span', { class: 'fold-title', text: title }));
+  if (status) text.appendChild(el('span', { class: `fold-status${attention ? ' is-attention' : ''}`, text: status }));
+  head.appendChild(text);
+  if (attention) head.appendChild(el('span', { class: 'fold-dot', 'aria-hidden': 'true' }));
+  head.appendChild(el('span', { class: 'fold-chevron', html: icon('chevronDown', 18) }));
+  head.addEventListener('click', () => setFold(openFold === id ? null : id, { scroll: true }));
+  wrap.appendChild(head);
+  const body = el('div', { class: 'fold-body', id: `fold-${id}`, role: 'region', 'aria-label': title });
+  if (!open) body.hidden = true;
+  for (const b of [].concat(bodies).filter(Boolean)) body.appendChild(b);
+  wrap.appendChild(body);
+  return wrap;
+}
+
+/** Open one part (or none), closing whichever was open. */
+function setFold(id, { scroll = false } = {}) {
+  openFold = id;
+  for (const w of bodyEl.querySelectorAll('.fold')) {
+    const on = w.dataset.section === id;
+    w.classList.toggle('is-open', on);
+    w.querySelector('.fold-head').setAttribute('aria-expanded', String(on));
+    w.querySelector('.fold-body').hidden = !on;
+  }
+  const opened = id && bodyEl.querySelector(`.fold[data-section="${id}"]`);
+  if (opened && scroll) {
+    /* The header to the top, so what just opened is under the thumb rather
+       than below the fold. */
+    requestAnimationFrame(() => opened.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
+  }
+}
+
 function summaryLine(s) {
   if (s.total && s.done === s.total && !s.fill && !s.missing) {
     return s.total === 1 ? 'Your one title has verified details.' : `All ${s.total} titles have verified details.`;
