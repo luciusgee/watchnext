@@ -81,11 +81,20 @@ function check(name, cond, detail = '') {
     return !!host;
   }, selector);
   const hostClicks = () => page.evaluate(() => window.__hostClicks);
+  /* The shortlist deck: Tonight → Find something else → Deal me some. */
+  const openDeck = async (pg = page) => {
+    await pg.tap('[data-tab="tonight"]');
+    await pg.waitForTimeout(500);
+    await pg.evaluate(() => [...document.querySelectorAll('#screen-tonight button')].find((b) => /Find something else/.test(b.textContent))?.click());
+    await pg.waitForTimeout(500);
+    await pg.evaluate(() => [...document.querySelectorAll('.sheet button')].find((b) => /Deal me some/.test(b.textContent))?.click());
+    await pg.waitForSelector('#screen-pick.is-active .deck-card');
+    await pg.waitForTimeout(400);
+  };
 
   console.log('\n─── a tap on the control is a tap on the switch ───');
-  await page.tap('[data-tab="discover"]');
-  await page.waitForTimeout(500);
-  const SKIP = '#screen-discover [data-action="skip"]';
+  await openDeck();
+  const SKIP = '#screen-pick [data-action="no"]';
   const shape = await page.evaluate((s) => {
     const host = document.querySelector(s);
     const label = host.querySelector(':scope > .haptic');
@@ -111,7 +120,7 @@ function check(name, cond, detail = '') {
   check('invisible, but keeping its native appearance', shape.opacity === '0' && shape.appearance !== 'none', JSON.stringify(shape));
   check('and hidden from VoiceOver', shape.hidden === 'true');
 
-  const before = await page.evaluate(() => document.querySelector('#screen-discover .deck-card:last-child')?.textContent);
+  const before = await page.evaluate(() => document.querySelector('#screen-pick .deck-card:last-child')?.textContent);
   await countHost(SKIP);
   await reset();
   await page.tap(SKIP);
@@ -119,9 +128,15 @@ function check(name, cond, detail = '') {
   const t1 = await ticks();
   check('a tap on a deck button reaches the switch as a trusted click', t1.length === 1 && t1[0] === true, JSON.stringify(t1));
   check('and the button’s own handler runs once', (await hostClicks()) === 1, String(await hostClicks()));
-  const after = await page.evaluate(() => document.querySelector('#screen-discover .deck-card:last-child')?.textContent);
+  const after = await page.evaluate(() => document.querySelector('#screen-pick .deck-card:last-child')?.textContent);
   check('and the card is decided', before && after && before !== after);
 
+  /* A toast's Undo: marking a film watched offers one. */
+  const undoUid = await page.evaluate(async () => {
+    const it = window.__test.items().find((i) => !i.watched);
+    (await import('./src/actions.js')).setWatched(it.uid, true);
+    return it.uid;
+  });
   await page.waitForSelector('.toast.is-open .toast-action');
   await countHost('.toast-action');
   await reset();
@@ -129,8 +144,8 @@ function check(name, cond, detail = '') {
   await page.waitForTimeout(400);
   check('Undo ticks', (await ticks()).length === 1, JSON.stringify(await ticks()));
   check('and undoes once', (await hostClicks()) === 1);
-  const back = await page.evaluate(() => document.querySelector('#screen-discover .deck-card:last-child')?.textContent);
-  check('and the card comes back', back === before);
+  const back = await page.evaluate((u) => window.__test.byUid(u)?.watched, undoUid);
+  check('and the film is unwatched again', back === false, String(back));
 
   /* A pill that ran its handler twice would switch on and straight back off. */
   await page.tap('[data-tab="library"]');
@@ -305,8 +320,7 @@ function check(name, cond, detail = '') {
   const barShown = await page.evaluate(() => !document.body.classList.contains('is-typing') &&
     document.querySelector('.tabbar').getClientRects().length > 0);
   check('and tapping the switch leaves the tab bar where it is', barShown);
-  await page.tap('[data-tab="discover"]');
-  await page.waitForTimeout(500);
+  await openDeck();
   await countHost(SKIP);
   await reset();
   await page.tap(SKIP);
@@ -333,7 +347,7 @@ function check(name, cond, detail = '') {
     await p.waitForSelector('body.is-ready');
     await p.evaluate(() => window.__test.loadSample());
     await p.waitForTimeout(300);
-    await p.click('[data-tab="discover"]');
+    await p.click('[data-tab="feed"]');
     await p.waitForTimeout(400);
     const n = await p.evaluate(() => document.querySelectorAll('.haptic').length);
     check(`${name} gets no overlays`, n === 0, String(n));

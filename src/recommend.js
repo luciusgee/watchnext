@@ -174,7 +174,7 @@ export function scoreItem(item, profile, ctx) {
     }
   }
 
-  /* Novelty — nudge away from things already dismissed in Discover. */
+  /* Novelty — nudge away from things already seen. */
   if (item.seen) score -= 10;
 
   /* Series need a bigger commitment than a film. */

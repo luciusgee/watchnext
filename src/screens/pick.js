@@ -496,10 +496,9 @@ function cardFor(item, interactive) {
   const info = el('div', { class: 'deck-info' });
   info.appendChild(el('h2', { class: 'deck-title', text: item.title }));
 
-  /* Identical to the Discover deck's chip row, in the same order. The two
-     decks share .deck-card and read as the same component, then rendered the
-     same five facts in three different styles — a bare ★ glyph against an
-     amber icon, borderless chips against bordered tags. */
+  /* One chip style for the five facts. When there were two decks (this and
+     Discover) they rendered them in three different styles — a bare ★ glyph
+     against an amber icon, borderless chips against bordered tags. */
   const chips = el('div', { class: 'chips' });
   if (item.year) chips.appendChild(el('span', { class: 'chip', text: String(item.year) }));
   if (item.rating) {

@@ -64,7 +64,6 @@ const SHELL = [
   './src/providers/omdb.js',
   './src/providers/tmdb.js',
   './src/screens/tonight.js',
-  './src/screens/discover.js',
   './src/screens/library.js',
   './src/screens/detail.js',
   './src/screens/ask.js',

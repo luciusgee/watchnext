@@ -47,7 +47,8 @@ export function setWatched(uid, watched, { silent = false } = {}) {
     watched,
     watchedAt: watched ? Date.now() : null,
   };
-  /* Watching something also retires it from the Discover deck. */
+  /* Watching something also counts as having seen it (recommend.js keeps it
+     off the top of Tonight). */
   if (watched) {
     patch.seen = true;
     patch.seenAt = item.seenAt || Date.now();
@@ -173,21 +174,6 @@ export function clearWatched() {
   });
   store.emit('item');
   toast(n ? `Reset ${plural(n, 'title')} to unwatched` : 'Nothing was marked watched');
-}
-
-export function resetDiscover() {
-  let n = 0;
-  store.bulk((i) => {
-    if (i.seen) {
-      /* Only what will actually come back: watched titles stay out of the deck,
-         and counting them promised a number of cards that never appeared. */
-      if (!i.watched) n += 1;
-      return { seen: false, seenAt: null };
-    }
-    return null;
-  });
-  store.emit('item');
-  toast(n ? `${plural(n, 'title')} will appear in Discover again` : 'Discover was already reset');
 }
 
 export function resetEverything() {

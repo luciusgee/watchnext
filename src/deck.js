@@ -1,10 +1,9 @@
 /*
  * Card swiping, shared by every deck in the app.
  *
- * There are two of them now — Discover, which asks whether you have seen a
- * film, and the session picker, which asks whether you fancy one tonight — and
- * a third would have been the point at which the copies quietly diverged. The
- * tab bar was already rebuilt once for exactly that reason.
+ * The session picker, which asks whether you fancy a film tonight, is the one
+ * deck left (Discover, which asked whether you had seen one, has gone); kept
+ * separate so a second deck never means a second copy of the gesture code.
  *
  * Deliberately knows nothing about the store. It reports which way a card went
  * and leaves every consequence to the caller, which is what lets the picker

@@ -19,7 +19,6 @@ import { openThread } from './screens/thread.js';
 import { paintBadge } from './notify.js';
 import { initTonight, showTonight } from './screens/tonight.js';
 import { initLibrary, showLibrary } from './screens/library.js';
-import { initDiscover, showDiscover } from './screens/discover.js';
 import { initFeed, showFeed } from './screens/feed.js';
 import { initAsk, showAsk } from './screens/ask.js';
 import { initPick, showPick } from './screens/pick.js';
@@ -32,7 +31,6 @@ import { initAdd, showAdd } from './screens/add.js';
 const TABS = [
   { id: 'tonight', label: 'Tonight', icon: 'tonight' },
   { id: 'feed', label: 'Feed', icon: 'feed' },
-  { id: 'discover', label: 'Discover', icon: 'discover' },
   { id: 'library', label: 'Library', icon: 'library' },
   { id: 'ask', label: 'Ask', icon: 'ask' },
 ];
@@ -40,7 +38,6 @@ const TABS = [
 const SHOW = {
   tonight: showTonight,
   feed: showFeed,
-  discover: showDiscover,
   library: showLibrary,
   ask: showAsk,
   pick: showPick,
@@ -255,7 +252,6 @@ async function boot() {
   initDetail({ navigate });
   initTonight({ navigate });
   initLibrary({ navigate });
-  initDiscover({ navigate });
   initFeed({ navigate });
   initAsk({ navigate });
   initPick({ navigate });
@@ -553,7 +549,6 @@ function exposeTestHooks() {
         store.emit('item');
       },
       setWatched: actions.setWatched,
-      resetDiscover: actions.resetDiscover,
       exportPayload: store.exportPayload,
       importPayload: store.importPayload,
       settings: store.settings,

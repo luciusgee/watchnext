@@ -104,47 +104,24 @@ function check(name, cond, detail = '') {
     `${ownedItem.title} reverted to owned`);
 
   // ─────────────────────────────────────────────────────────
-  console.log('\n─── REGRESSION: Discover reset must actually reset ───');
-  // Old bug: the queue filtered on `swipedSeen`, the reset buttons cleared
-  // `swiped`, and nothing read `swiped`. Discover died permanently.
-  await page.click('[data-tab="discover"]');
-  await page.waitForTimeout(700);
-  const queueBefore = await page.evaluate(() => document.querySelectorAll('.deck-card').length);
-  check('discover renders a card', queueBefore > 0, `${queueBefore} cards`);
-
-  /* Two outcomes, not three. The deck asks one question — have you seen this —
-     and the watchlist swipe that used to be the third is gone with the
-     watchlist itself. */
-  /* Scoped to Discover: the session picker has a deck of its own and an
-     unscoped query happily counts both. */
-  const deckButtons = await page.evaluate(() =>
-    [...document.querySelectorAll('#screen-discover .deck-controls [data-action]')].map((b) => b.dataset.action)
-  );
-  check('the deck offers exactly two answers', deckButtons.length === 2, deckButtons.join(', '));
-  check('and they are not-yet and seen-it',
-    deckButtons.join(',') === 'skip,watched', deckButtons.join(','));
-
-  await page.click('[data-action="skip"]'); await page.waitForTimeout(600);
-  await page.click('[data-action="skip"]'); await page.waitForTimeout(600);
-  await page.click('[data-action="watched"]'); await page.waitForTimeout(600);
-  s = await state();
-  const seenCount = s.items.filter((i) => i.seen).length;
-  check('swiping marks items seen', seenCount === 3, `${seenCount} seen`);
-  check('swiping right marks it watched', s.items.filter((i) => i.watched && i.seen).length >= 1);
-  /* A left swipe means "not yet", which must write nothing beyond the triage
-     flag — it is not a judgement about the film. */
-  check('a left swipe does not mark anything watched',
-    s.items.filter((i) => i.seen && !i.watched).length === 2,
-    `${s.items.filter((i) => i.seen && !i.watched).length}`);
-
-  await page.evaluate(() => window.__test.resetDiscover());
+  console.log('\n─── Discover has gone ───');
+  const tabsNow = await page.evaluate(() => [...document.querySelectorAll('.tabbar [data-tab]')].map((t) => t.dataset.tab));
+  check('four tabs: Tonight, Feed, Library, Ask', tabsNow.join(',') === 'tonight,feed,library,ask', tabsNow.join(','));
+  check('and no Discover screen left behind', await page.evaluate(() => !document.getElementById('screen-discover')));
+  const resetChoices = await page.evaluate(async () => {
+    document.querySelector('.screen.is-active [data-nav="settings"]')?.click();
+    await new Promise((r) => setTimeout(r, 500));
+    [...document.querySelectorAll('#screen-settings button')].find((b) => /Reset…/.test(b.textContent))?.click();
+    await new Promise((r) => setTimeout(r, 400));
+    const labels = [...document.querySelectorAll('.sheet.is-open button')].map((b) => b.textContent.trim());
+    document.querySelector('.sheet.is-open')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    return labels;
+  });
+  check('and Settings no longer offers to reset it', resetChoices.some((l) => /Clear watch history/.test(l)) && !resetChoices.some((l) => /Discover/.test(l)), JSON.stringify(resetChoices));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  await page.click('[data-tab="tonight"]');
   await page.waitForTimeout(400);
-  s = await state();
-  check('reset clears every seen flag', s.items.filter((i) => i.seen).length === 0,
-    `${s.items.filter((i) => i.seen).length} still seen`);
-  await page.waitForTimeout(400);
-  const cardsAfterReset = await page.evaluate(() => document.querySelectorAll('.deck-card').length);
-  check('discover repopulates after reset', cardsAfterReset > 0, `${cardsAfterReset} cards`);
 
   // ─────────────────────────────────────────────────────────
   console.log('\n─── REGRESSION: identity is never resolved by title ───');
@@ -367,7 +344,7 @@ function check(name, cond, detail = '') {
 
   // ─────────────────────────────────────────────────────────
   console.log('\n─── all tabs render without error ───');
-  for (const tab of ['tonight', 'discover', 'library', 'ask']) {
+  for (const tab of ['tonight', 'feed', 'library', 'ask']) {
     await page.click(`[data-tab="${tab}"]`); await page.waitForTimeout(600);
     const ok = await page.evaluate((t) => {
       const s = document.getElementById(`screen-${t}`);

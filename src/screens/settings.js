@@ -1584,14 +1584,13 @@ function dangerGroup() {
     settingsRow(
       'warning',
       'Reset…',
-      'Clear your watch history or Discover progress',
+      'Clear your watch history',
       () =>
         openSheet({
           title: 'What would you like to reset?',
           message: 'Your library itself is never removed — only the activity you have recorded against it.',
           actions: [
             { label: 'Clear watch history', kind: 'secondary', onClick: confirmReset('watched') },
-            { label: 'Reset Discover', kind: 'secondary', onClick: confirmReset('discover') },
             { label: 'Reset everything', kind: 'danger', onClick: confirmReset('all') },
           ],
           dismissLabel: 'Cancel',
@@ -1612,10 +1611,9 @@ function confirmReset(kind) {
       actions.clearWatched,
       'Clear history',
     ],
-    discover: ['Reset Discover?', 'Everything you have not watched will come back to sort.', actions.resetDiscover, 'Reset Discover'],
     all: [
       'Reset everything?',
-      'Watch history and Discover progress will both be cleared, for everyone here. This cannot be undone.',
+      'Watch history and the activity log will both be cleared, for everyone here. This cannot be undone.',
       actions.resetEverything,
       'Reset everything',
     ],

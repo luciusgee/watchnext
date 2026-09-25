@@ -72,7 +72,7 @@ async function measure(page) {
 
     /* Every screen, not just the first — a screen that sizes itself differently
        would show the same gap only on that tab. */
-    for (const tab of ['discover', 'library', 'ask']) {
+    for (const tab of ['feed', 'library', 'ask']) {
       await page.click(`[data-tab="${tab}"]`);
       await page.waitForTimeout(350);
       const t = await measure(page);
@@ -695,7 +695,7 @@ async function measure(page) {
     /* The one that actually bites: iOS zooms the whole page when a field under
        16px takes focus. Every field has to clear it, on every screen, so this
        walks the real rendered DOM rather than trusting the stylesheet. */
-    for (const tab of ['tonight', 'discover', 'library', 'ask']) {
+    for (const tab of ['tonight', 'feed', 'library', 'ask']) {
       await p.click(`[data-tab="${tab}"]`);
       await p.waitForTimeout(250);
     }
@@ -743,7 +743,7 @@ async function measure(page) {
 
     const touch = await p.evaluate(() => ({
       body: getComputedStyle(document.body).touchAction,
-      /* The Discover deck must keep its own value or the swipe breaks. */
+      /* The shortlist deck must keep its own value or the swipe breaks. */
       deck: (() => {
         const card = document.querySelector('.deck-card');
         return card ? getComputedStyle(card).touchAction : null;
@@ -756,13 +756,17 @@ async function measure(page) {
     check('double-tap zoom is disabled on the body', touch.body === 'manipulation', touch.body);
     check('scrolling is left alone', touch.scrollable === 'auto', String(touch.scrollable));
 
-    await p.click('[data-tab="discover"]');
+    await p.click('[data-tab="tonight"]');
     await p.waitForTimeout(400);
+    await p.evaluate(() => [...document.querySelectorAll('#screen-tonight button')].find((b) => /Find something else/.test(b.textContent))?.click());
+    await p.waitForTimeout(500);
+    await p.evaluate(() => [...document.querySelectorAll('.sheet button')].find((b) => /Deal me some/.test(b.textContent))?.click());
+    await p.waitForTimeout(900);
     const deck = await p.evaluate(() => {
-      const card = document.querySelector('.deck-card');
+      const card = document.querySelector('#screen-pick .deck-card');
       return card ? getComputedStyle(card).touchAction : 'no card';
     });
-    check('the Discover swipe deck keeps its own touch handling', deck === 'none', deck);
+    check('the shortlist swipe deck keeps its own touch handling', deck === 'none', deck);
 
     await c.close();
   }

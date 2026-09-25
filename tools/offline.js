@@ -167,9 +167,9 @@ const URL_BASE = `http://127.0.0.1:${PORT}/watchnext/`;
       return { items: items.length, tabs: document.querySelectorAll('[data-tab]').length };
     });
     check('library is intact offline', usable.items > 200, `${usable.items} titles`);
-    check('navigation renders offline', usable.tabs === 5, `${usable.tabs} tabs`);
+    check('navigation renders offline', usable.tabs === 4, `${usable.tabs} tabs`);
 
-    for (const tab of ['discover', 'library', 'ask']) {
+    for (const tab of ['feed', 'library', 'ask']) {
       await page.click(`[data-tab="${tab}"]`);
       await page.waitForTimeout(350);
       const ok = await page.evaluate((t) => document.getElementById(`screen-${t}`).textContent.trim().length > 20, tab);

@@ -2247,29 +2247,6 @@ body.is-typing .select-bar {
   border-color: rgba(143, 188, 155, 0.3);
 }
 
-.deck-progress {
-  padding: var(--s3) var(--s4) var(--s2);
-  flex: none;
-}
-.deck-progress-bar {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--hairline);
-  overflow: hidden;
-}
-.deck-progress-fill {
-  height: 100%;
-  background: var(--amber);
-  border-radius: 2px;
-  transition: width var(--med) var(--ease);
-}
-.deck-progress-text {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--t-meta);
-  color: var(--ash);
-  margin-top: var(--s2);
-}
 .deck-choice {
   display: flex;
   flex-direction: column;
