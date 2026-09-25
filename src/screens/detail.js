@@ -24,6 +24,7 @@ import {
 import { similarTo } from '../recommend.js';
 import { openMatchPicker } from './match.js';
 import { openThread } from './thread.js';
+import * as sync from '../sync.js';
 /* A cycle (tonight imports this module too), and a safe one: neither uses the
    other at load time, only when something is rendered. */
 import { cardFor } from './tonight.js';
@@ -150,7 +151,11 @@ function spotlightBlock(item) {
       onClick: () => {
         store.setSpotlight(item.uid, !on);
         store.emit('item');
-        if (!on) toast(`${item.title} is in Spotlight`);
+        if (!on) {
+          toast(`${item.title} is in Spotlight`);
+          /* Up now: the other phone hears of it when it reaches the repo. */
+          sync.pushSoon();
+        }
       },
     })
   );

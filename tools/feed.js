@@ -161,8 +161,25 @@ function check(name, cond, detail = '') {
   check('and a film talked about goes in Spotlight', talked.spot);
   const bubble = await page.evaluate(() => document.querySelector('.thread-sheet .note.is-own .note-bubble')?.textContent);
   check('and appears in the thread as yours', bubble === 'This one for Saturday?', bubble);
+  const sheets = await page.evaluate(async (t) => {
+    const it = window.__test.items().find((x) => x.title === t);
+    (await import('./src/screens/thread.js')).openThread(it.uid);
+    return document.querySelectorAll('.thread-sheet').length;
+  }, film3.title);
+  check('opening the same thread again does not stack a second sheet', sheets === 1, `${sheets} sheets`);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
+
+  /* Comment tapped, nothing said: the film should not stay on the list. */
+  await next(page);
+  const m = (await state(page)).current;
+  const film4 = (await state(page)).film;
+  await page.tap(`.feed-card[data-i="${m}"] [data-act="comment"]`);
+  await page.waitForSelector('.thread-sheet.is-open');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
+  const leftOver = await page.evaluate((t) => window.__test.items().some((x) => x.title === t), film4.title);
+  check('Comment opened and closed with nothing said leaves the list as it was', !leftOver, film4.title);
 
   console.log('\n─── filters ───');
   await page.evaluate(() => [...document.querySelectorAll('.feed-filter')].find((b) => b.textContent === 'Horror').click());
@@ -178,6 +195,47 @@ function check(name, cond, detail = '') {
   const forYou = hits.filter((h) => /with_genres=/.test(h)).length;
   check('For you asked for the shelf’s favourite genres', forYou > 0, `${forYou} genre requests`);
   await ctx.close();
+
+  console.log('\n─── a feed that has been scrolled a lot ───');
+  {
+    /* Everything on the first ten pages of Trending already seen on this
+       phone: the feed must keep asking, not declare itself finished. */
+    const { ctx: c2, page: p2 } = await phone();
+    await p2.evaluate(() => {
+      localStorage.setItem('wn.feed.seen', JSON.stringify(Array.from({ length: 200 }, (_, n) => `movie:${1000 + n}`)));
+      localStorage.setItem('wn.feed.filter', 'trending');
+    });
+    await p2.reload({ waitUntil: 'networkidle' });
+    await p2.waitForSelector('body.is-ready');
+    await p2.tap('[data-tab="feed"]');
+    await p2.waitForSelector('.feed-card[data-i="0"]', { timeout: 8000 }).catch(() => {});
+    const first = await state(p2);
+    check('ten pages of films already seen do not end the feed', first.count > 0 && first.film?.id >= 1200, JSON.stringify({ count: first.count, id: first.film?.id }));
+    await c2.close();
+  }
+  {
+    /* Nineteen of the first twenty seen: a first batch of one film, with
+       nothing below it to scroll to. It must fetch more by itself. */
+    const { ctx: c3, page: p3 } = await phone();
+    await p3.evaluate(() => {
+      localStorage.setItem('wn.feed.seen', JSON.stringify(Array.from({ length: 19 }, (_, n) => `movie:${1000 + n}`)));
+      localStorage.setItem('wn.feed.filter', 'trending');
+    });
+    await p3.reload({ waitUntil: 'networkidle' });
+    await p3.waitForSelector('body.is-ready');
+    await p3.tap('[data-tab="feed"]');
+    await p3.waitForSelector('.feed-card[data-i="0"]');
+    await p3.waitForTimeout(1200);
+    const after = await state(p3);
+    check('a first batch of one film does not leave the feed stuck on it', after.count > 5, `${after.count} cards`);
+    const genres = await p3.evaluate(async () => {
+      const f = await import('./src/feed.js');
+      for (let n = 0; n < 12; n++) f.nudge({ genreIds: [10765, 10759] }, 1);
+      return f.favouriteGenres(8);
+    });
+    check('starring series teaches For you film genres, never TV-only ids', genres.length > 0 && genres.every((g) => ![10759, 10762, 10763, 10764, 10765, 10766, 10767, 10768].includes(g)) && genres.includes(878), JSON.stringify(genres));
+    await c3.close();
+  }
 
   console.log('\n─── when it cannot ───');
   const nokey = await phone('', true);

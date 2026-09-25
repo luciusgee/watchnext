@@ -136,9 +136,13 @@ function emptyState() {
       name: '',
       /* Which phone a comment or a Spotlight came from, so the other one
          knows it is news. Made on first load. */
-      deviceId: '',
+      deviceId: 'd' + uid(),
       /* uid -> when this phone last read that film's comments. */
       threadSeen: {},
+      /* Ids of the other phone's comments this phone has read. By id, not by
+         time: a comment written an hour ago that only synced now is still
+         new. */
+      seenNotes: [],
       /* Things this phone did that the other phone should hear about, waiting
          for the next sync to carry them. See sync.js and notify.js. */
       pendingNotify: [],
@@ -302,7 +306,13 @@ function migrate(s) {
   if (!Array.isArray(s.tombstones)) s.tombstones = [];
   if (!Array.isArray(s.notes)) s.notes = [];
   if (s.settings) {
-    if (!s.settings.deviceId) s.settings.deviceId = 'd' + uid();
+    if (!s.settings.deviceId) {
+      /* Saved straight away (see init): an id made fresh on every launch is
+         not an id, and notifications are addressed by it. */
+      s.settings.deviceId = 'd' + uid();
+      repairedOnLoad += 1;
+    }
+    if (!Array.isArray(s.settings.seenNotes)) s.settings.seenNotes = [];
     if (!s.settings.threadSeen || typeof s.settings.threadSeen !== 'object') s.settings.threadSeen = {};
     if (!Array.isArray(s.settings.pendingNotify)) s.settings.pendingNotify = [];
   }
@@ -939,11 +949,11 @@ export function notesFor(item) {
     .sort((a, b) => a.at - b.at);
 }
 
-/** Comments from the other phone this phone has not opened yet. */
+/** Comments from the other phone this phone has not read yet. */
 export function unreadFor(item) {
-  const seen = state.settings.threadSeen?.[item.uid] || 0;
   const mine = state.settings.deviceId;
-  return notesFor(item).filter((n) => n.device !== mine && n.at > seen).length;
+  const seen = new Set(state.settings.seenNotes || []);
+  return notesFor(item).filter((n) => n.device !== mine && !seen.has(n.id)).length;
 }
 
 export function unreadTotal() {
@@ -951,7 +961,18 @@ export function unreadTotal() {
 }
 
 export function markThreadSeen(uidValue) {
+  const item = byUid(uidValue);
+  if (!item) return;
   state.settings.threadSeen = { ...(state.settings.threadSeen || {}), [uidValue]: Date.now() };
+  const seen = new Set(state.settings.seenNotes || []);
+  let added = false;
+  for (const n of notesFor(item)) {
+    if (!seen.has(n.id)) {
+      seen.add(n.id);
+      added = true;
+    }
+  }
+  if (added) state.settings.seenNotes = [...seen].slice(-3000);
   save();
 }
 
@@ -959,7 +980,7 @@ export function markThreadSeen(uidValue) {
    film and the name are known — so the thing that sends it (a GitHub Action
    in the private repo, see notify.js) only has to pass it on. Carried by the
    next sync; see sync.js. */
-function queueNotify(kind, item, text = '') {
+function queueNotify(kind, item, text = '', extra = {}) {
   const who = state.settings.name || 'Someone';
   const payload =
     kind === 'comment'
@@ -968,8 +989,14 @@ function queueNotify(kind, item, text = '') {
         ? { title: `${who} put ${item.title} in Spotlight`, body: 'Have a look — it is on Tonight.', url: `./#film=${item.uid}`, tag: `spot-${item.uid}` }
         : { title: 'Watch Next', body: 'Notifications are working on this phone.', url: './', tag: 'test' };
   const q = Array.isArray(state.settings.pendingNotify) ? state.settings.pendingNotify : [];
-  q.push({ kind, from: state.settings.deviceId, includeSelf: kind === 'test', at: Date.now(), payload });
+  q.push({ kind, uid: item?.uid || null, noteId: extra.noteId || null, from: state.settings.deviceId, includeSelf: kind === 'test', at: Date.now(), payload });
   state.settings.pendingNotify = q.slice(-10);
+}
+
+/* Taken back before it went: a deleted comment or an un-starred film must
+   not still buzz the other phone. */
+function unqueue(test) {
+  state.settings.pendingNotify = (state.settings.pendingNotify || []).filter((e) => !test(e));
 }
 
 /** A notification to this phone as well as the other, to prove the path. */
@@ -1013,7 +1040,7 @@ export function addNote(uidValue, text) {
     update(item.uid, { spotlight: { at: Date.now(), by: state.settings.name || '', device: state.settings.deviceId } });
   }
   state.settings.threadSeen = { ...(state.settings.threadSeen || {}), [item.uid]: Date.now() };
-  queueNotify('comment', item, body);
+  queueNotify('comment', item, body, { noteId: note.id });
   saveNow();
   return note;
 }
@@ -1023,6 +1050,7 @@ export function removeNote(id) {
   if (idx < 0) return false;
   state.notes.splice(idx, 1);
   bury(id);
+  unqueue((e) => e.noteId === id);
   saveNow();
   return true;
 }
@@ -1034,6 +1062,7 @@ export function setSpotlight(uidValue, on) {
     spotlight: on ? { at: Date.now(), by: state.settings.name || '', device: state.settings.deviceId } : null,
   });
   if (on) queueNotify('spotlight', item);
+  else unqueue((e) => e.kind === 'spotlight' && e.uid === uidValue);
   saveNow();
   return next;
 }
@@ -1041,7 +1070,9 @@ export function setSpotlight(uidValue, on) {
 /** The shortlist: starred and not yet watched, newest first. */
 export function spotlit() {
   return (state.items || [])
-    .filter((i) => i.spotlight && !i.watched)
+    /* A watched film leaves the shortlist — unless someone has just said
+       something about it that has not been read. */
+    .filter((i) => i.spotlight && (!i.watched || unreadFor(i) > 0))
     .sort((a, b) => (b.spotlight.at || 0) - (a.spotlight.at || 0));
 }
 

@@ -201,9 +201,6 @@ export async function enable() {
   }
 
   const me = store.me();
-  store.updateSettings({ push: { ...(store.settings().push || {}), enabled: true, endpoint: subscription.endpoint } });
-  store.saveNow();
-
   try {
     await sync.putRepoFile(
       `push/${me.device}.json`,
@@ -225,6 +222,11 @@ export async function enable() {
   } catch (err) {
     return { ok: false, step: 'device', error: err?.friendly || err?.message };
   }
+  /* On only once the other phone can find this one: marked before the file
+     was written, a failed write left the row saying "On" with nothing in the
+     repo to send to. */
+  store.updateSettings({ push: { ...(store.settings().push || {}), enabled: true, endpoint: subscription.endpoint } });
+  store.saveNow();
 
   return installSender();
 }
@@ -275,6 +277,9 @@ export function paintBadge() {
     const n = store.unreadTotal();
     if (n && 'setAppBadge' in navigator) navigator.setAppBadge(n).catch(() => {});
     else if ('clearAppBadge' in navigator) navigator.clearAppBadge().catch(() => {});
+    /* The service worker counts up from here when a comment arrives with the
+       app closed (sw.js bumpBadge). */
+    if ('caches' in self) caches.open('watchnext-badge').then((c) => c.put('./badge-count', new Response(String(n)))).catch(() => {});
   } catch {
     /* the badge is a nicety */
   }

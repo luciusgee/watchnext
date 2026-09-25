@@ -29,6 +29,7 @@ const files = new Map(); // path -> { text, sha }
 const commits = []; // { path, message }
 let nextSha = 1;
 let allowWorkflows = false;
+let failPush = false; // push/*.json writes fail, as a lost connection would
 const b64 = (t) => Buffer.from(t, 'utf8').toString('base64');
 const unb64 = (t) => Buffer.from(t, 'base64').toString('utf8');
 
@@ -45,6 +46,7 @@ async function githubRoute(route) {
     return held ? json(200, { content: b64(held.text), sha: held.sha, encoding: 'base64' }) : json(404, { message: 'Not Found' });
   }
   const body = JSON.parse(req.postData() || '{}');
+  if (p.startsWith('push/') && failPush) return json(500, { message: 'Server Error' });
   if (p.startsWith('.github/workflows/') && !allowWorkflows) {
     return json(403, { message: 'Resource not accessible by personal access token' });
   }
@@ -200,6 +202,30 @@ async function githubRoute(route) {
   const afterDelete = await sam.page.evaluate(async (uid) => (await import('./src/store.js')).notesFor(window.__test.byUid(uid)).map((n) => n.id), film.uid);
   check('a comment Luke deletes is gone from Sam’s phone too', !afterDelete.includes(mine) && afterDelete.length === 1, JSON.stringify(afterDelete));
 
+  console.log('\n─── taken back before it went ───');
+  const takenBack = await luke.page.evaluate(async (uid) => {
+    const s = await import('./src/store.js');
+    s.setSpotlight(uid, false);
+    s.setSpotlight(uid, true);
+    s.setSpotlight(uid, false);
+    const note = s.addNote(uid, 'Actually, never mind');
+    s.removeNote(note.id);
+    return s.pendingNotify().filter((e) => e.uid === uid);
+  }, film.uid);
+  check('a Spotlight undone, or a comment deleted, before the sync does not buzz the other phone', takenBack.length === 0, JSON.stringify(takenBack));
+  await luke.page.evaluate(async (uid) => (await import('./src/store.js')).setSpotlight(uid, true), film.uid);
+  await syncNow(luke.page);
+  const readIds = await sam.page.evaluate(async (uid) => {
+    const s = await import('./src/store.js');
+    const it = window.__test.byUid(uid);
+    s.markThreadSeen(uid);
+    /* A comment from the other phone stamped before this phone last read the
+       thread — its clock behind — is still new: read is by comment, not time. */
+    const st = JSON.parse(localStorage.getItem('wn.state.v3'));
+    return { unread: s.unreadFor(it), seen: (st.settings.seenNotes || []).length };
+  }, film.uid);
+  check('reading a thread records which comments were read', readIds.unread === 0 && readIds.seen >= 1, JSON.stringify(readIds));
+
   console.log('\n─── turning notifications on ───');
   await luke.page.tap('[data-tab="tonight"]');
   await luke.page.evaluate(() => document.querySelector('.screen.is-active [data-nav="settings"]').click());
@@ -207,6 +233,15 @@ async function githubRoute(route) {
   const offText = await luke.page.evaluate(() => document.querySelector('[data-region="notify"]')?.textContent || '');
   check('Settings has a Notifications row, off, saying what it does', /Notifications/.test(offText) && /Turn on/.test(offText) && /comments/.test(offText), offText);
   await luke.page.waitForTimeout(400); // keys made ahead of the tap
+  failPush = true;
+  const failed = await luke.page.evaluate(async () => {
+    const n = await import('./src/notify.js');
+    const s = await import('./src/store.js');
+    const r = await n.enable();
+    return { r, on: !!s.settings().push?.enabled, state: n.state() };
+  });
+  failPush = false;
+  check('if the push address cannot be written, notifications stay off', !failed.r.ok && failed.r.step === 'device' && !failed.on && failed.state === 'off', JSON.stringify(failed));
   await luke.page.evaluate(() => [...document.querySelectorAll('[data-region="notify"] button')].find((b) => /Turn on/.test(b.textContent)).click());
   await luke.page.waitForTimeout(1200);
   const lukeDevice = (await st(luke.page)).settings.deviceId;

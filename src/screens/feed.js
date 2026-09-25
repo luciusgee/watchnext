@@ -21,6 +21,7 @@ import { icon } from '../icons.js';
 import { plural } from '../format.js';
 import { FILTERS, createFeed, detailsFor, cached, markSeen, nudge } from '../feed.js';
 import { openThread } from './thread.js';
+import * as sync from '../sync.js';
 
 const FILTER_KEY = 'wn.feed.filter';
 const AHEAD = 2; // posters loaded ahead of the card on screen
@@ -42,6 +43,7 @@ let enteredAt = 0;
 let loading = false;
 let ended = false;
 let controller = null;
+let errBox = null; // the one "did not load" card, if showing
 
 try {
   filterId = localStorage.getItem(FILTER_KEY) || 'foryou';
@@ -137,6 +139,7 @@ function reset() {
   current = -1;
   ended = false;
   loading = false;
+  errBox = null;
   clear(scrollEl);
   scrollEl.scrollTop = 0;
   load();
@@ -146,6 +149,11 @@ async function load() {
   if (loading || ended || !feed) return;
   loading = true;
   const mine = feed;
+  /* A retry — by the button or by scrolling on — takes the last failure's
+     card away, so it never ends up stranded between films. */
+  errBox?.remove();
+  errBox = null;
+  let again = false;
   const spinner = cards.length ? null : el('div', { class: 'feed-card feed-note', html: '<div class="feed-loading" aria-label="Loading"></div>' });
   if (spinner) scrollEl.appendChild(spinner);
   try {
@@ -159,13 +167,18 @@ async function load() {
     }
     for (const film of batch) addCard(film);
     if (current < 0) setCurrent(0);
+    /* A short batch — one film, say — leaves nothing below to scroll to, and
+       it is scrolling near the end that asks for more. Ask now instead. */
+    again = current >= films.length - 5;
   } catch (err) {
     if (mine !== feed || err?.name === 'AbortError') return;
     spinner?.remove();
-    scrollEl.appendChild(errorCard(err));
+    errBox = errorCard(err);
+    scrollEl.appendChild(errBox);
   } finally {
     if (mine === feed) loading = false;
   }
+  if (again && mine === feed) load();
 }
 
 function endCard() {
@@ -195,10 +208,7 @@ function errorCard(err) {
       action: {
         label: 'Try again',
         haptic: true,
-        onClick: () => {
-          box.remove();
-          load();
-        },
+        onClick: () => load(),
       },
     })
   );
@@ -439,9 +449,23 @@ async function onClick(e) {
     if (what === 'spotlight') return toggleSpotlight(film, i);
     if (what === 'add') return toggleAdd(film, i);
     if (what === 'comment') {
+      /* Talking about a film puts it on the list (and in Spotlight) — but only
+         once something is said. Opened and closed with nothing written, the
+         film goes back off. */
+      const created = !itemFor(film);
       const item = await ensureItem(film);
       store.emit('item');
-      openThread(item.uid, { onClose: paintActions });
+      openThread(item.uid, {
+        onClose: () => {
+          const now = store.byUid(item.uid);
+          if (created && now && !now.spotlight && !store.notesFor(now).length) {
+            store.remove(now.uid);
+            store.saveNow();
+            store.emit('item');
+          }
+          paintActions();
+        },
+      });
       return;
     }
     return;
@@ -473,6 +497,8 @@ async function toggleSpotlight(film, i) {
   if (on) {
     nudge(film, 1.5);
     toast(`${item.title} is in Spotlight`);
+    /* Up now: the other phone hears of it when it reaches the repo. */
+    sync.pushSoon();
   }
   paintActions();
 }

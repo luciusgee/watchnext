@@ -62,7 +62,8 @@ const backStack = [];
    library because you glanced at Tonight is the kind of thing that makes an
    app feel like a web page. */
 const scrollMemo = new Map();
-const scroller = (id) => document.getElementById(`screen-${id}`)?.querySelector('.scroll');
+/* The feed scrolls its own region (snapping card to card), not a .scroll. */
+const scroller = (id) => document.getElementById(`screen-${id}`)?.querySelector('.scroll, .feed-scroll');
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function navigate(id, params = {}, { back = false, swiped = false } = {}) {

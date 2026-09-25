@@ -48,7 +48,9 @@ export function render() {
   /* Every mutation on this screen rebuilds it, which used to rewind all three
      rails to the left edge — including when the mutation came from behind the
      detail overlay, so they had silently reset by the time it was closed. */
-  const railScroll = [...body.querySelectorAll('.rail')].map((r) => r.scrollLeft);
+  /* By name, not position: Spotlight appearing or going above the others
+     shifted every rail's remembered offset onto its neighbour. */
+  const railScroll = new Map([...body.querySelectorAll('.rail')].map((r, i) => [r.dataset.rail || i, r.scrollLeft]));
   clear(body);
 
   const items = store.items();
@@ -165,7 +167,8 @@ export function render() {
   body.appendChild(el('div', { style: 'height:24px' }));
 
   body.querySelectorAll('.rail').forEach((r, i) => {
-    if (railScroll[i]) r.scrollLeft = railScroll[i];
+    const x = railScroll.get(r.dataset.rail || i);
+    if (x) r.scrollLeft = x;
   });
 }
 
@@ -450,7 +453,7 @@ function rail(title, items, onSeeAll) {
   }
   sec.appendChild(head);
 
-  const list = el('div', { class: 'rail', role: 'list' });
+  const list = el('div', { class: 'rail', role: 'list', 'data-rail': title });
   /* display:contents keeps the flex and scroll-snap layout of .card exactly as
      it was while giving the list its items. */
   for (const item of items) {
@@ -470,7 +473,7 @@ function spotlightRail(items) {
   const unread = items.reduce((n, i) => n + store.unreadFor(i), 0);
   if (unread) head.appendChild(el('span', { class: 'spotlight-new', text: `${unread} new` }));
   sec.appendChild(head);
-  const list = el('div', { class: 'rail', role: 'list' });
+  const list = el('div', { class: 'rail', role: 'list', 'data-rail': 'spotlight' });
   for (const item of items) {
     const card = cardFor(item);
     const notes = store.notesFor(item).length;

@@ -273,15 +273,38 @@ self.addEventListener('push', (event) => {
     data = { body: event.data ? event.data.text() : '' };
   }
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Watch Next', {
-      body: data.body || '',
-      tag: data.tag || undefined,
-      icon: './assets/icon-192.png',
-      badge: './assets/icon-192.png',
-      data: { url: data.url || './' },
-    })
+    Promise.all([
+      self.registration.showNotification(data.title || 'Watch Next', {
+        body: data.body || '',
+        tag: data.tag || undefined,
+        icon: './assets/icon-192.png',
+        badge: './assets/icon-192.png',
+        data: { url: data.url || './' },
+      }),
+      /* A comment is one more unread: the number on the icon goes up with
+         the app closed, not only the next time it is opened. */
+      String(data.tag || '').startsWith('thread-') ? bumpBadge() : null,
+    ])
   );
 });
+
+/* The icon's number, kept where the page can correct it (notify.js
+   paintBadge writes the true count here every time it paints). Not a wn-
+   cache: those are cleared on every update. */
+const BADGE_CACHE = 'watchnext-badge';
+const BADGE_KEY = './badge-count';
+async function bumpBadge() {
+  try {
+    if (!('setAppBadge' in self.navigator)) return;
+    const cache = await caches.open(BADGE_CACHE);
+    const was = await cache.match(BADGE_KEY);
+    const n = (was ? Number(await was.text()) || 0 : 0) + 1;
+    await cache.put(BADGE_KEY, new Response(String(n)));
+    await self.navigator.setAppBadge(n);
+  } catch {
+    /* the badge is a nicety */
+  }
+}
 
 /* Open the app at the film — or, if it is already open, tell it to go
    there. */

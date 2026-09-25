@@ -331,6 +331,20 @@ export async function syncNow({ note = 'Update library' } = {}) {
   }
 }
 
+/** Send now rather than after the debounce: for the things the other phone
+    is waiting to hear about. Falls back to the debounce if a sync is already
+    running. */
+export function pushSoon() {
+  if (!configured()) return;
+  if (running) {
+    schedulePush();
+    return;
+  }
+  clearTimeout(pushTimer);
+  pushTimer = null;
+  syncNow({ note: 'Update library' });
+}
+
 function schedulePush() {
   if (!configured()) return;
   clearTimeout(pushTimer);
@@ -359,6 +373,14 @@ export function start() {
       } else {
         clearInterval(pollTimer);
         pollTimer = null;
+        /* Leaving with a change still waiting out the debounce — a comment
+           typed and the app closed — sends it now, while iOS still lets a
+           request finish, rather than on the next launch. */
+        if (pushTimer) {
+          clearTimeout(pushTimer);
+          pushTimer = null;
+          syncNow({ note: 'Update library' });
+        }
       }
     });
 

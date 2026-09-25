@@ -14,6 +14,19 @@ import * as store from '../store.js';
 import { el, clear, poster, toast, openPanel } from '../ui.js';
 import { icon } from '../icons.js';
 import { relativeTime } from '../format.js';
+import { paintBadge } from '../notify.js';
+import * as sync from '../sync.js';
+
+/* One thread at a time: a second tap on Comments, or a notification opening
+   the thread already on screen, must not stack a second sheet on the first. */
+let openNow = null;
+
+/* The film a thread is about, by uid — or, when the duplicates folded while
+   it was open and that uid went, by IMDb id: the same film under the uid
+   that survived. */
+function resolve(uid, imdbId) {
+  return store.byUid(uid) || (imdbId ? store.items().find((i) => i.imdbId === imdbId) : null) || null;
+}
 
 /**
  * Open the comments for a film in the library.
@@ -23,15 +36,28 @@ import { relativeTime } from '../format.js';
 export function openThread(uid, { onClose = null } = {}) {
   const item = store.byUid(uid);
   if (!item) return;
+  if (openNow && !openNow.closing()) {
+    if (openNow.uid === uid) return openNow.handle;
+    openNow.handle.close();
+  }
 
-  const { panel, close, show } = openPanel({
+  const { panel, close, show, isClosing } = openPanel({
     label: `Comments on ${item.title}`,
-    className: 'thread-sheet',
+    /* has-pinned: the composer carries the home-indicator space, so the
+       sheet drops its own bottom padding. */
+    className: 'thread-sheet has-pinned',
     onClose: () => {
       unsubscribe();
+      if (openNow?.handle === handle) openNow = null;
+      /* Tonight's rail and the film page show an unread count; they read it
+         again now it has been read. */
+      store.emit('item');
       onClose?.();
     },
   });
+  const handle = { close };
+  openNow = { uid, handle, closing: isClosing };
+  let target = item;
 
   panel.appendChild(el('div', { class: 'sheet-grip' }));
   const head = el('div', { class: 'thread-head' });
@@ -51,7 +77,8 @@ export function openThread(uid, { onClose = null } = {}) {
   panel.appendChild(list);
 
   const paint = () => {
-    const current = store.byUid(uid) || item;
+    target = resolve(target.uid, item.imdbId) || target;
+    const current = target;
     const notes = store.notesFor(current);
     const mine = store.me().device;
     clear(list);
@@ -88,6 +115,7 @@ export function openThread(uid, { onClose = null } = {}) {
       list.appendChild(row);
     }
     store.markThreadSeen(current.uid);
+    paintBadge();
     requestAnimationFrame(() => {
       list.scrollTop = list.scrollHeight;
     });
@@ -152,11 +180,21 @@ export function openThread(uid, { onClose = null } = {}) {
       nameInput.remove();
       nameInput = null;
     }
-    const note = store.addNote(uid, text.value);
+    const film = resolve(target.uid, item.imdbId);
+    if (!film) {
+      toast('This film is no longer in your list');
+      close();
+      return;
+    }
+    target = film;
+    const note = store.addNote(film.uid, text.value);
     if (!note) return;
     text.value = '';
     grow();
     store.emit('item');
+    /* Up now, not on the half-minute timer: the other phone is told when
+       this reaches the repo. */
+    sync.pushSoon();
   });
   grow();
 
@@ -169,5 +207,5 @@ export function openThread(uid, { onClose = null } = {}) {
   /* The keyboard only when there is nothing to read yet — opening a thread
      to read it should not cover it. */
   if (!store.notesFor(item).length) requestAnimationFrame(() => (nameInput || text).focus({ preventScroll: true }));
-  return { close };
+  return handle;
 }

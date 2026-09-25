@@ -58,6 +58,16 @@ const GENRE_IDS = {
   romance: 10749, 'sci-fi': 878, 'science fiction': 878, thriller: 53, war: 10752, western: 37,
 };
 
+/* Film genre ids — the only ones /discover/movie understands. A series
+   carries TV ids for some genres (10759 "Action & Adventure", 10765 "Sci-Fi &
+   Fantasy"); starring one would otherwise teach "For you" a genre it then
+   asks the film list for and gets nothing back. They are translated here. */
+const FILM_GENRES = new Set([28, 12, 16, 35, 80, 99, 18, 10751, 14, 36, 27, 10402, 9648, 10749, 878, 53, 10752, 37]);
+const TV_TO_FILM = { 10759: [28, 12], 10765: [878, 14], 10768: [10752], 10762: [10751] };
+function filmGenres(ids) {
+  return [...new Set((ids || []).flatMap((g) => TV_TO_FILM[g] || (FILM_GENRES.has(g) ? [g] : [])))];
+}
+
 const SEEN_KEY = 'wn.feed.seen';
 const TASTE_KEY = 'wn.feed.taste';
 const SEEN_MAX = 4000;
@@ -103,7 +113,7 @@ export function markSeen(film) {
    nudges them down, and lingering nudges them up a little. */
 export function nudge(film, amount) {
   const t = readJson(TASTE_KEY, {});
-  for (const g of film.genreIds || []) t[g] = Math.max(-6, Math.min(12, (t[g] || 0) + amount));
+  for (const g of filmGenres(film.genreIds)) t[g] = Math.max(-6, Math.min(12, (t[g] || 0) + amount));
   writeJson(TASTE_KEY, t);
 }
 
@@ -130,7 +140,7 @@ function genreWeights() {
 /** The genres "For you" leans towards, strongest first. */
 export function favouriteGenres(n = 4) {
   return Object.entries(genreWeights())
-    .filter(([, v]) => v > 0)
+    .filter(([id, v]) => v > 0 && FILM_GENRES.has(Number(id)))
     .sort((a, b) => b[1] - a[1])
     .slice(0, n)
     .map(([id]) => Number(id));
@@ -198,8 +208,8 @@ export function createFeed(filterId, { key, signal } = {}) {
   const ctx = { key, signal, budget: new RequestBudget(20000, 'tmdb') };
   const shown = new Set();
   let n = 0; // how many lists this feed has asked for
-  let dry = 0; // lists in a row that added nothing
   const pages = {}; // per list, the next page to ask for
+  const done = new Set(); // lists TMDB has no more pages of
 
   /* "For you" takes turns: a favourite genre, what is trending, the next
      favourite, something like a film you starred, and so on — so it is never
@@ -228,29 +238,41 @@ export function createFeed(filterId, { key, signal } = {}) {
     store.items().some((i) => String(i.meta?.sourceId || '') === String(f.id) && i.type === f.type) ||
     !!store.findDuplicate(f.title, f.year, f.type);
 
-  /** The next batch of films, or [] when TMDB has run out. */
+  /**
+   * The next batch of films, or [] when TMDB has run out.
+   *
+   * A page can come back with nothing new on it — every film already seen on
+   * this phone, or already on the shelf — and that is not the end: the next
+   * page may be full. So it keeps going, page after page, until a list really
+   * has no more (TMDB's last page, or an empty one), and gives up only after
+   * MAX_ASKS requests in one go turned up nothing at all.
+   */
+  const MAX_ASKS = 30;
   async function more() {
-    for (let tries = 0; tries < 6; tries++) {
+    let asked = 0;
+    let skipped = 0;
+    while (asked < MAX_ASKS) {
       const [path, params, typeHint, slot] = sourceFor(filter, 0, pick);
       const list = slot || path;
-      const page = pages[list] || 1;
-      if (page > 40) {
-        n += 1;
+      n += 1;
+      if (done.has(list)) {
+        /* Every list this feed draws from has run out. */
+        if (++skipped > 12) return [];
         continue;
       }
+      skipped = 0;
+      const page = pages[list] || 1;
       pages[list] = page + 1;
-      n += 1;
+      asked += 1;
       const data = await tmdbGet(path, { ...params, page }, ctx);
-      const films = (data?.results || [])
+      const results = data?.results || [];
+      const last = Number(data?.total_pages) || 0;
+      if (!results.length || (last && page >= Math.min(last, 500))) done.add(list);
+      const films = results
         .map((r) => lite(r, typeHint))
         .filter((f) => f && f.poster && f.title && !shown.has(f.key) && !seenSet().has(f.key) && !inLibrary(f));
       films.forEach((f) => shown.add(f.key));
-      if (films.length) {
-        dry = 0;
-        return films;
-      }
-      dry += 1;
-      if (dry > 8) return [];
+      if (films.length) return films;
     }
     return [];
   }

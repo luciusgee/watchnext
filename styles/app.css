@@ -3067,11 +3067,16 @@ body.is-typing .select-bar {
   padding: var(--s3) var(--s4) var(--s5);
   background: linear-gradient(to bottom, rgba(11, 10, 9, 0.7), rgba(11, 10, 9, 0));
   scrollbar-width: none;
+  /* The band lies over the top of every card. Only the chips take a touch;
+     a swipe up that starts beside or below them moves the feed, not
+     nothing. A drag along the chips still scrolls the band. */
+  pointer-events: none;
 }
 .feed-filters::-webkit-scrollbar {
   display: none;
 }
 .feed-filter {
+  pointer-events: auto;
   flex: none;
   min-height: 34px;
   padding: 0 14px;
@@ -3141,7 +3146,15 @@ body.is-typing .select-bar {
 .thread-sheet {
   display: flex;
   flex-direction: column;
-  max-height: 86vh;
+  /* The sheet sits on the keyboard (.sheet's bottom: --kb), so it is the
+     keyboard's height shorter — or its top went off the screen. */
+  max-height: calc(86vh - var(--kb, 0px));
+}
+/* The head, list and composer each carry their own side padding, and the
+   composer the home-indicator space (.has-pinned drops the sheet's). */
+.sheet.thread-sheet {
+  padding-left: 0;
+  padding-right: 0;
 }
 .thread-head {
   display: flex;
@@ -3220,6 +3233,10 @@ body.is-typing .select-bar {
   flex-direction: column;
   gap: var(--s2);
 }
+/* On the keyboard, not the home indicator. */
+body.is-typing .thread-compose {
+  padding-bottom: var(--s3);
+}
 .thread-name-hint {
   font-size: var(--t-meta);
   color: var(--ash);
@@ -3269,8 +3286,16 @@ body.is-typing .select-bar {
   border-radius: 9px;
   padding: 2px 8px;
 }
-.card.has-unread .poster {
-  box-shadow: 0 0 0 2px var(--amber);
+.card.has-unread .poster::after {
+  /* Drawn inside the poster: an outer ring was cut off by the rail's
+     overflow on the top and the first card's left edge. */
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px var(--amber);
+  pointer-events: none;
 }
 .card.has-unread .card-s {
   color: var(--amber);
