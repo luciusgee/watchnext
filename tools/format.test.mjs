@@ -6,7 +6,7 @@
  * exported that way. These cases are the line between stripping a marker and
  * mangling a title that happens to start like one.
  */
-import { cleanTitleLine, looksNumberedList, stripListMarkers } from '../src/format.js';
+import { cleanTitleLine, looksNumberedList, stripListMarkers, releaseLabel, ymd, shiftDays } from '../src/format.js';
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -50,6 +50,31 @@ console.log('\n─── nothing in, nothing out ───');
 is('null', cleanTitleLine(null), '');
 is('a bare bullet', cleanTitleLine('•'), '');
 is('whitespace', cleanTitleLine(' \t '), '');
+
+console.log('\n─── when a film comes out ───');
+{
+  /* Thursday 24 September 2026, late evening in London (BST). */
+  const now = new Date(2026, 8, 24, 23, 30);
+  const L = (r) => releaseLabel(r, now);
+  is('today, by the phone’s calendar even near midnight', ymd(now), '2026-09-24');
+  is('days ahead cross the clocks going back', shiftDays(40, now), '2026-11-03');
+  is('tomorrow', L({ cinema: '2026-09-25' }), 'In cinemas tomorrow');
+  is('a UK cinema date', L({ cinema: '2026-11-13' }), 'In cinemas Fri 13 Nov');
+  is('the digital date when that is first', L({ digital: '2026-10-09' }), 'On digital Fri 9 Oct');
+  is('far off, with the year', L({ cinema: '2027-04-08' }), 'In cinemas Thu 8 Apr 2027');
+  is('out today', L({ cinema: '2026-09-24' }), 'In cinemas today');
+  is('out today at home', L({ digital: '2026-09-24' }), 'Out today');
+  is('in cinemas, not yet at home', L({ cinema: '2026-09-04', digital: '2026-11-20' }), 'In cinemas now');
+  is('in cinemas, no home date known', L({ cinema: '2026-09-04' }), 'In cinemas now');
+  is('long in cinemas, home date coming', L({ cinema: '2026-05-01', digital: '2026-10-02' }), 'On digital Fri 2 Oct');
+  is('just reached home', L({ cinema: '2026-08-01', digital: '2026-09-18' }), 'New');
+  is('the list date when there is no UK one', L({ fallback: '2026-09-10' }), 'New');
+  is('a UK date wins over the list date', L({ cinema: '2026-10-16', fallback: '2026-09-01' }), 'In cinemas Fri 16 Oct');
+  is('nothing to say about an old film', L({ fallback: '1979-05-25' }), null);
+  is('nor about an old cinema run', L({ cinema: '2025-01-10' }), null);
+  is('nothing in, nothing out', L({}), null);
+  is('a TMDB timestamp is read as its day', L({ cinema: '2026-09-25T00:00:00.000Z' }), 'In cinemas tomorrow');
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) { console.log('\nFailures:'); failures.forEach((f) => console.log('  - ' + f)); process.exit(1); }

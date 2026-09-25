@@ -69,8 +69,14 @@
 
   <!-- ─────────────  FEED  ───────────── -->
   <main id="screen-feed" class="screen feed-screen" aria-label="Feed">
-    <div class="feed-filters" data-region="filters" aria-label="What to show"></div>
-    <div class="feed-scroll" data-region="scroll"></div>
+    <!-- The pill bar lives inside the feed's scroller, pinned to its top:
+         nested like that, iOS gives a sideways swipe to the pills and an
+         up-or-down one to the feed, wherever on the bar it starts. -->
+    <div class="feed-scroll" data-region="scroll">
+      <div class="feed-bar" data-region="bar">
+        <div class="feed-filters" data-region="filters" role="group" aria-label="What to show"></div>
+      </div>
+    </div>
   </main>
 
   <!-- ─────────────  TONIGHT'S SHORTLIST  ───────────── -->

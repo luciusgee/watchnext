@@ -55,6 +55,12 @@ function dayStamp() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/* Today by the phone's calendar, to compare with a release date. */
+function todayYmd() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /**
  * Score a single candidate. Returns { score, why } where `why` is a short
  * human-readable reason we can show in the UI — a recommendation the user
@@ -84,6 +90,9 @@ export function scoreItem(item, profile, ctx) {
      flag is the answer, which is the solo case and the default. */
   const isRewatch = ctx.viewerSeen ? ctx.viewerSeen.has(item.uid) : item.watched;
   if (isRewatch && !ctx.allowRewatch) return null;
+
+  /* Not out yet — added from the Feed's Coming soon — so not tonight. */
+  if (item.released && item.released > (ctx.today || todayYmd())) return null;
 
   /* In "tonight" mode, ownership is a hard filter, not a bonus: the whole
      premise is ranking what you can actually play right now. */

@@ -93,6 +93,10 @@ export function makeItem(partial = {}) {
        { at, by, device }, or null. Declared here, like every field, so a
        backup read through makeItem keeps it. */
     spotlight: partial.spotlight && typeof partial.spotlight === 'object' ? partial.spotlight : null,
+    /* 'YYYY-MM-DD': when a film added before it was out can be watched at
+       home (its UK digital date, else its cinema date). Tonight does not
+       suggest it before then. Null for nearly everything. */
+    released: typeof partial.released === 'string' ? partial.released.slice(0, 10) : null,
   };
 }
 

@@ -19,7 +19,7 @@ import { openThread } from './screens/thread.js';
 import { paintBadge } from './notify.js';
 import { initTonight, showTonight } from './screens/tonight.js';
 import { initLibrary, showLibrary } from './screens/library.js';
-import { initFeed, showFeed } from './screens/feed.js';
+import { initFeed, showFeed, retapFeed } from './screens/feed.js';
 import { initAsk, showAsk } from './screens/ask.js';
 import { initPick, showPick } from './screens/pick.js';
 import { initStats, showStats } from './screens/stats.js';
@@ -69,7 +69,9 @@ function navigate(id, params = {}, { back = false, swiped = false } = {}) {
   /* Tapping the tab you are already on is the platform's scroll-to-top, not a
      rebuild — re-running the screen flashed it and jumped. */
   if (id === current && !back && !Object.keys(params).length && document.body.classList.contains('is-ready')) {
-    scroller(id)?.scrollTo({ top: 0, behavior: reduceMotion() ? 'auto' : 'smooth' });
+    /* The feed's own: at the top already, a second tap checks for new films. */
+    if (id === 'feed') retapFeed();
+    else scroller(id)?.scrollTo({ top: 0, behavior: reduceMotion() ? 'auto' : 'smooth' });
     return;
   }
 
@@ -117,8 +119,11 @@ function navigate(id, params = {}, { back = false, swiped = false } = {}) {
     btn.setAttribute('aria-current', active ? 'page' : 'false');
   }
 
+  let fresh = false;
   try {
-    SHOW[id]?.(params);
+    /* A screen that has just started itself again (the feed, after hours
+       away) says so, and does not get the old scroll position back. */
+    fresh = SHOW[id]?.(params) === 'fresh';
   } catch (err) {
     console.error(`[nav] ${id} failed to render`, err);
     toast('Something went wrong opening that screen');
@@ -128,7 +133,7 @@ function navigate(id, params = {}, { back = false, swiped = false } = {}) {
      library renders in pages, so a restored offset can clamp to what is on
      screen — still far better than always starting again at the top. */
   const sc = scroller(id);
-  if (sc) sc.scrollTop = !PUSHED.has(id) || back ? scrollMemo.get(id) || 0 : 0;
+  if (sc) sc.scrollTop = !fresh && (!PUSHED.has(id) || back) ? scrollMemo.get(id) || 0 : 0;
 
   /* The control that was focused — a gear, a plus, a Back — has just gone
      display:none with its screen, which dropped keyboard focus on <body> and

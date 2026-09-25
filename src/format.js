@@ -46,6 +46,79 @@ export function plural(n, one, many) {
   return `${n} ${n === 1 ? one : many || one + 's'}`;
 }
 
+/* ── release dates ──
+   TMDB dates are calendar days ('2026-11-14'), and so is "today" on the
+   phone: compared as whole days, never as instants, so a film out on the
+   14th is "Out today" all of the 14th, BST or not. */
+
+/** Today (or `d`) as 'YYYY-MM-DD', by the phone's own calendar. */
+export function ymd(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** `n` days from today, as 'YYYY-MM-DD'. */
+export function shiftDays(n, from = new Date()) {
+  const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  d.setDate(d.getDate() + n);
+  return ymd(d);
+}
+
+const dayNumber = (s) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || ''));
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / 864e5 : null;
+};
+
+/* How long a release still counts as new. */
+const NEW_DAYS = 60;
+
+/**
+ * When a film comes out, or that it just has — for the top of a Feed card.
+ * `cinema` and `digital` are the UK dates when TMDB has them; `fallback` is
+ * the date the list gave, used only when there is no UK date at all.
+ * Returns null for anything neither new nor coming.
+ *
+ *   In cinemas tomorrow · In cinemas Fri 14 Nov · On digital Fri 9 Oct ·
+ *   Out today · In cinemas now · New · In cinemas Thu 8 Apr 2027
+ */
+export function releaseLabel({ cinema = null, digital = null, fallback = null } = {}, now = new Date()) {
+  const today = dayNumber(ymd(now));
+  const known = cinema || digital;
+  const dates = [
+    { kind: 'cinema', s: cinema },
+    { kind: 'digital', s: digital },
+    { kind: 'out', s: known ? null : fallback },
+  ]
+    .map((x) => ({ ...x, diff: x.s ? dayNumber(x.s) - today : null }))
+    .filter((x) => x.diff !== null && Number.isFinite(x.diff));
+  if (!dates.length) return null;
+
+  const prefix = { cinema: 'In cinemas', digital: 'On digital', out: 'Out' };
+  const when = (x) => {
+    if (x.diff === 1) return `${prefix[x.kind]} tomorrow`;
+    const d = new Date(dayNumber(x.s) * 864e5);
+    const opts = { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' };
+    if (x.diff > 183) opts.year = 'numeric';
+    return `${prefix[x.kind]} ${new Intl.DateTimeFormat('en-GB', opts).format(d).replace(',', '')}`;
+  };
+
+  /* Not out anywhere yet: the first date it will be. */
+  if (dates.every((x) => x.diff > 0)) return when(dates.reduce((a, b) => (b.diff < a.diff ? b : a)));
+  const todayOne = dates.find((x) => x.diff === 0);
+  if (todayOne) return todayOne.kind === 'cinema' ? 'In cinemas today' : 'Out today';
+
+  const c = dates.find((x) => x.kind === 'cinema');
+  const g = dates.find((x) => x.kind === 'digital');
+  /* In cinemas, and not yet at home. */
+  if (c && c.diff < 0 && (!g || g.diff > 0)) {
+    if (c.diff >= -NEW_DAYS) return 'In cinemas now';
+    if (g) return when(g);
+    return null;
+  }
+  const latest = Math.max(...dates.filter((x) => x.diff < 0).map((x) => x.diff));
+  return latest >= -NEW_DAYS ? 'New' : null;
+}
+
 /** Initials for the poster fallback: "The Dark Knight" -> "DK".
     Leading punctuation is skipped, so "(500) Days of Summer" is "5D" and
     "[REC]" is "RE" rather than "(D" and "[R"; letters are matched as Unicode

@@ -372,6 +372,18 @@ console.log('\n─── similar titles ───');
   check('an empty library returns nothing rather than throwing', similarTo(subject, []).length === 0);
 }
 
+console.log('\n─── not out yet ───');
+{
+  const soon = film({ title: 'Coming Up', released: '2999-01-01' });
+  const out = film({ title: 'Just Out', released: '2001-01-01' });
+  const plain = film({ title: 'Always Here' });
+  const profile = tasteProfile([soon, out, plain]);
+  check('a film not out yet is not a candidate for tonight', scoreItem(soon, profile, ctx()) === null);
+  check('one whose date has passed is', scoreItem(out, profile, ctx()) !== null);
+  check('and so is one with no date at all', scoreItem(plain, profile, ctx()) !== null);
+  check('and rank leaves it out', !rank([soon, out, plain], { seed: 'fixed' }).some((r) => r.item === soon));
+}
+
 console.log(`\n══════════  ${pass} passed, ${fail} failed  ══════════`);
 if (failures.length) {
   console.log('\nFailures:');

@@ -18,8 +18,8 @@ import * as meta from '../metadata.js';
 import * as actions from '../actions.js';
 import { el, clear, toast, emptyState } from '../ui.js';
 import { icon } from '../icons.js';
-import { plural } from '../format.js';
-import { FILTERS, createFeed, detailsFor, cached, markSeen, nudge } from '../feed.js';
+import { plural, releaseLabel } from '../format.js';
+import { FILTERS, createFeed, detailsFor, cached, markSeen, nudge, forgetDetails } from '../feed.js';
 import { openThread } from './thread.js';
 import * as sync from '../sync.js';
 
@@ -29,6 +29,7 @@ const KEEP = 5; // cards either side that keep their poster
 
 let root = null;
 let scrollEl = null;
+let barEl = null;
 let filtersEl = null;
 let navigate = null;
 let observer = null;
@@ -44,6 +45,13 @@ let loading = false;
 let ended = false;
 let controller = null;
 let errBox = null; // the one "did not load" card, if showing
+/* When this feed was last looked at, by the wall clock: an iPhone keeps the
+   app alive in the background for days, and a feed built on Monday is not
+   what is new on Friday. Away longer than this, it starts again from what
+   is new now. */
+let lastSeenAt = 0;
+const STALE_MS = 2 * 3600e3;
+const stale = () => !!feed && Date.now() - lastSeenAt >= STALE_MS;
 
 try {
   filterId = localStorage.getItem(FILTER_KEY) || 'foryou';
@@ -58,14 +66,30 @@ export function initFeed({ navigate: nav }) {
   navigate = nav;
   root = document.getElementById('screen-feed');
   scrollEl = root.querySelector('[data-region="scroll"]');
+  barEl = root.querySelector('[data-region="bar"]');
   filtersEl = root.querySelector('[data-region="filters"]');
   observer = new IntersectionObserver(onIntersect, { root: scrollEl, threshold: 0.6 });
   scrollEl.addEventListener('click', onClick);
+  filtersEl.addEventListener('scroll', paintEdge, { passive: true });
   store.subscribe((reason) => {
     if (reason === 'item' && isActive()) paintActions();
   });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (isActive() && feed) lastSeenAt = Date.now();
+      return;
+    }
+    /* Time away is not time spent looking at the card. */
+    enteredAt = performance.now();
+    if (isActive() && tmdbKey() && stale() && !document.querySelector('.thread-sheet, .detail.is-open')) reset();
+  });
+  window.addEventListener('online', () => {
+    if (errBox && isActive()) load();
+  });
 }
 
+/** Returns 'fresh' when it started the feed again, so the scroll position
+    remembered for the old one is not put back on the new one. */
 export function showFeed() {
   paintFilters();
   const key = tmdbKey();
@@ -73,47 +97,98 @@ export function showFeed() {
     feed = null;
     feedKey = '';
     paintNoKey();
+    return 'fresh';
+  }
+  if (!feed || feedKey !== key || stale()) {
+    reset();
+    return 'fresh';
+  }
+  paintActions();
+  return null;
+}
+
+/**
+ * The Feed tab, or the pill already chosen, tapped again: down the feed, it
+ * goes back to the top; at the top, it checks for what is new.
+ */
+export function retapFeed() {
+  if (!feed) return;
+  if (scrollEl.scrollTop > 4) {
+    scrollEl.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     return;
   }
-  if (!feed || feedKey !== key) reset();
-  else paintActions();
+  reset();
 }
 
 /* ── filters ── */
 
+/* Built once and kept: rebuilding them every time the tab was shown threw
+   away a swipe in progress and where the row had been scrolled to. */
 function paintFilters() {
-  clear(filtersEl);
-  for (const f of FILTERS) {
-    const b = el('button', {
-      class: 'feed-filter',
-      type: 'button',
-      'aria-pressed': String(f.id === filterId),
-      text: f.label,
-      onclick: () => {
-        if (f.id === filterId) {
-          scrollEl.scrollTo({ top: 0, behavior: 'smooth' });
-          return;
-        }
-        filterId = f.id;
-        try {
-          localStorage.setItem(FILTER_KEY, filterId);
-        } catch {
-          /* remembered for this session only */
-        }
-        for (const other of filtersEl.children) other.setAttribute('aria-pressed', String(other === b));
-        b.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
-        reset();
-      },
+  if (!FILTERS.some((f) => f.id === filterId)) filterId = 'foryou';
+  if (!filtersEl.children.length) {
+    for (const f of FILTERS) {
+      const b = el('button', {
+        class: 'feed-filter',
+        type: 'button',
+        'data-filter': f.id,
+        'aria-pressed': 'false',
+        text: f.label,
+        onclick: () => {
+          if (f.id === filterId) {
+            retapFeed();
+            return;
+          }
+          filterId = f.id;
+          try {
+            localStorage.setItem(FILTER_KEY, filterId);
+          } catch {
+            /* remembered for this session only */
+          }
+          syncFilters();
+          centre(b, true);
+          reset();
+        },
+      });
+      filtersEl.appendChild(b);
+    }
+    requestAnimationFrame(() => {
+      centre(filtersEl.querySelector('[aria-pressed="true"]'), false);
+      paintEdge();
     });
-    filtersEl.appendChild(b);
   }
-  requestAnimationFrame(() =>
-    filtersEl.querySelector('[aria-pressed="true"]')?.scrollIntoView({ inline: 'center', block: 'nearest' })
-  );
+  syncFilters();
+}
+
+function syncFilters() {
+  for (const b of filtersEl.children) b.setAttribute('aria-pressed', String(b.dataset.filter === filterId));
+}
+
+/* The chosen pill into the middle of the row — by scrolling the row alone.
+   scrollIntoView would scroll every scroller above it too, the feed
+   included. */
+function centre(b, smooth) {
+  if (!b) return;
+  const row = filtersEl.getBoundingClientRect();
+  const r = b.getBoundingClientRect();
+  const left = Math.max(0, filtersEl.scrollLeft + (r.left - row.left) - (row.width - r.width) / 2);
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  filtersEl.scrollTo({ left, behavior: smooth && !calm ? 'smooth' : 'auto' });
+}
+
+/* The fade at the right edge says there are more pills; at the end of the
+   row there are not. */
+function paintEdge() {
+  barEl.classList.toggle('at-end', filtersEl.scrollLeft + filtersEl.clientWidth >= filtersEl.scrollWidth - 2);
+}
+
+/* Everything in the scroller but the pill bar. */
+function clearCards() {
+  for (const n of [...scrollEl.children]) if (n !== barEl) n.remove();
 }
 
 function paintNoKey() {
-  clear(scrollEl);
+  clearCards();
   const box = el('div', { class: 'feed-card feed-note' });
   box.appendChild(
     emptyState({
@@ -132,6 +207,8 @@ function reset() {
   controller?.abort();
   controller = new AbortController();
   feedKey = tmdbKey();
+  forgetDetails();
+  lastSeenAt = Date.now();
   feed = createFeed(filterId, { key: feedKey, signal: controller.signal });
   films = [];
   cards.forEach((c) => observer.unobserve(c));
@@ -140,7 +217,7 @@ function reset() {
   ended = false;
   loading = false;
   errBox = null;
-  clear(scrollEl);
+  clearCards();
   scrollEl.scrollTop = 0;
   load();
 }
@@ -187,7 +264,8 @@ function endCard() {
     emptyState({
       iconName: 'check',
       title: 'That is everything here',
-      message: 'You have been through every film under this filter. Try another one at the top.',
+      message: 'You have been through every film under this filter. Try another one at the top, or look again later.',
+      action: { label: 'Check for new films', haptic: true, onClick: () => reset() },
     })
   );
   return box;
@@ -229,7 +307,9 @@ function addCard(film) {
   card.appendChild(art);
 
   const body = el('div', { class: 'feed-body' });
-  body.appendChild(el('div', { class: 'feed-meta', text: metaLine(film, null) }));
+  const meta = el('div', { class: 'feed-meta' });
+  paintMeta(meta, film, null);
+  body.appendChild(meta);
   body.appendChild(el('h2', { class: 'feed-title', text: film.title }));
   body.appendChild(el('div', { class: 'feed-tagline' }));
   body.appendChild(el('div', { class: 'feed-genres', text: film.genres.slice(0, 3).join(' · ') }));
@@ -262,9 +342,25 @@ function act(name, iconName, label) {
 
 const hm = (m) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`);
 
-function metaLine(film, d) {
+/* Coming or just out, said first, in amber: "In cinemas Fri 14 Nov". From
+   the list's date until the details bring the UK ones. The year is left off
+   then — the date has said it. */
+function paintMeta(node, film, d) {
+  clear(node);
+  const r = d?.release || {};
+  const when = releaseLabel({
+    cinema: r.cinema || (film.dateKind === 'cinema' ? film.date : null),
+    digital: r.digital || null,
+    fallback: film.date,
+  });
+  if (when) node.appendChild(el('span', { class: 'feed-when', text: when }));
+  const rest = metaLine(film, d, { year: !when });
+  if (rest) node.appendChild(document.createTextNode(`${when ? '  ·  ' : ''}${rest}`));
+}
+
+function metaLine(film, d, { year = true } = {}) {
   const bits = [];
-  if (film.year) bits.push(String(film.year));
+  if (film.year && year) bits.push(String(film.year));
   if (film.type === 'tv') bits.push(d?.seasons ? plural(d.seasons, 'season') : 'Series');
   else if (d?.runtime) bits.push(hm(d.runtime));
   if (d?.certificate) bits.push(d.certificate);
@@ -276,7 +372,7 @@ function paintDetails(i, d) {
   const card = cards[i];
   const film = films[i];
   if (!card || !d) return;
-  card.querySelector('.feed-meta').textContent = metaLine(film, d);
+  paintMeta(card.querySelector('.feed-meta'), film, d);
   card.querySelector('.feed-tagline').textContent = d.tagline || '';
   if (d.genres?.length) card.querySelector('.feed-genres').textContent = d.genres.slice(0, 3).join(' · ');
   const credits = card.querySelector('.feed-credits');
@@ -310,8 +406,10 @@ function onIntersect(entries) {
 function setCurrent(i) {
   if (i === current || !films[i]) return;
   /* How long the last one held you is the quietest signal there is: a flick
-     past is a small no, a long look a small yes. */
-  const prev = films[current];
+     past is a small no, a long look a small yes. Only for a move on to the
+     next card — going back to the top passes every card at speed, and is
+     not thirty small noes. */
+  const prev = i === current + 1 ? films[current] : null;
   if (prev) {
     const dwell = performance.now() - enteredAt;
     if (dwell < 1200) nudge(prev, -0.25);
@@ -319,6 +417,7 @@ function setCurrent(i) {
   }
   current = i;
   enteredAt = performance.now();
+  lastSeenAt = Date.now();
   markSeen(films[i]);
 
   cards.forEach((card, j) => {
@@ -387,6 +486,8 @@ async function ensureItem(film) {
     imdbId: rec?.imdbId || d?.imdbId || null,
     overview: rec?.overview || film.overview,
     owned: false,
+    /* Coming soon: Tonight leaves it alone until it can be watched. */
+    released: d?.release?.digital || d?.release?.cinema || film.date || null,
     locked: ['title', 'year'],
     meta: {
       v: meta.META_VERSION,

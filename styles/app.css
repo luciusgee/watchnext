@@ -2906,6 +2906,11 @@ body.is-typing .select-bar {
   letter-spacing: 0.04em;
   color: var(--silver);
 }
+/* "In cinemas Fri 14 Nov", "New". */
+.feed-when {
+  color: var(--amber);
+  font-weight: 700;
+}
 .feed-title {
   font-size: 28px;
   line-height: 1.12;
@@ -3032,28 +3037,59 @@ body.is-typing .select-bar {
   box-shadow: 0 0 0 2px var(--ink);
 }
 
-.feed-filters {
+.feed-bar {
+  /* Pinned to the top of the feed's scroller and taking no room in it (the
+     negative margin), so the first card still starts at the very top. Being
+     inside the scroller is the point: iOS then hands a sideways swipe on the
+     bar to the pill row and an up-or-down one to the feed.
+     Never pointer-events:none here or on .feed-filters — in iOS WebKit that
+     switches the row's native scrolling off, and Chromium (the tests) does
+     not reproduce it. Nor touch-action, overscroll-behavior-y or scroll-snap:
+     each stops the up-or-down hand-off to the feed. */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 54px;
+  margin-bottom: -54px;
+  background: linear-gradient(to bottom, rgba(11, 10, 9, 0.6), rgba(11, 10, 9, 0));
+}
+/* More pills this way. A pseudo-element that lets touches through, not a
+   mask: a mask would take the pills' blur away. */
+.feed-bar::after {
+  content: '';
   position: absolute;
   top: 0;
-  left: 0;
+  bottom: 0;
   right: 0;
-  z-index: 2;
+  width: 28px;
+  pointer-events: none;
+  background: linear-gradient(to left, rgba(11, 10, 9, 0.55), rgba(11, 10, 9, 0));
+  transition: opacity var(--fast) var(--ease);
+}
+.feed-bar.at-end::after {
+  opacity: 0;
+}
+.feed-filters {
   display: flex;
   gap: var(--s2);
+  height: 100%;
+  align-items: center;
+  padding: 0 var(--s4);
   overflow-x: auto;
-  padding: var(--s3) var(--s4) var(--s5);
-  background: linear-gradient(to bottom, rgba(11, 10, 9, 0.7), rgba(11, 10, 9, 0));
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
-  /* The band lies over the top of every card. Only the chips take a touch;
-     a swipe up that starts beside or below them moves the feed, not
-     nothing. A drag along the chips still scrolls the band. */
-  pointer-events: none;
+}
+/* Room after the last pill: some WebKit versions drop a flex scroller's end
+   padding. */
+.feed-filters::after {
+  content: '';
+  flex: 0 0 1px;
 }
 .feed-filters::-webkit-scrollbar {
   display: none;
 }
 .feed-filter {
-  pointer-events: auto;
   flex: none;
   min-height: 34px;
   padding: 0 14px;

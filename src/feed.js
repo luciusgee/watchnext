@@ -18,11 +18,13 @@
 import * as store from './store.js';
 import { tmdbGet, toRecord, posterUrl } from './providers/tmdb.js';
 import { RequestBudget } from './providers/shared.js';
+import { ymd, shiftDays } from './format.js';
 
 export const FILTERS = [
   { id: 'foryou', label: 'For you' },
   { id: 'trending', label: 'Trending' },
   { id: 'new', label: 'New' },
+  { id: 'soon', label: 'Coming soon' },
   { id: 'horror', label: 'Horror', genre: 27 },
   { id: 'thriller', label: 'Thriller', genre: 53 },
   { id: 'comedy', label: 'Comedy', genre: 35 },
@@ -95,11 +97,17 @@ function seenSet() {
   if (!seen) seen = new Set(readJson(SEEN_KEY, []));
   return seen;
 }
+/* A film seen before it was out is seen as "coming": it comes back, once,
+   when it is — so the trailer you scrolled past in August turns up again,
+   marked New, the week it can actually be watched. */
+const seenKey = (film) => film.key + (film.date && film.date.slice(0, 10) > ymd() ? ':soon' : '');
+
 /** This card has been on screen. */
 export function markSeen(film) {
   const s = seenSet();
-  if (s.has(film.key)) return;
-  s.add(film.key);
+  const key = seenKey(film);
+  if (s.has(key)) return;
+  s.add(key);
   if (s.size > SEEN_MAX) {
     const trimmed = [...s].slice(-SEEN_MAX);
     seen = new Set(trimmed);
@@ -159,6 +167,9 @@ function lite(r, typeHint) {
     type,
     title: r.title || r.name || '',
     year: date ? Number(date.slice(0, 4)) || null : null,
+    /* The list's date: with region=GB the UK one, otherwise the worldwide
+       premiere. Details may bring a better one (release, below). */
+    date: date || null,
     overview: r.overview || '',
     poster: posterUrl(r.poster_path, 'w780'),
     thumb: posterUrl(r.poster_path, 'w342'),
@@ -170,8 +181,21 @@ function lite(r, typeHint) {
   };
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
-const daysAgo = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+/* New and coming, in the UK. TMDB's `region` + `release_date` read the UK
+   release dates — cinema (2 limited, 3 wide) and digital (4) — rather than
+   the one worldwide premiere, which is often a festival a year earlier. The
+   primary_release_date floor keeps out re-releases of old films. No vote
+   floor: a film out this week has hardly any votes yet. */
+const UK = { region: 'GB', include_video: false, sort_by: 'popularity.desc' };
+export function newParams({ from = -60, to = 0, types = '3|2|4' } = {}) {
+  return {
+    ...UK,
+    with_release_type: types,
+    'release_date.gte': shiftDays(from),
+    'release_date.lte': shiftDays(to),
+    'primary_release_date.gte': shiftDays(-730),
+  };
+}
 
 /* What to ask TMDB for, per filter. Each is a function of the page number
    so a feed can keep going for as long as there are pages. */
@@ -183,7 +207,9 @@ function sourceFor(filter, page, pick) {
     case 'series':
       return ['/trending/tv/week', base, 'tv'];
     case 'new':
-      return ['/discover/movie', { ...base, sort_by: 'popularity.desc', 'primary_release_date.gte': daysAgo(150), 'primary_release_date.lte': today(), 'vote_count.gte': 40 }];
+      return ['/discover/movie', { ...base, ...newParams({ from: -60, to: 0 }) }];
+    case 'soon':
+      return ['/discover/movie', { ...base, ...newParams({ from: 1, to: 120, types: '3|2' }) }];
     case 'gems':
       return ['/discover/movie', { ...base, sort_by: 'vote_average.desc', 'vote_average.gte': 7.2, 'vote_count.gte': 150, 'vote_count.lte': 2500 }];
     case 'classics':
@@ -211,9 +237,10 @@ export function createFeed(filterId, { key, signal } = {}) {
   const pages = {}; // per list, the next page to ask for
   const done = new Set(); // lists TMDB has no more pages of
 
-  /* "For you" takes turns: a favourite genre, what is trending, the next
-     favourite, something like a film you starred, and so on — so it is never
-     only the one genre, and never only the charts. */
+  /* "For you" takes turns: what is new or about to be out in the genres
+     you like, what is trending, a favourite genre, something like a film you
+     starred, and so on — so it is never only the one genre, never only the
+     charts, and the first thing it deals is what is new. */
   const favourites = filter.id === 'foryou' ? favouriteGenres(4) : [];
   const seeds = store
     .items()
@@ -223,7 +250,13 @@ export function createFeed(filterId, { key, signal } = {}) {
     const slot = n % 6;
     const base = { include_adult: false };
     const genre = favourites.length ? favourites[Math.floor(n / 2) % favourites.length] : null;
-    if ((slot === 0 || slot === 2 || slot === 4) && genre) {
+    if (slot === 0) {
+      /* Out in the last two months or the next two, in the three genres this
+         shelf leans to most (any of them). */
+      const liked = favourites.slice(0, 3).join('|');
+      return ['/discover/movie', { ...base, ...newParams({ from: -60, to: 60 }), ...(liked ? { with_genres: liked } : {}) }, null, 'fresh'];
+    }
+    if ((slot === 2 || slot === 4) && genre) {
       return ['/discover/movie', { ...base, with_genres: genre, sort_by: 'popularity.desc', 'vote_count.gte': 200 }, null, `g${genre}`];
     }
     if (slot === 3 && seeds.length) {
@@ -270,8 +303,11 @@ export function createFeed(filterId, { key, signal } = {}) {
       if (!results.length || (last && page >= Math.min(last, 500))) done.add(list);
       const films = results
         .map((r) => lite(r, typeHint))
-        .filter((f) => f && f.poster && f.title && !shown.has(f.key) && !seenSet().has(f.key) && !inLibrary(f));
+        .filter((f) => f && f.poster && f.title && !shown.has(f.key) && !seenSet().has(seenKey(f)) && !inLibrary(f));
       films.forEach((f) => shown.add(f.key));
+      /* Coming soon asks for UK cinema dates only, so the date each row
+         carries is one: "In cinemas Fri 14 Nov" before the details say so. */
+      if (filter.id === 'soon') films.forEach((f) => (f.dateKind = 'cinema'));
       if (films.length) return films;
     }
     return [];
@@ -283,6 +319,25 @@ export function createFeed(filterId, { key, signal } = {}) {
 /* ── the rest of a card ── */
 
 const details = new Map();
+
+/** Forget the details fetched so far — on a refresh, so a certificate, a
+    trailer or a release date is not days old. */
+export function forgetDetails() {
+  details.clear();
+}
+
+/* The UK release dates, from the release_dates the details already carry.
+   UK only: a US date is usually earlier, and would say a film is out here
+   when it is not. */
+function ukRelease(d) {
+  const gb = d.release_dates?.results?.find((r) => r.iso_3166_1 === 'GB')?.release_dates || [];
+  const first = (...types) =>
+    gb
+      .filter((r) => types.includes(r.type) && r.release_date)
+      .map((r) => r.release_date.slice(0, 10))
+      .sort()[0] || null;
+  return { cinema: first(3) || first(2), digital: first(4) };
+}
 
 function certificate(d, type) {
   const pickFrom = (rows, field) => {
@@ -328,6 +383,7 @@ export async function detailsFor(film, { key, signal } = {}) {
     certificate: certificate(d, film.type),
     imdbId: d.imdb_id || d.external_ids?.imdb_id || null,
     trailer: video ? `https://www.youtube.com/watch?v=${video.key}` : null,
+    release: tv ? null : ukRelease(d),
   };
   details.set(film.key, out);
   return out;
