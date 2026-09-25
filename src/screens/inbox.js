@@ -1,14 +1,14 @@
 /*
  * Notifications, in the app: the bell at the top of Tonight and Ask.
  *
- * Everything the other phone has done that this one should know about — a
- * comment, a film put in Spotlight — newest first. Tap one and it takes you
- * there (the thread for a comment, the film for a Spotlight) and counts as
- * read; clear them one at a time or all at once. The number on the bell is
- * the number on the app icon, and reading or clearing takes both down.
+ * The other phone's comments and superlikes, newest first. Tap one and it
+ * takes you there (the thread for a comment, the film for a superlike) and
+ * counts as read; clear them one at a time or all at once. The number on the
+ * bell is the number on the app icon, and reading or clearing takes both
+ * down.
  *
  * The list itself is worked out in store.js (inbox()), from the same shared
- * comments and Spotlights the rest of the app shows.
+ * comments and superlikes the rest of the app shows.
  */
 
 import * as store from '../store.js';
@@ -47,13 +47,13 @@ async function dismissDelivered(tags) {
   try {
     const reg = await navigator.serviceWorker?.ready;
     const shown = (await reg?.getNotifications?.()) || [];
-    for (const n of shown) if (!tags || tags.includes(n.tag)) n.close();
+    for (const n of shown) if (tags.includes(n.tag)) n.close();
   } catch {
     /* a nicety */
   }
 }
 
-const tagFor = (e) => (e.kind === 'comment' ? `thread-${e.uid}` : `spot-${e.uid}`);
+const tagFor = (e) => (e.kind === 'superlike' ? `super-${e.uid}` : `thread-${e.uid}`);
 
 export function openInbox() {
   if (openNow && !openNow.closing()) return;
@@ -75,9 +75,9 @@ export function openInbox() {
     type: 'button',
     text: 'Clear all',
     onclick: () => {
-      const gone = store.clearAllInbox();
-      if (gone) {
-        dismissDelivered(null);
+      const all = store.inbox();
+      if (store.clearAllInbox()) {
+        dismissDelivered([...new Set(all.map(tagFor))]);
         store.emit('inbox');
       }
     },
@@ -96,21 +96,26 @@ export function openInbox() {
       list.appendChild(
         el('div', {
           class: 'inbox-empty',
-          html: `${icon('bell', 28)}<p>Nothing new.</p><p class="inbox-empty-sub">When the other phone comments on a film or puts one in Spotlight, it shows up here.</p>`,
+          html: `${icon('bell', 28)}<p>Nothing new.</p><p class="inbox-empty-sub">When the other phone comments on a film or superlikes one, it shows up here.</p>`,
         })
       );
       return;
     }
-    for (const e of entries) list.appendChild(row(e));
+    /* The newest sixty drawn; the count and Clear all cover the rest. */
+    for (const e of entries.slice(0, store.INBOX_MAX)) list.appendChild(row(e));
+    if (entries.length > store.INBOX_MAX) {
+      list.appendChild(el('div', { class: 'inbox-more', text: `And ${entries.length - store.INBOX_MAX} older` }));
+    }
   };
 
   const row = (e) => {
-    const item = el('div', { class: `inbox-item${e.read ? '' : ' is-unread'}`, role: 'listitem' });
+    const item = el('div', { class: `inbox-item${e.read ? '' : ' is-unread'} is-${e.kind}`, role: 'listitem' });
     const who = e.by || 'They';
+    const verb = e.kind === 'superlike' ? ' superliked ' : ' commented on ';
     const go = el('button', {
       class: 'inbox-go',
       type: 'button',
-      'aria-label': `${e.read ? '' : 'New. '}${e.kind === 'comment' ? `${who} commented on ${e.title}: ${e.text}` : `${who} put ${e.title} in Spotlight`}. ${relativeTime(e.at)}`,
+      'aria-label': `${e.read ? '' : 'New. '}${who}${verb}${e.title}${e.text ? `: ${e.text}` : ''}. ${relativeTime(e.at)}`,
       onclick: () => {
         store.readInbox(e.id);
         dismissDelivered([tagFor(e)]);
@@ -125,15 +130,17 @@ export function openInbox() {
         }, 60);
       },
     });
-    go.appendChild(poster(e.item, { width: 44 }));
+    const art = el('div', { class: 'inbox-art' });
+    art.appendChild(poster(e.item, { width: 44 }));
+    if (e.kind === 'superlike') art.appendChild(el('span', { class: 'inbox-mark', html: icon('flameFill', 14) }));
+    go.appendChild(art);
     const text = el('div', { class: 'inbox-text' });
     const line = el('div', { class: 'inbox-line' });
     line.appendChild(el('b', { text: who }));
-    line.appendChild(document.createTextNode(e.kind === 'comment' ? ' commented on ' : ' put '));
+    line.appendChild(document.createTextNode(verb));
     line.appendChild(el('b', { text: e.title }));
-    if (e.kind === 'spotlight') line.appendChild(document.createTextNode(' in Spotlight'));
     text.appendChild(line);
-    if (e.kind === 'comment') text.appendChild(el('div', { class: 'inbox-quote', text: e.text }));
+    if (e.text) text.appendChild(el('div', { class: 'inbox-quote', text: e.text }));
     text.appendChild(el('div', { class: 'inbox-when', text: relativeTime(e.at) }));
     go.appendChild(text);
     item.appendChild(go);
@@ -145,7 +152,10 @@ export function openInbox() {
         html: icon('close', 16),
         onclick: () => {
           store.clearInbox(e.id);
-          dismissDelivered([tagFor(e)]);
+          /* Notification Centre's copy goes too — unless something still
+             unread shares it (one film's comments replace each other there
+             under one tag). */
+          if (!store.inbox().some((x) => !x.read && tagFor(x) === tagFor(e))) dismissDelivered([tagFor(e)]);
           store.emit('inbox');
         },
       })

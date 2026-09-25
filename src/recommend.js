@@ -55,6 +55,12 @@ function dayStamp() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Out yet? A film added from the Feed's Coming soon is not, until its
+    date. The one rule for the scorer and the session picker. */
+export function isOut(item, today = todayYmd()) {
+  return !item.released || item.released <= today;
+}
+
 /* Today by the phone's calendar, to compare with a release date. */
 function todayYmd() {
   const d = new Date();
@@ -92,7 +98,7 @@ export function scoreItem(item, profile, ctx) {
   if (isRewatch && !ctx.allowRewatch) return null;
 
   /* Not out yet — added from the Feed's Coming soon — so not tonight. */
-  if (item.released && item.released > (ctx.today || todayYmd())) return null;
+  if (!isOut(item, ctx.today || todayYmd())) return null;
 
   /* In "tonight" mode, ownership is a hard filter, not a bonus: the whole
      premise is ranking what you can actually play right now. */

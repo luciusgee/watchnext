@@ -97,10 +97,21 @@ function seenSet() {
   if (!seen) seen = new Set(readJson(SEEN_KEY, []));
   return seen;
 }
-/* A film seen before it was out is seen as "coming": it comes back, once,
-   when it is — so the trailer you scrolled past in August turns up again,
-   marked New, the week it can actually be watched. */
-const seenKey = (film) => film.key + (film.date && film.date.slice(0, 10) > ymd() ? ':soon' : '');
+/* A film seen before it was out in the UK is seen as "coming": it comes
+   back, once, when it is — so the one scrolled past in Coming soon turns up
+   again in New the week it can be watched. Only a UK date can say that: the
+   UK lists (New, Coming soon, For you's first) carry one; every other list
+   carries the worldwide premiere, often weeks earlier, and a film seen
+   there is simply seen. */
+const coming = (film) => !!film.dateUK && !!film.date && film.date.slice(0, 10) > ymd();
+const seenKey = (film) => film.key + (coming(film) ? ':soon' : '');
+function isSeen(film) {
+  const s = seenSet();
+  /* Coming, or from a list without UK dates: seen either way counts. Out in
+     the UK: only seen-since-it-came-out counts — that is the second chance. */
+  if (coming(film) || !film.dateUK) return s.has(film.key) || s.has(`${film.key}:soon`);
+  return s.has(film.key);
+}
 
 /** This card has been on screen. */
 export function markSeen(film) {
@@ -303,7 +314,8 @@ export function createFeed(filterId, { key, signal } = {}) {
       if (!results.length || (last && page >= Math.min(last, 500))) done.add(list);
       const films = results
         .map((r) => lite(r, typeHint))
-        .filter((f) => f && f.poster && f.title && !shown.has(f.key) && !seenSet().has(seenKey(f)) && !inLibrary(f));
+        .map((f) => (f && params.region === 'GB' ? Object.assign(f, { dateUK: true }) : f))
+        .filter((f) => f && f.poster && f.title && !shown.has(f.key) && !isSeen(f) && !inLibrary(f));
       films.forEach((f) => shown.add(f.key));
       /* Coming soon asks for UK cinema dates only, so the date each row
          carries is one: "In cinemas Fri 14 Nov" before the details say so. */

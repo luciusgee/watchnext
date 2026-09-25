@@ -216,29 +216,30 @@ async function githubRoute(route) {
   });
   const badge = () => luke.page.evaluate(() => window.__badge[window.__badge.length - 1]);
   check('Sam’s reply shows on Luke’s bell', (await bell()) === '1', await bell());
-  /* Sam stars a second film, and comments on a third that nobody had
-     starred — which stars it too, but is one thing that happened. */
+  /* Sam superlikes a second film, stars a third (a star is not news), and
+     comments on a fourth. */
   const two = await sam.page.evaluate(async (skip) => {
     const s = await import('./src/store.js');
-    const [a, b] = s.items().filter((i) => i.uid !== skip && !i.spotlight).slice(0, 2);
-    s.setSpotlight(a.uid, true);
+    const [a, b, c] = s.items().filter((i) => i.uid !== skip && !i.spotlight).slice(0, 3);
+    s.setSuperlike(a.uid, true);
+    s.setSpotlight(c.uid, true);
     s.addNote(b.uid, 'This one?');
     s.emit('item');
-    return { spot: a, talk: b };
+    return { spot: a, talk: b, star: c };
   }, film.uid);
   await syncNow(sam.page);
   await syncNow(luke.page);
   await luke.page.waitForTimeout(300);
-  check('a Spotlight and a comment from the other phone: two more', (await bell()) === '3' && (await badge()) === 3, `${await bell()} / badge ${await badge()}`);
+  check('a superlike and a comment from the other phone: two more; a star, nothing', (await bell()) === '3' && (await badge()) === 3, `${await bell()} / badge ${await badge()}`);
   await luke.page.tap('#screen-tonight [data-action="inbox"]');
   await luke.page.waitForSelector('.inbox-sheet.is-open');
   const rows = await luke.page.evaluate(() => [...document.querySelectorAll('.inbox-item')].map((r) => ({ text: r.querySelector('.inbox-line').textContent, unread: r.classList.contains('is-unread') })));
-  check('the bell opens the list, newest first, new ones marked', rows.length === 3 && rows.every((r) => r.unread) && rows.some((r) => r.text === `Sam put ${two.spot.title} in Spotlight`) && rows.some((r) => r.text === `Sam commented on ${two.talk.title}`), JSON.stringify(rows));
-  check('a comment that starred a film is one entry, not two', !rows.some((r) => r.text === `Sam put ${two.talk.title} in Spotlight`));
-  await luke.page.evaluate((t) => [...document.querySelectorAll('.inbox-item')].find((r) => r.querySelector('.inbox-line').textContent === t).querySelector('.inbox-go').click(), `Sam put ${two.spot.title} in Spotlight`);
+  check('the bell opens the list, newest first, new ones marked', rows.length === 3 && rows.every((r) => r.unread) && rows.some((r) => r.text === `Sam superliked ${two.spot.title}`) && rows.some((r) => r.text === `Sam commented on ${two.talk.title}`), JSON.stringify(rows));
+  check('comments and superlikes only: nothing for a star', !rows.some((r) => /Spotlight/.test(r.text)), JSON.stringify(rows));
+  await luke.page.evaluate((t) => [...document.querySelectorAll('.inbox-item')].find((r) => r.querySelector('.inbox-line').textContent === t).querySelector('.inbox-go').click(), `Sam superliked ${two.spot.title}`);
   await luke.page.waitForTimeout(600);
   const opened = await luke.page.evaluate(() => ({ detail: document.querySelector('.detail.is-open h1')?.textContent || '', sheet: !!document.querySelector('.inbox-sheet.is-open') }));
-  check('tapping a Spotlight opens the film', opened.detail === two.spot.title && !opened.sheet, JSON.stringify(opened));
+  check('tapping a superlike opens the film', opened.detail === two.spot.title && !opened.sheet, JSON.stringify(opened));
   check('and takes one off the bell and the app icon', (await bell()) === '2' && (await badge()) === 2, `${await bell()} / badge ${await badge()}`);
   await luke.page.keyboard.press('Escape');
   await luke.page.waitForTimeout(400);
@@ -298,6 +299,80 @@ async function githubRoute(route) {
     return Math.abs((t.left + t.right) / 2 - (bar.left + bar.right) / 2);
   });
   check('with the bell beside Add, the wordmark is still in the middle', centred < 2, `${centred}px off`);
+
+  console.log('\n─── a lot waiting ───');
+  /* Seventy-five comments from Sam: the sheet draws sixty, but the count
+     and Clear all cover every one. */
+  const many = await luke.page.evaluate(async () => {
+    const s = await import('./src/store.js');
+    const snap = s.syncSnapshot();
+    const films = s.items().slice(0, 25);
+    const sam = snap.notes.find((n) => n.by === 'Sam')?.device || 'dSAMX';
+    const extra = Array.from({ length: 75 }, (_, k) => ({ id: `nbulk${k}`, uid: films[k % films.length].uid, film: films[k % films.length].imdbId || null, text: `Bulk ${k}`, by: 'Sam', device: sam, at: Date.now() - k * 1000 }));
+    s.applySync({ ...snap, notes: [...snap.notes, ...extra] });
+    s.emit('item');
+    return s.inboxUnread();
+  });
+  await luke.page.waitForTimeout(300);
+  check('seventy-five new are all counted, not just the sixty drawn', many >= 75 && ((await bell()) === '9+'), `${many} / ${await bell()}`);
+  await luke.page.evaluate(() => document.querySelector('[data-tab="tonight"]').click());
+  await luke.page.waitForTimeout(300);
+  const railBefore = await luke.page.evaluate(() => document.querySelector('.spotlight .section-head')?.textContent || '');
+  await luke.page.evaluate(() => document.querySelector('#screen-tonight [data-action="inbox"]').click());
+  await luke.page.waitForSelector('.inbox-sheet.is-open');
+  const drawn = await luke.page.evaluate(() => ({ rows: document.querySelectorAll('.inbox-item').length, more: document.querySelector('.inbox-more')?.textContent || '' }));
+  check('the sheet draws sixty and says there are more', drawn.rows === 60 && /older/.test(drawn.more), JSON.stringify(drawn));
+  await luke.page.evaluate(() => document.querySelector('.inbox-clear-all').click());
+  await luke.page.waitForTimeout(400);
+  const cleared = await luke.page.evaluate(async () => ({ unread: (await import('./src/store.js')).inboxUnread(), rows: document.querySelectorAll('.inbox-item').length }));
+  check('one Clear all clears the lot', cleared.unread === 0 && cleared.rows === 0 && (await bell()) === '' && (await badge()) === 0, JSON.stringify({ ...cleared, badge: await badge() }));
+  const railAfter = await luke.page.evaluate(() => document.querySelector('.spotlight .section-head')?.textContent || '');
+  check('and Tonight’s Spotlight row stops saying new', /new/.test(railBefore) && !/new/.test(railAfter), `${railBefore} → ${railAfter}`);
+  await luke.page.keyboard.press('Escape');
+  await luke.page.waitForTimeout(300);
+
+  console.log('\n─── superlikes ───');
+  const pend = (pg) => pg.evaluate(async () => (await import('./src/store.js')).pendingNotify());
+  const sent = await sam.page.evaluate(async () => {
+    const s = await import('./src/store.js');
+    const hot = s.items().find((i) => !i.spotlight && !i.watched);
+    s.setSuperlike(hot.uid, true);
+    s.emit('item');
+    return { uid: hot.uid, title: hot.title, spot: !!s.byUid(hot.uid).spotlight };
+  });
+  const q = await pend(sam.page);
+  check('a superlike puts the film in Spotlight, and queues one notification', sent.spot && q.filter((e) => e.uid === sent.uid).map((e) => e.kind).join() === 'superlike', JSON.stringify(q.map((e) => [e.kind, e.payload?.title])));
+  check('worded for the other phone', q.some((e) => e.kind === 'superlike' && e.payload.title === `Sam superliked ${sent.title}` && e.payload.tag === `super-${sent.uid}`));
+  await syncNow(sam.page);
+  check('the Action is sent it, marked [notify]', /^\[notify\] Sam superliked/.test(commits.filter((c) => c.path === 'notify/last.json').pop()?.message || ''), commits.filter((c) => c.path === 'notify/last.json').pop()?.message);
+  const undone = await sam.page.evaluate(async (uid) => {
+    const s = await import('./src/store.js');
+    s.setSuperlike(uid, false);
+    s.setSuperlike(uid, true);
+    s.setSuperlike(uid, false);
+    return s.pendingNotify().filter((e) => e.uid === uid).length;
+  }, sent.uid);
+  check('one taken back before the sync is not sent', undone === 0);
+  await sam.page.evaluate(async (uid) => (await import('./src/store.js')).setSuperlike(uid, true), sent.uid);
+  await syncNow(sam.page);
+  await syncNow(luke.page);
+  await luke.page.waitForTimeout(400);
+  await luke.page.evaluate(() => document.querySelector('.inbox-sheet.is-open') || document.querySelector('#screen-tonight [data-action="inbox"]').click());
+  await luke.page.waitForSelector('.inbox-sheet.is-open');
+  await luke.page.waitForTimeout(300);
+  const lines = await luke.page.evaluate(() => [...document.querySelectorAll('.inbox-item')].map((r) => ({ line: r.querySelector('.inbox-line').textContent, flame: !!r.querySelector('.inbox-mark svg') })));
+  check('Luke’s bell lists it, with a flame', lines.some((l) => l.line === `Sam superliked ${sent.title}` && l.flame), JSON.stringify(lines.slice(0, 4)));
+  await luke.page.keyboard.press('Escape');
+  await luke.page.waitForTimeout(300);
+  const readByPage = await luke.page.evaluate(async (uid) => {
+    const s = await import('./src/store.js');
+    const before = s.inbox().find((e) => e.kind === 'superlike' && e.uid === uid)?.read;
+    (await import('./src/screens/detail.js')).openDetail(uid);
+    const after = s.inbox().find((e) => e.kind === 'superlike' && e.uid === uid)?.read;
+    (await import('./src/screens/detail.js')).closeDetail();
+    return { before, after };
+  }, sent.uid);
+  check('opening the film any other way reads it too', readByPage.before === false && readByPage.after === true, JSON.stringify(readByPage));
 
   console.log('\n─── taken back before it went ───');
   const takenBack = await luke.page.evaluate(async (uid) => {

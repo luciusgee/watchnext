@@ -1934,6 +1934,13 @@ body.is-typing .sheet-actions.is-pinned {
   min-width: 0;
   padding: 0 var(--s3);
 }
+/* Spotlight and Superlike side by side, Comments under them. */
+.detail-spot .detail-actions {
+  margin-bottom: 0;
+}
+.detail-actions-one {
+  grid-template-columns: 1fr;
+}
 .detail-actions .btn > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3332,6 +3339,25 @@ body.is-typing .thread-compose {
   color: var(--faint);
 }
 
+/* A superliked film in Spotlight: a flame on its poster. */
+.super-mark,
+.inbox-mark {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--amber);
+  color: var(--ink);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.super-mark {
+  top: 6px;
+  left: 6px;
+}
+
 /* ── notifications (screens/inbox.js) ── */
 .inbox-sheet {
   display: flex;
@@ -3349,6 +3375,7 @@ body.is-typing .thread-compose {
   border-bottom: 1px solid var(--hairline);
 }
 .inbox-head .sheet-title {
+  flex: 1;
   margin: 0;
   text-align: left;
 }
@@ -3396,6 +3423,16 @@ body.is-typing .thread-compose {
 .inbox-go:active {
   background: var(--raised);
 }
+.inbox-art {
+  position: relative;
+  flex: none;
+}
+.inbox-mark {
+  right: -6px;
+  bottom: -4px;
+  width: 20px;
+  height: 20px;
+}
 .inbox-text {
   flex: 1;
   min-width: 0;
@@ -3440,6 +3477,12 @@ body.is-typing .thread-compose {
 .inbox-clear:active {
   background: var(--raised);
   color: var(--bone);
+}
+.inbox-more {
+  padding: var(--s3) var(--s4);
+  text-align: center;
+  font-size: var(--t-meta);
+  color: var(--ash);
 }
 .inbox-empty {
   display: flex;

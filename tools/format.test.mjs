@@ -8,6 +8,9 @@
  */
 import { cleanTitleLine, looksNumberedList, stripListMarkers, releaseLabel, ymd, shiftDays } from '../src/format.js';
 
+/* London, as the phones are: the date cases below are about BST. */
+process.env.TZ = 'Europe/London';
+
 let pass = 0, fail = 0;
 const failures = [];
 function check(name, cond, detail = '') {
@@ -74,6 +77,12 @@ console.log('\n─── when a film comes out ───');
   is('nor about an old cinema run', L({ cinema: '2025-01-10' }), null);
   is('nothing in, nothing out', L({}), null);
   is('a TMDB timestamp is read as its day', L({ cinema: '2026-09-25T00:00:00.000Z' }), 'In cinemas tomorrow');
+  /* Just after midnight in BST it is still the previous day in UTC: a date
+     taken from UTC would call today's film "tomorrow". */
+  const early = new Date(2026, 8, 25, 0, 30);
+  is('just after midnight, BST: today is the new day', ymd(early), '2026-09-25');
+  is('so a film out today says today', releaseLabel({ cinema: '2026-09-25' }, early), 'In cinemas today');
+  is('and counting days starts from it', shiftDays(0, new Date(2026, 9, 20, 0, 30)), '2026-10-20');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

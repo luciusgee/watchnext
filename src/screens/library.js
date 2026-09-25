@@ -116,10 +116,23 @@ export function showLibrary(params = {}) {
     root.querySelector('#library-search').value = '';
   }
   if (params.filter === 'owned') state.quality = 'owned';
+  /* "Sam added 12 films": the newest first, all of them, from the top. */
+  if (params.sort === 'added') {
+    state.sort = 'added';
+    state.status = null;
+    state.quality = null;
+    state.genre = null;
+    state.type = 'all';
+    state.query = '';
+    state.queryRaw = '';
+    root.querySelector('#library-search').value = '';
+  }
   /* Rebuilt to the depth that was showing, so the scroll offset main.js
      restores has rows under it. A 40-row rebuild clamped a return from row
      300 to about row 30. A new filter still starts from the top. */
-  render({ keep: !params.filter });
+  render({ keep: !params.filter && !params.sort });
+  /* From the top, not where the list was left. */
+  return params.sort ? 'fresh' : null;
 }
 
 /* ── filtering ── */

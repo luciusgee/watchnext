@@ -31,7 +31,9 @@ export function initTonight({ navigate: nav }) {
   const owned = store.items().filter((i) => i.owned).length;
   ownedOnly = owned >= 10;
   store.subscribe((r) => {
-    if (r === 'item' && isActive()) render();
+    /* 'inbox': read or cleared from the bell — the Spotlight row's "new"
+       counts follow. */
+    if ((r === 'item' || r === 'inbox') && isActive()) render();
   });
 }
 
@@ -132,6 +134,18 @@ export function render() {
   }
 
   /* rails */
+  /* What has just gone on the list, from either phone — newest first, and
+     only what is actually recent (the last two months), so a library
+     imported in one go does not fill it with whatever came first. */
+  const since = Date.now() - 60 * 864e5;
+  const added = items
+    .filter((i) => (i.addedAt || 0) >= since)
+    .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0))
+    .slice(0, 20);
+  if (added.length) {
+    body.appendChild(rail('Recently added', added, () => navigate('library', { sort: 'added' })));
+  }
+
   /* The pile. This rail used to be the watchlist, which was a list inside a
      list — the whole library is the watchlist. What is actually worth
      surfacing is the thing collectors complain about in these words: films
@@ -490,6 +504,12 @@ function spotlightRail(items) {
           ? 'From you'
           : `From ${by}`;
     if (fresh) card.classList.add('has-unread');
+    /* Superliked: a flame on the poster, and first in the row (spotlit()). */
+    if (item.superlike) {
+      card.classList.add('is-super');
+      card.querySelector('.poster')?.appendChild(el('span', { class: 'super-mark', 'aria-hidden': 'true', html: icon('flameFill', 14) }));
+      card.setAttribute('aria-label', `${card.getAttribute('aria-label') || item.title}, superliked`);
+    }
     list.appendChild(el('div', { role: 'listitem', style: 'display:contents' }, card));
   }
   sec.appendChild(list);

@@ -281,13 +281,27 @@ self.addEventListener('push', (event) => {
         badge: './assets/icon-192.png',
         data: { url: data.url || './' },
       }),
-      /* A comment or a Spotlight is one more unread (the bell's count): the
+      /* A comment or a superlike is one more unread (the bell's count): the
          number on the icon goes up with the app closed, not only the next
          time it is opened. */
-      /^(thread|spot)-/.test(String(data.tag || '')) ? bumpBadge() : null,
+      /^(thread|super)-/.test(String(data.tag || '')) ? countOrTell() : null,
     ])
   );
 });
+
+/* With the app open and on screen, it keeps the count itself (and has
+   often read the thing already — it syncs every half-minute, and the push
+   comes after). Counting up here as well left a 1 on the icon for
+   something already read. Tell it to look instead. */
+async function countOrTell() {
+  const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const seen = open.filter((c) => c.visibilityState === 'visible');
+  if (seen.length) {
+    for (const c of seen) c.postMessage({ type: 'badge' });
+    return;
+  }
+  await bumpBadge();
+}
 
 /* The icon's number, kept where the page can correct it (notify.js
    paintBadge writes the true count here every time it paints). Not a wn-

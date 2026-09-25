@@ -82,8 +82,8 @@ export function openDetail(uid, { push = true } = {}) {
   const wasOpen = root.classList.contains('is-open');
 
   currentUid = uid;
-  /* Seeing the film is reading the other phone's Spotlight of it. */
-  if (store.markSpotSeen(uid)) store.emit('inbox');
+  /* Seeing the film is reading the other phone's superlike of it. */
+  if (store.markSuperSeen(uid)) store.emit('inbox');
   render(item);
   root.classList.remove('is-closing');
   root.classList.add('is-open');
@@ -161,6 +161,23 @@ function spotlightBlock(item) {
       },
     })
   );
+  /* Superlike: stronger than the star — "we have to watch this". */
+  const hot = !!item.superlike;
+  row.appendChild(
+    button(hot ? 'Superliked' : 'Superlike', {
+      kind: hot ? 'on-amber' : 'secondary',
+      iconName: hot ? 'flameFill' : 'flame',
+      onClick: () => {
+        store.setSuperlike(item.uid, !hot);
+        store.emit('item');
+        if (!hot) {
+          toast(`Superliked ${item.title}`);
+          sync.pushSoon();
+        }
+      },
+    })
+  );
+  box.appendChild(row);
   const notes = store.notesFor(item);
   const unread = store.unreadFor(item);
   const talk = button(notes.length ? `Comments · ${notes.length}` : 'Comment', {
@@ -168,12 +185,19 @@ function spotlightBlock(item) {
     iconName: 'comment',
     onClick: () => openThread(item.uid),
   });
-  row.appendChild(talk);
-  box.appendChild(row);
+  const talkRow = el('div', { class: 'detail-actions detail-actions-one' });
+  talkRow.appendChild(talk);
+  box.appendChild(talkRow);
 
   if (on) {
     const by = item.spotlight.device === store.me().device ? 'you' : item.spotlight.by || 'them';
-    box.appendChild(el('div', { class: 'detail-spot-note', text: `In Spotlight since ${relativeTime(item.spotlight.at)}, from ${by}.` }));
+    const superBy = hot ? (item.superlike.device === store.me().device ? 'you' : item.superlike.by || 'them') : null;
+    box.appendChild(
+      el('div', {
+        class: 'detail-spot-note',
+        text: `In Spotlight since ${relativeTime(item.spotlight.at)}, from ${by}.${hot ? ` Superliked by ${superBy}.` : ''}`,
+      })
+    );
   }
   const last = notes[notes.length - 1];
   if (last) {

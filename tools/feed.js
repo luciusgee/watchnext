@@ -119,14 +119,26 @@ function check(name, cond, detail = '') {
   check('with its poster, IMDb id, TMDB id and details', added && !!added.poster && /^tt\d+$/.test(added.imdbId || '') && added.meta.sourceId === String(film.id) && !!added.runtime && added.genres.length > 0, JSON.stringify(added && { poster: added.poster, imdb: added.imdbId, meta: added.meta, runtime: added.runtime }));
   check('counted as verified, chosen by you', added && added.meta.status === 'matched' && added.meta.source === 'user');
   const addLabel = await page.evaluate((n) => document.querySelector(`.feed-card[data-i="${n}"] [data-act="add"] .feed-act-label`).textContent, i);
-  check('and the button says it is in the list', addLabel === 'In list', addLabel);
+  check('and the button becomes the way to the film', addLabel === 'Open', addLabel);
+
+  await page.tap(`.feed-card[data-i="${i}"] [data-act="add"]`);
+  await page.waitForSelector('.detail.is-open');
+  const opened = await page.evaluate(() => ({ title: document.querySelector('.detail.is-open h1')?.textContent || '', watchBtn: [...document.querySelectorAll('.detail.is-open button')].some((b) => /Mark watched|Watched/i.test(b.textContent)) }));
+  check('Open takes you to the film, where it can be marked watched', opened.title === film.title && opened.watchBtn, JSON.stringify(opened));
+  await page.evaluate(() => [...document.querySelectorAll('.detail.is-open button')].find((b) => /Mark watched/i.test(b.textContent))?.click());
+  await page.waitForTimeout(400);
+  await page.evaluate(async () => (await import('./src/screens/detail.js')).closeDetail());
+  await page.waitForTimeout(500);
+  const afterWatch = await page.evaluate((n) => document.querySelector(`.feed-card[data-i="${n}"] [data-act="add"] .feed-act-label`).textContent, i);
+  const watchedNow = await page.evaluate((u) => window.__test.byUid(u)?.watched, added.uid);
+  check('and back on the card it says so', watchedNow === true && afterWatch === 'Watched', `${watchedNow} / ${afterWatch}`);
 
   await page.tap(`.feed-card[data-i="${i}"] [data-act="spotlight"]`);
   await page.waitForTimeout(500);
   const lit = await page.evaluate((u) => window.__test.byUid(u)?.spotlight, added.uid);
   check('the star puts it in Spotlight', !!lit?.at, JSON.stringify(lit));
   const queued = await page.evaluate(() => JSON.parse(localStorage.getItem('wn.state.v3')).settings.pendingNotify);
-  check('and queues a notification for the other phone', queued.some((q) => q.kind === 'spotlight' && /in Spotlight/.test(q.payload.title)), JSON.stringify(queued));
+  check('a star does not buzz the other phone (comments and superlikes do)', !queued.some((q) => q.kind === 'spotlight'), JSON.stringify(queued));
   const starOn = await page.evaluate((n) => document.querySelector(`.feed-card[data-i="${n}"] [data-act="spotlight"]`).classList.contains('is-on'), i);
   check('and the star lights up', starOn);
 
@@ -141,6 +153,21 @@ function check(name, cond, detail = '') {
   await page.waitForTimeout(800);
   const doubled = await page.evaluate((t) => window.__test.items().find((x) => x.title === t)?.spotlight, film2.title);
   check('a double-tap on the poster puts it in Spotlight too', !!doubled, film2.title);
+
+  await next(page);
+  const h = (await state(page)).current;
+  const hotFilm = (await state(page)).film;
+  await page.tap(`.feed-card[data-i="${h}"] [data-act="superlike"]`);
+  await page.waitForTimeout(800);
+  const hot = await page.evaluate((t) => {
+    const it = window.__test.items().find((x) => x.title === t);
+    const q = JSON.parse(localStorage.getItem('wn.state.v3')).settings.pendingNotify.filter((e) => e.uid === it?.uid || (e.uids || []).includes(it?.uid));
+    return { superlike: !!it?.superlike, spot: !!it?.spotlight, queued: q.map((e) => e.kind) };
+  }, hotFilm.title);
+  check('the flame superlikes a film: on the list, in Spotlight', hot.superlike && hot.spot, JSON.stringify(hot));
+  check('telling the other phone once, as a superlike', hot.queued.join() === 'superlike', JSON.stringify(hot.queued));
+  const lit2 = await page.evaluate((n) => { const b = document.querySelector(`.feed-card[data-i="${n}"] [data-act="superlike"]`); return b.classList.contains('is-on') && b.getAttribute('aria-pressed') === 'true'; }, h);
+  check('and the flame lights up', lit2);
 
   await next(page);
   const k = (await state(page)).current;
@@ -181,6 +208,21 @@ function check(name, cond, detail = '') {
   await page.waitForTimeout(500);
   const leftOver = await page.evaluate((t) => window.__test.items().some((x) => x.title === t), film4.title);
   check('Comment opened and closed with nothing said leaves the list as it was', !leftOver, film4.title);
+
+  console.log('\n─── recently added, on Tonight ───');
+  await page.tap('[data-tab="tonight"]');
+  await page.waitForTimeout(500);
+  const recentRail = await page.evaluate(() => {
+    const r = document.querySelector('.rail[data-rail="Recently added"]');
+    return r ? { first: r.querySelector('.card-t, .card-title, [class*="card-t"]')?.textContent || r.querySelector('.card')?.getAttribute('aria-label') || '', seeAll: !!r.closest('.section')?.querySelector('.section-link') } : null;
+  });
+  check('Tonight has a Recently added row, newest first', !!recentRail && recentRail.first.includes(film3.title), JSON.stringify(recentRail));
+  await page.evaluate(() => document.querySelector('.rail[data-rail="Recently added"]').closest('.section').querySelector('.section-link').click());
+  await page.waitForTimeout(600);
+  const libSort = await page.evaluate(() => document.getElementById('screen-library').classList.contains('is-active'));
+  check('and See all opens the library, newest first', libSort);
+  await page.tap('[data-tab="feed"]');
+  await page.waitForTimeout(500);
 
   console.log('\n─── filters ───');
   await page.evaluate(() => [...document.querySelectorAll('.feed-filter')].find((b) => b.textContent === 'Horror').click());
@@ -297,26 +339,52 @@ function check(name, cond, detail = '') {
     const at = await p4.evaluate(() => {
       const pills = [...document.querySelectorAll('.feed-filter')].map((b) => b.getBoundingClientRect());
       const bar = document.querySelector('.feed-bar').getBoundingClientRect();
-      return { pill: { x: pills[1].x + pills[1].width / 2, y: pills[1].y + pills[1].height / 2 }, gap: { x: pills[1].right + 4, y: pills[1].y + pills[1].height / 2 }, edge: { x: pills[2].x + 10, y: bar.bottom - 3 } };
+      const mid = pills[1].y + pills[1].height / 2;
+      const out = { pill: { x: pills[2].x + pills[2].width / 2, y: mid }, gap: { x: (pills[1].right + pills[2].x) / 2, y: mid }, edge: { x: pills[2].x + 10, y: bar.bottom - 3 } };
+      /* Say what each start point really is, so a layout change cannot swap
+         what is being tested. */
+      const hit = (p) => document.elementFromPoint(p.x, p.y);
+      out.onPill = !!hit(out.pill)?.closest('.feed-filter');
+      out.inGap = hit(out.gap)?.classList.contains('feed-filters');
+      return out;
     });
+    check('the drag points are where they say: one on a pill, one between two', at.onPill && at.inGap, JSON.stringify(at));
     const read = () => p4.evaluate(() => ({ left: Math.round(document.querySelector('.feed-filters').scrollLeft), top: Math.round(document.querySelector('.feed-scroll').scrollTop) }));
     const pressedBefore = await p4.evaluate(() => document.querySelector('.feed-filter[aria-pressed="true"]')?.textContent);
-    await drag(at.pill.x + 120, at.pill.y, at.pill.x - 180, at.pill.y);
+    await drag(at.pill.x, at.pill.y, at.pill.x - 260, at.pill.y);
     const a = await read();
     check('a sideways swipe on a pill scrolls the row, not the feed', a.left > 100 && a.top === 0, JSON.stringify(a));
     const pressedAfter = await p4.evaluate(() => document.querySelector('.feed-filter[aria-pressed="true"]')?.textContent);
     check('and does not choose a filter on the way', pressedBefore === pressedAfter, `${pressedBefore} → ${pressedAfter}`);
     await p4.evaluate(() => { document.querySelector('.feed-filters').scrollLeft = 0; });
     await p4.waitForTimeout(200);
-    await drag(at.gap.x + 120, at.gap.y, at.gap.x - 180, at.gap.y);
+    await drag(at.gap.x, at.gap.y, at.gap.x - 260, at.gap.y);
     const b = await read();
     check('so does one that starts between two pills', b.left > 100, JSON.stringify(b));
-    await p4.evaluate(() => { document.querySelector('.feed-filters').scrollLeft = 0; });
-    await p4.waitForTimeout(200);
-    await drag(at.edge.x, at.edge.y + 0, at.edge.x, at.edge.y - 300);
+    /* Let the row finish gliding from the last swipe first: a touch that
+       lands mid-glide only stops the glide. */
+    const settle = () => p4.evaluate(async () => {
+      const f = document.querySelector('.feed-filters');
+      f.scrollLeft = 0;
+      let last = -1;
+      for (let i = 0; i < 40 && f.scrollLeft !== last; i++) {
+        last = f.scrollLeft;
+        await new Promise((r) => setTimeout(r, 60));
+        f.scrollLeft = 0;
+      }
+    });
+    await settle();
+    /* On the second film, then a long pull down that starts on the bar:
+       long enough to move a film on distance alone, so the check does not
+       hang on whether the browser read it as a flick. */
+    const h = await p4.evaluate(() => { const f = document.querySelector('.feed-scroll'); f.scrollTop = f.clientHeight; return f.clientHeight; });
+    await p4.waitForTimeout(500);
+    await drag(at.edge.x, at.edge.y, at.edge.x, at.edge.y + 420);
+    /* A synthetic touch now and then lands before the browser is ready for
+       it and moves nothing; one more try says whether it really can't. */
+    if ((await read()).top !== 0) await drag(at.edge.x, at.edge.y, at.edge.x, at.edge.y + 420);
     const v = await read();
-    const h = await p4.evaluate(() => document.querySelector('.feed-scroll').clientHeight);
-    check('an upward swipe that starts on the bar moves the feed one film', Math.abs(v.top - h) < 2 && v.left === 0, JSON.stringify({ ...v, card: h }));
+    check('a swipe up or down that starts on the bar moves the feed a film', v.top === 0 && v.left === 0, JSON.stringify({ ...v, card: h }));
     await p4.evaluate(() => { const f = document.querySelector('.feed-filters'); f.scrollLeft = f.scrollWidth; });
     await p4.waitForTimeout(300);
     check('at the end of the row the more-this-way fade goes', await p4.evaluate(() => document.querySelector('.feed-bar').classList.contains('at-end')));
@@ -365,6 +433,9 @@ function check(name, cond, detail = '') {
     check('Coming soon is a pill, and shows films not out yet', soon.length > 0 && soon.every((x) => /^Coming Up/.test(x.t)), JSON.stringify(soon.slice(0, 4)));
     check('each with its UK cinema date', soon.every((x) => /^In cinemas (tomorrow|[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2,3})/.test(x.when)), JSON.stringify(soon.slice(0, 4).map((x) => x.when)));
     check('and one seen while coming stays seen until it is out', !soon.some((x) => x.t === 'Coming Up 21'));
+    const soonKey = (await state(p5)).film?.key;
+    const stored = await p5.evaluate(() => JSON.parse(localStorage.getItem('wn.feed.seen') || '[]'));
+    check('a film seen while coming is remembered as coming, for its second chance', !!soonKey && stored.includes(`${soonKey}:soon`) && !stored.includes(soonKey), JSON.stringify({ soonKey, stored: stored.filter((k) => /50\d\d/.test(k)) }));
 
     /* Added from Coming soon: on the list, but not Tonight's pick yet. */
     await p5.tap('.feed-card[data-i="0"] [data-act="add"]');
@@ -407,30 +478,39 @@ function check(name, cond, detail = '') {
     /* Half an hour away: the same card. Three hours: what is new now. */
     for (let i = 0; i < 3; i++) await next(p6);
     const placed = await state(p6);
+    /* Put away at the real time; the clock moves on; opened again. */
     const away = (ms) => p6.evaluate((ms) => {
       if (!window.__realNow) window.__realNow = Date.now;
-      const base = window.__realNow();
-      Date.now = () => base + ms;
+      Date.now = window.__realNow;
       Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
       document.dispatchEvent(new Event('visibilitychange'));
+      const base = window.__realNow();
+      Date.now = () => base + ms;
       Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
       document.dispatchEvent(new Event('visibilitychange'));
     }, ms);
     hits.length = 0;
-    await away(30 * 60e3);
+    await away(119 * 60e3);
     await p6.waitForTimeout(800);
     const short = await state(p6);
-    check('back after half an hour: the same film, no new requests', short.current === placed.current && short.film?.key === placed.film?.key && hits.length === 0, JSON.stringify({ was: placed.current, now: short.current, requests: hits.length }));
-    await p6.evaluate(() => { Date.now = window.__realNow; });
-    await p6.evaluate(() => {
-      const base = window.__realNow();
-      Date.now = () => base + 3 * 3600e3;
-      document.dispatchEvent(new Event('visibilitychange'));
-    });
+    check('back after just under two hours: the same film, no new requests', short.current === placed.current && short.film?.key === placed.film?.key && hits.length === 0, JSON.stringify({ was: placed.current, now: short.current, requests: hits.length }));
+    /* Reading one film for most of two hours, a look at the library, and
+       straight back: not two hours away. */
+    await p6.evaluate(() => { const base = window.__realNow(); Date.now = () => base + 110 * 60e3; });
+    await p6.tap('[data-tab="library"]');
+    await p6.waitForTimeout(200);
+    await p6.evaluate(() => { const base = window.__realNow(); Date.now = () => base + 125 * 60e3; });
+    hits.length = 0;
+    await p6.tap('[data-tab="feed"]');
+    await p6.waitForTimeout(800);
+    const quick = await state(p6);
+    check('a quick look at another tab does not count as time away', quick.film?.key === placed.film?.key && hits.length === 0, JSON.stringify({ requests: hits.length }));
+    hits.length = 0;
+    await away(121 * 60e3);
     await p6.waitForTimeout(1500);
     const long = await state(p6);
     const top = await p6.evaluate(() => document.querySelector('.feed-scroll').scrollTop);
-    check('back after three hours: it starts again from what is new', long.current === 0 && top === 0 && hits.some((x) => /page=1\b/.test(x)), JSON.stringify({ current: long.current, top, requests: hits.length }));
+    check('back after just over two hours: it starts again from what is new', long.current === 0 && top === 0 && hits.some((x) => /page=1\b/.test(x)), JSON.stringify({ current: long.current, top, requests: hits.length }));
     /* And through the tab bar, after three hours on another tab. */
     await p6.tap('[data-tab="library"]');
     await p6.waitForTimeout(300);

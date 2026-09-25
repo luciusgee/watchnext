@@ -21,6 +21,7 @@ import { icon } from '../icons.js';
 import { plural, releaseLabel } from '../format.js';
 import { FILTERS, createFeed, detailsFor, cached, markSeen, nudge, forgetDetails } from '../feed.js';
 import { openThread } from './thread.js';
+import { openDetail } from './detail.js';
 import * as sync from '../sync.js';
 
 const FILTER_KEY = 'wn.feed.filter';
@@ -81,10 +82,15 @@ export function initFeed({ navigate: nav }) {
     }
     /* Time away is not time spent looking at the card. */
     enteredAt = performance.now();
-    if (isActive() && tmdbKey() && stale() && !document.querySelector('.thread-sheet, .detail.is-open')) reset();
+    if (!isActive() || !feed) return;
+    if (tmdbKey() && stale() && !document.querySelector('.thread-sheet, .detail.is-open')) reset();
+    /* Back, and still fresh: looked at now, so the clock starts again. */
+    else if (!stale()) lastSeenAt = Date.now();
   });
+  /* Back online, on this tab or not: the "you are offline" card keeps its
+     word. */
   window.addEventListener('online', () => {
-    if (errBox && isActive()) load();
+    if (errBox) load();
   });
 }
 
@@ -103,8 +109,17 @@ export function showFeed() {
     reset();
     return 'fresh';
   }
+  lastSeenAt = Date.now();
+  /* It failed while offline and the phone is back: try again now. */
+  if (errBox && navigator.onLine !== false) load();
   paintActions();
   return null;
+}
+
+/** Leaving the Feed tab: last looked at now — two hours away starts here,
+    not from when the card on screen first came into view. */
+export function leaveFeed() {
+  if (feed) lastSeenAt = Date.now();
 }
 
 /**
@@ -319,6 +334,7 @@ function addCard(film) {
 
   const rail = el('div', { class: 'feed-rail' });
   rail.appendChild(act('spotlight', 'star', 'Spotlight'));
+  rail.appendChild(act('superlike', 'flame', 'Superlike'));
   rail.appendChild(act('add', 'plus', 'Add'));
   rail.appendChild(act('comment', 'comment', 'Comment'));
   const trailer = act('trailer', 'playFill', 'Trailer');
@@ -516,10 +532,18 @@ function paintActions() {
     star.classList.toggle('is-on', on);
     star.setAttribute('aria-pressed', String(on));
     star.querySelector('.feed-act-icon').innerHTML = icon(on ? 'starFill' : 'star', 26);
+    const hot = card.querySelector('[data-act="superlike"]');
+    const superOn = !!item?.superlike;
+    hot.classList.toggle('is-on', superOn);
+    hot.setAttribute('aria-pressed', String(superOn));
+    hot.querySelector('.feed-act-icon').innerHTML = icon(superOn ? 'flameFill' : 'flame', 26);
     const add = card.querySelector('[data-act="add"]');
+    /* On the list, Add becomes the way to the film's page — to mark it
+       watched, rate it, say you own it. */
     add.classList.toggle('is-on', !!item);
-    add.querySelector('.feed-act-icon').innerHTML = icon(item ? 'check' : 'plus', 26);
-    add.querySelector('.feed-act-label').textContent = item ? 'In list' : 'Add';
+    add.querySelector('.feed-act-icon').innerHTML = icon(!item ? 'plus' : item.watched ? 'check' : 'film', 26);
+    add.querySelector('.feed-act-label').textContent = !item ? 'Add' : item.watched ? 'Watched' : 'Open';
+    add.setAttribute('aria-label', item ? `Open ${item.title}` : 'Add to the list');
     const count = item ? store.notesFor(item).length : 0;
     const unread = item ? store.unreadFor(item) : 0;
     const comment = card.querySelector('[data-act="comment"]');
@@ -548,6 +572,7 @@ async function onClick(e) {
       return;
     }
     if (what === 'spotlight') return toggleSpotlight(film, i);
+    if (what === 'superlike') return toggleSuperlike(film, i);
     if (what === 'add') return toggleAdd(film, i);
     if (what === 'comment') {
       /* Talking about a film puts it on the list (and in Spotlight) — but only
@@ -604,23 +629,33 @@ async function toggleSpotlight(film, i) {
   paintActions();
 }
 
+/* Stronger than the star: "we have to watch this". Stars it too. */
+async function toggleSuperlike(film, i) {
+  const item = await ensureItem(film);
+  const on = !item.superlike;
+  store.setSuperlike(item.uid, on);
+  store.emit('item');
+  if (on) {
+    nudge(film, 2.5);
+    toast(`Superliked ${item.title}`);
+    sync.pushSoon();
+  }
+  paintActions();
+}
+
 async function toggleAdd(film, i) {
   const held = itemFor(film);
   if (held) {
-    toast(`${held.title} is in your list`, {
-      action: 'Remove',
-      onAction: () => {
-        store.remove(held.uid);
-        store.saveNow();
-        store.emit('item');
-        paintActions();
-      },
-    });
+    /* Already on the list: go to it. Mark watched, own it, or remove it,
+       from there. */
+    openDetail(held.uid);
     return;
   }
   const item = await ensureItem(film);
   store.emit('item');
   nudge(film, 1);
+  /* Up now: the other phone hears it was added when it reaches the repo. */
+  sync.pushSoon();
   toast(`Added ${item.title} to your list`, {
     action: 'Undo',
     onAction: () => {

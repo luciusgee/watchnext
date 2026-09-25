@@ -14,7 +14,7 @@
  * tweak and teaches you to stop caring about failures.
  */
 
-import { tasteProfile, scoreItem, rank, tonightPick, alternates, similarTo } from '../src/recommend.js';
+import { tasteProfile, scoreItem, rank, tonightPick, alternates, similarTo, isOut } from '../src/recommend.js';
 
 let pass = 0;
 let fail = 0;
@@ -382,6 +382,7 @@ console.log('\n─── not out yet ───');
   check('one whose date has passed is', scoreItem(out, profile, ctx()) !== null);
   check('and so is one with no date at all', scoreItem(plain, profile, ctx()) !== null);
   check('and rank leaves it out', !rank([soon, out, plain], { seed: 'fixed' }).some((r) => r.item === soon));
+  check('one rule for the scorer and the picker (isOut)', !isOut(soon) && isOut(out) && isOut(plain) && isOut(soon, '2999-01-01'));
 }
 
 console.log(`\n══════════  ${pass} passed, ${fail} failed  ══════════`);

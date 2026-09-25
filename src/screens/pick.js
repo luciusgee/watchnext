@@ -34,7 +34,7 @@
 
 import * as store from '../store.js';
 import * as ai from '../ai.js';
-import { rank, tasteProfile } from '../recommend.js';
+import { rank, tasteProfile, isOut } from '../recommend.js';
 import { el, clear, poster, button, emptyState, toast, openPanel } from '../ui.js';
 import { icon } from '../icons.js';
 import { runtime as fmtRuntime, rating as fmtRating } from '../format.js';
@@ -160,6 +160,7 @@ function matching(items, c) {
      in the sheet is the truth. Counting films the deck will then refuse to deal
      is worse than no count. */
   list = list.filter((i) => {
+    if (!isOut(i)) return false;
     if (muted.never.includes(i.uid)) return false;
     if (i.genre && muted.genres.includes(i.genre)) return false;
     const title = String(i.title || '').toLowerCase();

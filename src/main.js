@@ -7,7 +7,7 @@
 
 import * as store from './store.js';
 import { requestPersistence } from './durability.js';
-import { start as startSync } from './sync.js';
+import { start as startSync, syncNow } from './sync.js';
 import { syncViewport, blockZoom, measureShortfall, applyHomeIndicatorFloor } from './viewport.js';
 import { icon } from './icons.js';
 import * as haptics from './haptics.js';
@@ -19,7 +19,7 @@ import { openThread } from './screens/thread.js';
 import { paintBadge } from './notify.js';
 import { initTonight, showTonight } from './screens/tonight.js';
 import { initLibrary, showLibrary } from './screens/library.js';
-import { initFeed, showFeed, retapFeed } from './screens/feed.js';
+import { initFeed, showFeed, retapFeed, leaveFeed } from './screens/feed.js';
 import { initInbox, paintBells } from './screens/inbox.js';
 import { initAsk, showAsk } from './screens/ask.js';
 import { initPick, showPick } from './screens/pick.js';
@@ -81,6 +81,7 @@ function navigate(id, params = {}, { back = false, swiped = false } = {}) {
   if (!swiped) cancelSwipe();
 
   const from = current;
+  if (from === 'feed' && id !== 'feed') leaveFeed();
   const had = document.activeElement;
   const prev = scroller(from);
   if (prev) scrollMemo.set(from, prev.scrollTop);
@@ -313,6 +314,19 @@ async function boot() {
   /* Tapped while the app was already open: the service worker says where. */
   navigator.serviceWorker?.addEventListener('message', (e) => {
     if (e.data?.type === 'open') openFromLink(new URL(e.data.url, location.href).hash);
+    /* Something arrived while the app is on screen: fetch it now, and put
+       the icon's number right. */
+    if (e.data?.type === 'badge') {
+      syncNow({ note: 'Update library' }).catch(() => {}).finally(() => paintBadge());
+    }
+  });
+  /* Back from the background: the icon's number is this phone's count, not
+     whatever the service worker added up while it was away. */
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      paintBadge();
+      paintBells();
+    }
   });
   /* What the other phone has done and this one has not seen: on the bell,
      and on the app icon. */

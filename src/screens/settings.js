@@ -117,8 +117,10 @@ export function showSettings(params = {}) {
   if (params.focus === 'ai') {
     root.querySelector('#ai-key')?.focus();
   } else if (params.focus === 'data') {
-    /* From the feed, which needs a TMDB key: straight to the box it goes in. */
-    root.querySelector('#data-key')?.scrollIntoView({ block: 'center' });
+    /* From the feed, which needs a TMDB key: straight to the box it goes in.
+       A frame later: navigation puts a pushed screen at the top after
+       showing it, which undid a scroll made here. */
+    requestAnimationFrame(() => root.querySelector('#data-key')?.scrollIntoView({ block: 'center' }));
   } else if (params.focus === 'review') {
     openReviewQueue();
   } else if (params.focus === 'sweep') {
@@ -1725,7 +1727,7 @@ function notifyRow() {
   } else if (st === 'denied') {
     say('Turned off for Watch Next in the iPhone’s Settings → Notifications. Turn them on there, then come back.');
   } else if (st === 'off') {
-    say('A buzz on this phone when the other one comments on a film or puts it in Spotlight.');
+    say('A buzz on this phone when the other one comments on a film or superlikes one.');
     notify.prepare();
     controls.appendChild(
       button('Turn on', {
@@ -1743,7 +1745,7 @@ function notifyRow() {
   } else {
     say(
       push.sender
-        ? 'On. You will hear when the other phone comments on a film or puts it in Spotlight.'
+        ? 'On. You will hear when the other phone comments on a film or superlikes one.'
         : 'On for this phone — one step left to finish, below.',
       push.sender ? 'sage' : 'amber'
     );
