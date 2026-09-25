@@ -20,6 +20,7 @@ import { paintBadge } from './notify.js';
 import { initTonight, showTonight } from './screens/tonight.js';
 import { initLibrary, showLibrary } from './screens/library.js';
 import { initFeed, showFeed, retapFeed } from './screens/feed.js';
+import { initInbox, paintBells } from './screens/inbox.js';
 import { initAsk, showAsk } from './screens/ask.js';
 import { initPick, showPick } from './screens/pick.js';
 import { initStats, showStats } from './screens/stats.js';
@@ -313,10 +314,15 @@ async function boot() {
   navigator.serviceWorker?.addEventListener('message', (e) => {
     if (e.data?.type === 'open') openFromLink(new URL(e.data.url, location.href).hash);
   });
-  /* Unread comments from the other phone, on the app icon. */
+  /* What the other phone has done and this one has not seen: on the bell,
+     and on the app icon. */
+  initInbox();
   paintBadge();
   store.subscribe((reason) => {
-    if (reason === 'item') paintBadge();
+    if (reason === 'item' || reason === 'inbox') {
+      paintBadge();
+      paintBells();
+    }
   });
   clearRetiredKeys();
   applyHomeIndicatorFloor();

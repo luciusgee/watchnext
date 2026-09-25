@@ -58,6 +58,7 @@ const SHELL = [
   './src/feed.js',
   './src/screens/feed.js',
   './src/screens/thread.js',
+  './src/screens/inbox.js',
   './src/notify.js',
   './src/providers/index.js',
   './src/providers/shared.js',
@@ -280,9 +281,10 @@ self.addEventListener('push', (event) => {
         badge: './assets/icon-192.png',
         data: { url: data.url || './' },
       }),
-      /* A comment is one more unread: the number on the icon goes up with
-         the app closed, not only the next time it is opened. */
-      String(data.tag || '').startsWith('thread-') ? bumpBadge() : null,
+      /* A comment or a Spotlight is one more unread (the bell's count): the
+         number on the icon goes up with the app closed, not only the next
+         time it is opened. */
+      /^(thread|spot)-/.test(String(data.tag || '')) ? bumpBadge() : null,
     ])
   );
 });

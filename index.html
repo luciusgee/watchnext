@@ -57,10 +57,17 @@
 
   <!-- ─────────────  TONIGHT  ───────────── -->
   <main id="screen-tonight" class="screen is-active" aria-label="Tonight">
-    <header class="topbar">
-      <button class="iconbtn" type="button" data-nav="settings" data-icon="settings" aria-label="Settings"></button>
+    <!-- Three columns, so the wordmark stays in the middle with two buttons
+         on the right and one on the left. -->
+    <header class="topbar topbar-sides">
+      <div class="topbar-start">
+        <button class="iconbtn" type="button" data-nav="settings" data-icon="settings" aria-label="Settings"></button>
+      </div>
       <h1 class="wordmark">Watch<span>.</span>Next</h1>
-      <button class="iconbtn" type="button" data-nav="add" data-icon="plus" aria-label="Add titles"></button>
+      <div class="topbar-end">
+        <button class="iconbtn bell" type="button" data-action="inbox" data-icon="bell" aria-label="Notifications"></button>
+        <button class="iconbtn" type="button" data-nav="add" data-icon="plus" aria-label="Add titles"></button>
+      </div>
     </header>
     <div class="scroll">
       <div data-region="body"></div>
@@ -138,7 +145,7 @@
            keeps "Add titles", and the thumb went to the wrong corner. -->
       <button class="iconbtn" type="button" data-nav="settings" data-icon="settings" aria-label="Settings"></button>
       <h1 class="topbar-title">Ask</h1>
-      <span class="iconbtn" aria-hidden="true"></span>
+      <button class="iconbtn bell" type="button" data-action="inbox" data-icon="bell" aria-label="Notifications"></button>
     </header>
 
     <div class="chat" data-region="thread" role="log" aria-live="polite" aria-label="Conversation"></div>

@@ -202,6 +202,103 @@ async function githubRoute(route) {
   const afterDelete = await sam.page.evaluate(async (uid) => (await import('./src/store.js')).notesFor(window.__test.byUid(uid)).map((n) => n.id), film.uid);
   check('a comment Luke deletes is gone from Sam’s phone too', !afterDelete.includes(mine) && afterDelete.length === 1, JSON.stringify(afterDelete));
 
+  console.log('\n─── the bell ───');
+  await luke.page.evaluate(() => {
+    window.__badge = [];
+    navigator.setAppBadge = (n) => { window.__badge.push(n); return Promise.resolve(); };
+    navigator.clearAppBadge = () => { window.__badge.push(0); return Promise.resolve(); };
+  });
+  await luke.page.tap('[data-tab="tonight"]');
+  await luke.page.waitForTimeout(300);
+  const bell = () => luke.page.evaluate(() => {
+    const c = document.querySelector('#screen-tonight [data-action="inbox"] .bell-count');
+    return c && !c.hidden ? c.textContent : '';
+  });
+  const badge = () => luke.page.evaluate(() => window.__badge[window.__badge.length - 1]);
+  check('Sam’s reply shows on Luke’s bell', (await bell()) === '1', await bell());
+  /* Sam stars a second film, and comments on a third that nobody had
+     starred — which stars it too, but is one thing that happened. */
+  const two = await sam.page.evaluate(async (skip) => {
+    const s = await import('./src/store.js');
+    const [a, b] = s.items().filter((i) => i.uid !== skip && !i.spotlight).slice(0, 2);
+    s.setSpotlight(a.uid, true);
+    s.addNote(b.uid, 'This one?');
+    s.emit('item');
+    return { spot: a, talk: b };
+  }, film.uid);
+  await syncNow(sam.page);
+  await syncNow(luke.page);
+  await luke.page.waitForTimeout(300);
+  check('a Spotlight and a comment from the other phone: two more', (await bell()) === '3' && (await badge()) === 3, `${await bell()} / badge ${await badge()}`);
+  await luke.page.tap('#screen-tonight [data-action="inbox"]');
+  await luke.page.waitForSelector('.inbox-sheet.is-open');
+  const rows = await luke.page.evaluate(() => [...document.querySelectorAll('.inbox-item')].map((r) => ({ text: r.querySelector('.inbox-line').textContent, unread: r.classList.contains('is-unread') })));
+  check('the bell opens the list, newest first, new ones marked', rows.length === 3 && rows.every((r) => r.unread) && rows.some((r) => r.text === `Sam put ${two.spot.title} in Spotlight`) && rows.some((r) => r.text === `Sam commented on ${two.talk.title}`), JSON.stringify(rows));
+  check('a comment that starred a film is one entry, not two', !rows.some((r) => r.text === `Sam put ${two.talk.title} in Spotlight`));
+  await luke.page.evaluate((t) => [...document.querySelectorAll('.inbox-item')].find((r) => r.querySelector('.inbox-line').textContent === t).querySelector('.inbox-go').click(), `Sam put ${two.spot.title} in Spotlight`);
+  await luke.page.waitForTimeout(600);
+  const opened = await luke.page.evaluate(() => ({ detail: document.querySelector('.detail.is-open h1')?.textContent || '', sheet: !!document.querySelector('.inbox-sheet.is-open') }));
+  check('tapping a Spotlight opens the film', opened.detail === two.spot.title && !opened.sheet, JSON.stringify(opened));
+  check('and takes one off the bell and the app icon', (await bell()) === '2' && (await badge()) === 2, `${await bell()} / badge ${await badge()}`);
+  await luke.page.keyboard.press('Escape');
+  await luke.page.waitForTimeout(400);
+  await luke.page.evaluate(async () => (await import('./src/screens/detail.js')).closeDetail());
+  await luke.page.waitForTimeout(400);
+  await luke.page.evaluate(() => document.querySelector('#screen-tonight [data-action="inbox"]').click());
+  await luke.page.waitForSelector('.inbox-sheet.is-open');
+  await luke.page.evaluate((t) => [...document.querySelectorAll('.inbox-item')].find((r) => r.querySelector('.inbox-line').textContent === t).querySelector('.inbox-go').click(), `Sam commented on ${two.talk.title}`);
+  await luke.page.waitForTimeout(700);
+  const threadOpen = await luke.page.evaluate(() => document.querySelector('.thread-sheet.is-open .note-bubble')?.textContent || '');
+  check('tapping a comment opens its thread', threadOpen === 'This one?', threadOpen);
+  check('and that one is read too', (await bell()) === '1', await bell());
+  await luke.page.keyboard.press('Escape');
+  await luke.page.waitForTimeout(400);
+  await luke.page.evaluate(async () => (await import('./src/screens/detail.js')).closeDetail());
+  await luke.page.waitForTimeout(400);
+  await luke.page.evaluate(() => document.querySelector('#screen-tonight [data-action="inbox"]').click());
+  await luke.page.waitForSelector('.inbox-sheet.is-open');
+  const rowsBefore = await luke.page.evaluate(() => document.querySelectorAll('.inbox-item').length);
+  await luke.page.evaluate(() => document.querySelector('.inbox-item.is-unread .inbox-clear').click());
+  await luke.page.waitForTimeout(300);
+  const rowsAfter = await luke.page.evaluate(() => document.querySelectorAll('.inbox-item').length);
+  check('the cross clears one from the list', rowsAfter === rowsBefore - 1, `${rowsBefore} → ${rowsAfter}`);
+  check('and the bell and the app icon go to nothing', (await bell()) === '' && (await badge()) === 0, `${await bell()} / badge ${await badge()}`);
+
+  /* Clear all — and then Sam writes again, from a phone whose clock is a
+     day behind. Cleared is by comment, not by time, so it still shows. */
+  await luke.page.evaluate(() => document.querySelector('.inbox-clear-all').click());
+  await luke.page.waitForTimeout(300);
+  const emptied = await luke.page.evaluate(() => ({ rows: document.querySelectorAll('.inbox-item').length, empty: document.querySelector('.inbox-empty')?.textContent || '' }));
+  check('Clear all empties the list, and says what will show there', emptied.rows === 0 && /Nothing new/.test(emptied.empty), JSON.stringify(emptied));
+  await sam.page.evaluate(async (uid) => {
+    const s = await import('./src/store.js');
+    const n = s.addNote(uid, 'Clock is behind');
+    n.at -= 24 * 3600e3;
+    s.saveNow();
+    s.emit('item');
+  }, two.talk.uid);
+  await syncNow(sam.page);
+  await syncNow(luke.page);
+  await luke.page.waitForTimeout(400);
+  const late = await luke.page.evaluate(() => [...document.querySelectorAll('.inbox-item.is-unread .inbox-quote')].map((q) => q.textContent));
+  check('something new after clearing still shows, whatever the clocks say', late.includes('Clock is behind') && (await bell()) === '1', JSON.stringify(late));
+  await luke.page.keyboard.press('Escape');
+  await luke.page.waitForTimeout(300);
+  const onAsk = await luke.page.evaluate(() => { document.querySelector('[data-tab="ask"]').click(); return true; });
+  await luke.page.waitForTimeout(300);
+  const askBell = await luke.page.evaluate(() => document.querySelector('#screen-ask [data-action="inbox"] .bell-count')?.textContent);
+  check('the bell is on Ask too, with the same count', onAsk && askBell === '1', askBell);
+  await luke.page.evaluate(() => document.querySelector('[data-tab="tonight"]').click());
+  await luke.page.waitForTimeout(300);
+  const centred = await luke.page.evaluate(() => {
+    const bar = document.querySelector('#screen-tonight .topbar').getBoundingClientRect();
+    const w = document.querySelector('#screen-tonight .wordmark');
+    const r = document.createRange(); r.selectNodeContents(w);
+    const t = r.getBoundingClientRect();
+    return Math.abs((t.left + t.right) / 2 - (bar.left + bar.right) / 2);
+  });
+  check('with the bell beside Add, the wordmark is still in the middle', centred < 2, `${centred}px off`);
+
   console.log('\n─── taken back before it went ───');
   const takenBack = await luke.page.evaluate(async (uid) => {
     const s = await import('./src/store.js');

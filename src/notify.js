@@ -271,10 +271,11 @@ export async function test() {
 }
 
 /* ── the badge ──
-   Comments from the other phone not yet read, on the app icon. */
+   What the other phone has done and this one has not read yet — the same
+   count as the bell (store.inboxUnread) — on the app icon. */
 export function paintBadge() {
   try {
-    const n = store.unreadTotal();
+    const n = store.inboxUnread();
     if (n && 'setAppBadge' in navigator) navigator.setAppBadge(n).catch(() => {});
     else if ('clearAppBadge' in navigator) navigator.clearAppBadge().catch(() => {});
     /* The service worker counts up from here when a comment arrives with the

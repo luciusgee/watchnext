@@ -980,6 +980,117 @@ export function markThreadSeen(uidValue) {
   save();
 }
 
+/* ── the inbox ──
+   What the other phone has done that this one should know about: a comment,
+   a film put in Spotlight. Worked out from the shared data every time, not
+   kept as a list of its own — so a comment deleted over there goes from here
+   too — with what this phone has read and cleared kept per phone, by id
+   (never by time: the two phones' clocks disagree). */
+
+const INBOX_MAX = 60;
+const KEEP_IDS = 2000;
+
+function filmFor(n) {
+  return byUid(n.uid) || (n.film ? state.items.find((i) => i.imdbId === n.film) : null) || null;
+}
+
+/**
+ * Newest first: { id, kind: 'comment'|'spotlight', at, by, uid, title, item,
+ * text?, read }.
+ */
+export function inbox() {
+  const mine = state.settings.deviceId;
+  const cleared = new Set(state.settings.inboxCleared || []);
+  const seenNotes = new Set(state.settings.seenNotes || []);
+  const seenSpots = new Set(state.settings.seenSpots || []);
+  const out = [];
+  const talked = new Map(); // uid -> times the other phone commented on it
+  for (const n of state.notes || []) {
+    if (!n.device || n.device === mine) continue;
+    const item = filmFor(n);
+    if (!item) continue;
+    if (!talked.has(item.uid)) talked.set(item.uid, []);
+    talked.get(item.uid).push(n.at);
+    if (cleared.has(n.id)) continue;
+    out.push({ id: n.id, kind: 'comment', at: n.at, by: n.by || '', uid: item.uid, title: item.title, item, text: n.text, read: seenNotes.has(n.id) });
+  }
+  for (const item of state.items) {
+    const spot = item.spotlight;
+    if (!spot || !spot.device || spot.device === mine) continue;
+    /* A comment puts a film in Spotlight by itself; that is one thing that
+       happened, said once, as the comment. */
+    if ((talked.get(item.uid) || []).some((t) => Math.abs(t - spot.at) < 60000)) continue;
+    const id = spotId(item);
+    if (cleared.has(id)) continue;
+    out.push({ id, kind: 'spotlight', at: spot.at, by: spot.by || '', uid: item.uid, title: item.title, item, read: seenSpots.has(id) });
+  }
+  return out.sort((a, b) => b.at - a.at).slice(0, INBOX_MAX);
+}
+
+const spotId = (item) => `spot:${item.uid}:${item.spotlight?.at || 0}`;
+
+/** How many in the inbox are unread: the number on the bell and the icon. */
+export function inboxUnread() {
+  return inbox().filter((e) => !e.read).length;
+}
+
+function remember(key, ids) {
+  const set = new Set(state.settings[key] || []);
+  let added = false;
+  for (const id of ids) {
+    if (!set.has(id)) {
+      set.add(id);
+      added = true;
+    }
+  }
+  if (added) state.settings[key] = [...set].slice(-KEEP_IDS);
+  return added;
+}
+
+/** Read: a comment as its thread would, a Spotlight by its id. */
+function markRead(entries) {
+  const a = remember('seenNotes', entries.filter((e) => e.kind === 'comment').map((e) => e.id));
+  const b = remember('seenSpots', entries.filter((e) => e.kind === 'spotlight').map((e) => e.id));
+  return a || b;
+}
+
+/** One entry tapped: read, and on to the film. */
+export function readInbox(id) {
+  const entry = inbox().find((e) => e.id === id);
+  if (entry && markRead([entry])) saveNow();
+  return entry || null;
+}
+
+/** A film's page seen: its Spotlight from the other phone has been read. */
+export function markSpotSeen(uidValue) {
+  const item = byUid(uidValue);
+  const spot = item?.spotlight;
+  if (!spot || !spot.device || spot.device === state.settings.deviceId) return false;
+  if (!remember('seenSpots', [spotId(item)])) return false;
+  save();
+  return true;
+}
+
+/** Take one off the list (and count it read). */
+export function clearInbox(id) {
+  const entry = inbox().find((e) => e.id === id);
+  if (!entry) return false;
+  markRead([entry]);
+  remember('inboxCleared', [id]);
+  saveNow();
+  return true;
+}
+
+/** Clear the lot. What arrives afterwards still shows: cleared is by id. */
+export function clearAllInbox() {
+  const all = inbox();
+  if (!all.length) return 0;
+  markRead(all);
+  remember('inboxCleared', all.map((e) => e.id));
+  saveNow();
+  return all.length;
+}
+
 /* Something the other phone should hear about, worded here — where the
    film and the name are known — so the thing that sends it (a GitHub Action
    in the private repo, see notify.js) only has to pass it on. Carried by the

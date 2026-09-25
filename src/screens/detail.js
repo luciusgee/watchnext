@@ -82,6 +82,8 @@ export function openDetail(uid, { push = true } = {}) {
   const wasOpen = root.classList.contains('is-open');
 
   currentUid = uid;
+  /* Seeing the film is reading the other phone's Spotlight of it. */
+  if (store.markSpotSeen(uid)) store.emit('inbox');
   render(item);
   root.classList.remove('is-closing');
   root.classList.add('is-open');

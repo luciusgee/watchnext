@@ -14,7 +14,6 @@ import * as store from '../store.js';
 import { el, clear, poster, toast, openPanel } from '../ui.js';
 import { icon } from '../icons.js';
 import { relativeTime } from '../format.js';
-import { paintBadge } from '../notify.js';
 import * as sync from '../sync.js';
 
 /* One thread at a time: a second tap on Comments, or a notification opening
@@ -115,7 +114,8 @@ export function openThread(uid, { onClose = null } = {}) {
       list.appendChild(row);
     }
     store.markThreadSeen(current.uid);
-    paintBadge();
+    /* The bell and the app icon count these. */
+    store.emit('inbox');
     requestAnimationFrame(() => {
       list.scrollTop = list.scrollHeight;
     });
