@@ -440,6 +440,27 @@ function check(name, cond, detail = '') {
     store.saveNow();
   });
 
+  /* Left scrolled down to the chips; Tonight's "Find something else"
+     brings the question back to the top, box and all. */
+  await page.click('[data-tab="pick"]');
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { const b = document.querySelector('#screen-pick [data-region="brief"]'); b.scrollTop = b.scrollHeight; });
+  await page.waitForTimeout(200);
+  await page.click('[data-tab="tonight"]');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => [...document.querySelectorAll('#screen-tonight button')].find((b) => /Find something else/.test(b.textContent))?.click());
+  await page.waitForTimeout(600);
+  const topped = await page.evaluate(() => {
+    const b = document.querySelector('#screen-pick [data-region="brief"]');
+    const box = document.getElementById('pick-brief').getBoundingClientRect();
+    const view = b.getBoundingClientRect();
+    return { top: b.scrollTop, focused: document.activeElement?.id, visible: box.top >= view.top && box.bottom <= view.bottom };
+  });
+  check('Find something else opens the question at the top, the box in view and ready', topped.top === 0 && topped.focused === 'pick-brief' && topped.visible, JSON.stringify(topped));
+  /* Done typing: the keyboard goes, and the tab bar comes back. */
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.waitForTimeout(400);
+
   // ─────────────────────────────────────────────────────────
   /* The screen that makes the recommendation has to find out whether it was
      right. Without this the taste profile never learns from the thing it just
@@ -1094,6 +1115,12 @@ function check(name, cond, detail = '') {
   check('a failed ask falls back to a hand rather than a dead end', fallback.cards > 0, `${fallback.cards} cards`);
   check('and says why it is not the one that was asked for',
     /trouble|Anthropic|reach/i.test(fallback.toast), fallback.toast);
+  /* The words are still there to try again with. */
+  await page.click('#screen-pick [data-action="constraints"]');
+  await page.waitForTimeout(400);
+  const kept = await page.evaluate(() => ({ text: document.getElementById('pick-brief')?.value || '', focus: document.activeElement?.tagName }));
+  check('and the question is still in the box to try again', kept.text === 'anything at all', JSON.stringify(kept));
+  check('going back to the question hands focus to the heading, not to nothing', kept.focus === 'H1', kept.focus);
 
   askStatus = 200;
   await ctx.unroute('https://api.anthropic.com/**');

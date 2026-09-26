@@ -136,6 +136,16 @@ export function initPick({ navigate: nav }) {
 /* ── the two views ── */
 
 function setMode(next) {
+  /* The view about to hide may hold focus (the sliders, Back to your hand,
+     the box on Return): hand it to the heading, as navigation does, rather
+     than to nothing — VoiceOver's cursor would be left on a hidden control. */
+  const leaving = root.querySelector(next === 'brief' ? '[data-region="deckview"]' : '[data-region="brief"]');
+  const focused = document.activeElement;
+  if (focused && (leaving.contains(focused) || focused.matches('[data-action="constraints"]'))) {
+    const h = root.querySelector('h1');
+    h.tabIndex = -1;
+    h.focus({ preventScroll: true });
+  }
   mode = next;
   root.classList.toggle('is-briefing', next === 'brief');
   briefEl.hidden = next !== 'brief';
@@ -168,7 +178,9 @@ export function showPick(params = {}) {
      type into. */
   if (params.brief) {
     showBrief({ focus: true });
-    return;
+    /* 'fresh': navigation must not put back where the question was last
+       scrolled to — the box being typed into would be off the top. */
+    return 'fresh';
   }
   /* The tab, as it was left: the question, or the hand being swiped. Never a
      deck dealt afresh from whatever was set last time — that is how you end
@@ -306,6 +318,9 @@ async function dealFromBrief(text) {
   try {
     const out = await ai.chooseFromShelf(text, pool, { want: HOW_MANY });
     if (token !== askToken) return; // a later ask has taken over
+    /* Answered: the words have done their job. Kept until now, so a failed
+       ask still has them in the box to try again. */
+    if (draftBrief === text) draftBrief = '';
     loading = false;
     note = out.note;
     reasons = new Map(out.picks.filter((p) => p.why).map((p) => [p.item.uid, p.why]));
@@ -624,9 +639,9 @@ function renderBrief() {
 
   /* A hand half swiped is not lost by coming back to the question. */
   const left = shortlist.length - position;
-  if (left > 0 && !loading) {
+  if (loading || left > 0) {
     panel.appendChild(
-      button(`Back to your hand · ${left} left`, {
+      button(loading ? 'Back to Claude’s answer' : `Back to your hand · ${left} left`, {
         kind: 'quiet',
         size: 'sm',
         iconName: 'back',
@@ -694,7 +709,7 @@ function renderBrief() {
       input.focus();
       return;
     }
-    draftBrief = '';
+    draftBrief = text;
     relaxed = 0;
     /* Started before the navigation, not after: everything in dealFromBrief up
        to its first await runs synchronously, so the deck is already in its
