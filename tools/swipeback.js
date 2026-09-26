@@ -253,16 +253,19 @@ function check(name, cond, detail = '') {
   await page.evaluate(async () => { const d = await import('./src/screens/detail.js'); while (d.isDetailOpen()) d.closeDetail(); });
   await page.waitForTimeout(300);
 
-  /* On Pick, only the card itself is not a back swipe. */
+  /* Pick is a tab now, a place of its own: nothing behind it to swipe back
+     to, and a swipe from the edge beside the card leaves you on it. */
   await toTonight();
-  await page.evaluate(async () => (await import('./src/screens/pick.js')).openPickSheet());
+  await page.evaluate(() => document.querySelector('[data-tab="pick"]').click());
   await page.waitForTimeout(500);
-  await page.evaluate(() => [...document.querySelectorAll('.panel.is-open button, .sheet.is-open button')].find((b) => /Deal me some/.test(b.textContent))?.click());
+  await page.evaluate(() => [...document.querySelectorAll('#screen-pick button')].find((b) => /Deal me some/.test(b.textContent))?.click());
   await page.waitForTimeout(700);
   const deckY = await page.evaluate(() => { const r = document.querySelector('#screen-pick .deck')?.getBoundingClientRect(); return r ? r.y + r.height / 2 : null; });
   const onPick = await active();
-  if (deckY) await swipe(8, 300, { y: deckY });
-  check('on Pick, a swipe from the edge beside the card goes back', onPick === 'screen-pick' && (await active()) !== 'screen-pick', `${onPick} → ${await active()}`);
+  /* ignored(): Chromium's own swipe-to-go-back would leave the page, which
+     a home-screen app on iOS does not have. */
+  if (deckY) await ignored(8, 300);
+  check('Pick is a tab: a swipe from the edge does not take you off it', onPick === 'screen-pick' && (await active()) === 'screen-pick' && !!deckY, `${onPick} → ${await active()}`);
 
   console.log('\n─── no errors ───');
   check('no JavaScript errors', errors.length === 0, errors.join(' | '));

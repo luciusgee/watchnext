@@ -21,7 +21,6 @@ import { initTonight, showTonight } from './screens/tonight.js';
 import { initLibrary, showLibrary } from './screens/library.js';
 import { initFeed, showFeed, retapFeed, leaveFeed } from './screens/feed.js';
 import { initInbox, paintBells } from './screens/inbox.js';
-import { initAsk, showAsk } from './screens/ask.js';
 import { initPick, showPick } from './screens/pick.js';
 import { initStats, showStats } from './screens/stats.js';
 import { initShelf, showShelf } from './screens/shelf.js';
@@ -33,14 +32,15 @@ const TABS = [
   { id: 'tonight', label: 'Tonight', icon: 'tonight' },
   { id: 'feed', label: 'Feed', icon: 'feed' },
   { id: 'library', label: 'Library', icon: 'library' },
-  { id: 'ask', label: 'Ask', icon: 'ask' },
+  /* Say what you fancy, and swipe through what Claude deals from the shelf.
+     It took the place of a chat with Claude. */
+  { id: 'pick', label: 'Pick', icon: 'ask' },
 ];
 
 const SHOW = {
   tonight: showTonight,
   feed: showFeed,
   library: showLibrary,
-  ask: showAsk,
   pick: showPick,
   stats: showStats,
   shelf: showShelf,
@@ -54,7 +54,7 @@ let lastTab = 'tonight';
 /* Screens you go into rather than across to. They slide in from the right, get
    a Back that returns to wherever you were, and remember nothing of their own
    scroll — every visit starts at the top. */
-const PUSHED = new Set(['pick', 'stats', 'settings', 'add']);
+const PUSHED = new Set(['stats', 'settings', 'add']);
 const backStack = [];
 /* A tab keeps its place. iOS does, and losing your position in a 500-title
    library because you glanced at Tonight is the kind of thing that makes an
@@ -141,7 +141,9 @@ function navigate(id, params = {}, { back = false, swiped = false } = {}) {
      display:none with its screen, which dropped keyboard focus on <body> and
      left VoiceOver's cursor on nothing. Land on the new screen's heading
      instead. A tab-bar tap keeps focus on the tab, which is still there. */
-  if (had && had !== document.body && !target.contains(had) && !had.closest('.tabbar')) {
+  /* Unless the screen put focus somewhere itself — Pick's box, sent there
+     to type into — which the heading must not take back. */
+  if (had && had !== document.body && !target.contains(had) && !had.closest('.tabbar') && !target.contains(document.activeElement)) {
     const h = target.querySelector('h1');
     if (h) {
       h.tabIndex = -1;
@@ -185,7 +187,7 @@ function goBack({ swiped = false } = {}) {
   const to = backStack.pop() || 'tonight';
   /* Returning to the deck resumes the hand rather than dealing a fresh one —
      "connect a key" from the pick sheet used to cost the whole session. */
-  navigate(to, to === 'pick' ? { resume: true } : {}, { back: true, swiped });
+  navigate(to, {}, { back: true, swiped });
 }
 
 /* What a swipe from the left edge goes back from: a film's details if they
@@ -260,7 +262,6 @@ async function boot() {
   initTonight({ navigate });
   initLibrary({ navigate });
   initFeed({ navigate });
-  initAsk({ navigate });
   initPick({ navigate });
   initStats({ navigate });
   initShelf({ navigate });

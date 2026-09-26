@@ -138,7 +138,7 @@ function check(name, cond, detail = '') {
 
   console.log('\n─── Discover has gone ───');
   const tabsNow = await page.evaluate(() => [...document.querySelectorAll('.tabbar [data-tab]')].map((t) => t.dataset.tab));
-  check('four tabs: Tonight, Feed, Library, Ask', tabsNow.join(',') === 'tonight,feed,library,ask', tabsNow.join(','));
+  check('four tabs: Tonight, Feed, Library, Pick', tabsNow.join(',') === 'tonight,feed,library,pick', tabsNow.join(','));
   check('and no Discover screen left behind', await page.evaluate(() => !document.getElementById('screen-discover')));
   const resetChoices = await page.evaluate(async () => {
     document.querySelector('.screen.is-active [data-nav="settings"]')?.click();
@@ -376,7 +376,7 @@ function check(name, cond, detail = '') {
 
   // ─────────────────────────────────────────────────────────
   console.log('\n─── all tabs render without error ───');
-  for (const tab of ['tonight', 'feed', 'library', 'ask']) {
+  for (const tab of ['tonight', 'feed', 'library', 'pick']) {
     await page.click(`[data-tab="${tab}"]`); await page.waitForTimeout(600);
     const ok = await page.evaluate((t) => {
       const s = document.getElementById(`screen-${t}`);
@@ -384,71 +384,61 @@ function check(name, cond, detail = '') {
     }, tab);
     check(`${tab} renders`, ok);
   }
-  await page.click('#screen-ask [data-nav="settings"]'); await page.waitForTimeout(700);
+  await page.click('#screen-pick [data-nav="settings"]'); await page.waitForTimeout(700);
   check('settings renders', await page.evaluate(() => document.querySelector('#screen-settings [data-region="body"]').children.length > 3));
   check('tab bar stays visible on settings', await page.evaluate(() => !!document.querySelector('.tabbar')?.offsetParent));
 
   // ─────────────────────────────────────────────────────────
-  console.log('\n─── the Ask key prompt goes away once a key is connected ───');
-  // The prompt is rendered into the same thread element as the conversation,
-  // and the greeting only ran when that element was empty. A key is connected
-  // on a different screen, so coming back left the invitation stranded at the
-  // top with replies stacking underneath it.
+  console.log('\n─── Pick: the tab that was Ask ───');
+  /* The chat has gone; the tab says what do you fancy, and deals. */
   await page.evaluate(async () => {
     const store = await import('./src/store.js');
     store.updateSettings({ aiKey: '' });
     store.saveNow();
   });
-  await page.click('[data-tab="ask"]');
+  await page.click('[data-tab="pick"]');
   await page.waitForTimeout(500);
-
-  const noKey = await page.evaluate(() => ({
-    prompt: !!document.querySelector('#screen-ask [data-no-key]'),
-    text: document.querySelector('#screen-ask [data-region="thread"]').innerText,
+  const pickTab = await page.evaluate(() => ({
+    chat: !!document.getElementById('screen-ask'),
+    sheet: !!document.querySelector('.sheet.is-open'),
+    box: !!document.querySelector('#screen-pick [data-region="brief"]:not([hidden]) #pick-brief'),
+    ask: [...document.querySelectorAll('#screen-pick button')].map((b) => b.textContent.trim()).filter((t) => /Connect a key|Ask Claude|Deal me some/.test(t)),
   }));
-  check('with no key, the prompt is shown', noKey.prompt);
-  check('and it asks for one', /Connect a key/i.test(noKey.text), noKey.text.slice(0, 60));
-
-  /* Connect a key the way a user does — on another screen, then come back. */
-  await page.click('#screen-ask [data-nav="settings"]');
-  await page.waitForTimeout(500);
+  check('the chat is gone', !pickTab.chat);
+  check('the tab opens on what do you fancy, not a sheet', pickTab.box && !pickTab.sheet, JSON.stringify(pickTab));
+  check('asking needs a key, and says so', pickTab.ask.includes('Connect a key to ask') && pickTab.ask.includes('Deal me some'), JSON.stringify(pickTab.ask));
   await page.evaluate(async () => {
     const store = await import('./src/store.js');
     store.updateSettings({ aiKey: 'sk-ant-test' });
     store.saveNow();
   });
-  await page.click('[data-tab="ask"]');
+  await page.click('[data-tab="library"]');
+  await page.waitForTimeout(300);
+  await page.click('[data-tab="pick"]');
   await page.waitForTimeout(500);
-
-  const withKey = await page.evaluate(() => ({
-    prompt: !!document.querySelector('#screen-ask [data-no-key]'),
-    text: document.querySelector('#screen-ask [data-region="thread"]').innerText,
+  const withKey = await page.evaluate(() => [...document.querySelectorAll('#screen-pick button')].some((b) => /Ask Claude/.test(b.textContent)));
+  check('with a key, it asks Claude', withKey);
+  await page.evaluate(() => [...document.querySelectorAll('#screen-pick button')].find((b) => /Deal me some/.test(b.textContent)).click());
+  await page.waitForTimeout(700);
+  const pickDealt = await page.evaluate(() => ({
+    brief: document.querySelector('#screen-pick [data-region="brief"]').hidden,
+    cards: document.querySelectorAll('#screen-pick .deck-card').length,
+    back: !document.querySelector('#screen-pick [data-action="constraints"]').hidden,
   }));
-  check('the prompt is gone once a key is connected', withKey.prompt === false);
-  check('and it greets instead', /Tell me what you fancy/i.test(withKey.text), withKey.text.slice(0, 60));
-
-  /* The reverse must not be destructive: clearing a key should never wipe a
-     conversation the user can still read. */
-  await page.evaluate(() => {
-    const thread = document.querySelector('#screen-ask [data-region="thread"]');
-    const msg = document.createElement('div');
-    msg.className = 'msg msg-user';
-    msg.textContent = 'A REAL MESSAGE';
-    thread.appendChild(msg);
-  });
+  check('Deal me some deals a hand on the same tab, with a way back to the question', pickDealt.brief && pickDealt.cards > 0 && pickDealt.back, JSON.stringify(pickDealt));
+  await page.click('[data-tab="library"]');
+  await page.waitForTimeout(300);
+  await page.click('[data-tab="pick"]');
+  await page.waitForTimeout(500);
+  check('coming back to the tab keeps the hand', await page.evaluate(() => document.querySelectorAll('#screen-pick .deck-card').length > 0 && document.querySelector('#screen-pick [data-region="brief"]').hidden));
+  await page.click('#screen-pick [data-action="constraints"]');
+  await page.waitForTimeout(400);
+  check('and the sliders go back to the question', await page.evaluate(() => !document.querySelector('#screen-pick [data-region="brief"]').hidden && !!document.getElementById('pick-brief')));
   await page.evaluate(async () => {
     const store = await import('./src/store.js');
     store.updateSettings({ aiKey: '' });
     store.saveNow();
   });
-  await page.click('[data-tab="library"]');
-  await page.waitForTimeout(300);
-  await page.click('[data-tab="ask"]');
-  await page.waitForTimeout(500);
-  const kept = await page.evaluate(
-    () => document.querySelector('#screen-ask [data-region="thread"]').innerText
-  );
-  check('clearing a key does not wipe an existing conversation', /A REAL MESSAGE/.test(kept), kept.slice(0, 80));
 
   // ─────────────────────────────────────────────────────────
   /* The screen that makes the recommendation has to find out whether it was
@@ -830,10 +820,10 @@ function check(name, cond, detail = '') {
   );
   await page.waitForTimeout(500);
   check('and asks what you fancy before dealing anything',
-    await page.evaluate(() => !!document.querySelector('.sheet #pick-brief')));
+    await page.evaluate(() => document.getElementById('screen-pick').classList.contains('is-active') && !!document.querySelector('#screen-pick #pick-brief')));
 
   await page.evaluate(() =>
-    [...document.querySelectorAll('.sheet button')].find((b) => /Deal me some/.test(b.textContent))?.click()
+    [...document.querySelectorAll('#screen-pick button')].find((b) => /Deal me some/.test(b.textContent))?.click()
   );
   await page.waitForTimeout(900);
 
@@ -902,11 +892,11 @@ function check(name, cond, detail = '') {
   await page.click('#screen-pick [data-action="constraints"]');
   await page.waitForTimeout(500);
   await page.evaluate(() =>
-    [...document.querySelectorAll('.sheet .pill')].find((b) => b.textContent === 'Under 90 min')?.click()
+    [...document.querySelectorAll('#screen-pick .pill')].find((b) => b.textContent === 'Under 90 min')?.click()
   );
   await page.waitForTimeout(500);
   await page.evaluate(() =>
-    [...document.querySelectorAll('.sheet button')].find((b) => /Deal me some/.test(b.textContent))?.click()
+    [...document.querySelectorAll('#screen-pick button')].find((b) => /Deal me some/.test(b.textContent))?.click()
   );
   await page.waitForTimeout(800);
 
@@ -1000,9 +990,9 @@ function check(name, cond, detail = '') {
         .find((b) => /Find something else/.test(b.textContent))?.click()
     );
     await page.waitForTimeout(400);
-    await page.fill('.sheet #pick-brief', text);
+    await page.fill('#screen-pick #pick-brief', text);
     await page.evaluate(() =>
-      [...document.querySelectorAll('.sheet button')].find((b) => /Ask Claude/.test(b.textContent))?.click()
+      [...document.querySelectorAll('#screen-pick button')].find((b) => /Ask Claude/.test(b.textContent))?.click()
     );
     await page.waitForTimeout(900);
   };

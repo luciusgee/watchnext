@@ -1,11 +1,12 @@
 /*
- * Tonight's shortlist.
+ * Pick — the fourth tab (it took the place of a chat with Claude).
  *
  * Say what you fancy — in words, or with chips, or both — and swipe through a
- * dozen films from your own shelf until one clicks. Then put it on.
+ * dozen films from your own shelf until one clicks. Then put it on. The tab
+ * shows one of two things: the question, or the hand dealt from the answer,
+ * with the sliders in the top bar to go back to the question.
  *
- * The defining property, and the reason this is its own screen rather than a
- * flag on Discover: NOTHING HERE WRITES TO THE LIBRARY. Not the constraints,
+ * The defining property: NOTHING HERE WRITES TO THE LIBRARY. Not the constraints,
  * not a yes, not a no, not the shortlist, not the model's answer. This module
  * imports the store read-only and there is no path from a swipe to a save. That
  * is deliberate — a picker that quietly edits your library is a picker you stop
@@ -35,7 +36,7 @@
 import * as store from '../store.js';
 import * as ai from '../ai.js';
 import { rank, tasteProfile, isOut } from '../recommend.js';
-import { el, clear, poster, button, emptyState, toast, openPanel } from '../ui.js';
+import { el, clear, poster, button, emptyState, toast } from '../ui.js';
 import { icon } from '../icons.js';
 import { runtime as fmtRuntime, rating as fmtRating } from '../format.js';
 import { attachSwipe, playDecision, FLING_MS } from '../deck.js';
@@ -44,7 +45,11 @@ import { openDetail } from './detail.js';
 let root = null;
 let deckEl = null;
 let metaEl = null;
+let briefEl = null;
 let navigate = null;
+/* The tab shows one of two things: the question ('brief'), or the hand
+   dealt from the answer ('deck'). */
+let mode = 'brief';
 
 /* Session state. Reset every time the screen is opened fresh, never persisted —
    what you fancied last Tuesday is not a setting. */
@@ -121,31 +126,55 @@ export function initPick({ navigate: nav }) {
   deckEl = root.querySelector('[data-region="deck"]');
   metaEl = root.querySelector('[data-region="meta"]');
 
-  root.querySelector('[data-action="constraints"]').addEventListener('click', () => openPickSheet());
+  briefEl = root.querySelector('[data-region="brief"]');
+
+  root.querySelector('[data-action="constraints"]').addEventListener('click', () => showBrief());
   root.querySelector('[data-action="no"]').addEventListener('click', () => decide('left'));
   root.querySelector('[data-action="yes"]').addEventListener('click', () => decide('right'));
 }
 
+/* ── the two views ── */
+
+function setMode(next) {
+  mode = next;
+  root.classList.toggle('is-briefing', next === 'brief');
+  briefEl.hidden = next !== 'brief';
+  root.querySelector('[data-region="deckview"]').hidden = next !== 'deck';
+  /* Sliders go back to the question; on the question itself there is
+     nothing to go back to. */
+  root.querySelector('[data-action="constraints"]').hidden = next !== 'deck';
+}
+
+/** The question: what do you fancy? */
+function showBrief({ focus = false } = {}) {
+  if (teardown) {
+    teardown();
+    teardown = null;
+  }
+  setMode('brief');
+  renderBrief();
+  briefEl.scrollTop = 0;
+  if (focus) briefEl.querySelector('#pick-brief')?.focus({ preventScroll: true });
+}
+
+/** The hand. */
+function showDeck() {
+  setMode('deck');
+  render();
+}
+
 export function showPick(params = {}) {
-  /* Arriving fresh deals a new hand; resuming shows what is already there and
-     re-deals nothing. Authoritative rather than conditional on a hand existing:
-     the sheet navigates here the moment a request starts, and at that instant
-     there is no hand yet — a condition that fell through to deal() would race a
-     local shuffle against the answer being fetched. */
-  if (params.resume) {
-    render();
+  /* Sent to ask (Tonight's "Find something else"): the question, ready to
+     type into. */
+  if (params.brief) {
+    showBrief({ focus: true });
     return;
   }
-  if (params.mood) constraints.mood = params.mood;
-  /* Straight to the sheet rather than to a hand nobody asked for. Landing on a
-     deck dealt from whatever was set last time is how you end up swiping
-     through the answer to a question you asked on Tuesday. */
-  if (params.ask) {
-    render();
-    openPickSheet();
-    return;
-  }
-  deal();
+  /* The tab, as it was left: the question, or the hand being swiped. Never a
+     deck dealt afresh from whatever was set last time — that is how you end
+     up swiping through the answer to Tuesday's question. */
+  if (mode === 'deck') showDeck();
+  else showBrief();
 }
 
 /* ── dealing ── */
@@ -471,7 +500,7 @@ function exhausted() {
       haptic: true,
       onClick: () => {
         if (askedFor) {
-          openPickSheet();
+          showBrief({ focus: true });
           return;
         }
         if (canRelax && relaxOnce()) {
@@ -580,14 +609,12 @@ function decide(direction) {
 /* A brief typed before there was a key to send it with. */
 let draftBrief = '';
 
-export function openPickSheet() {
-  /* --kb so a tall sheet is not pushed off the top when the keyboard, which
-     this sheet summons, takes the bottom of the screen. */
-  const { panel, close, show } = openPanel({
-    label: 'What do you fancy?',
-    className: 'has-pinned',
-    style: 'max-height:calc(86vh - var(--kb, 0px));overflow-y:auto',
-  });
+/* The question, on the tab itself: the box to say it in, and the chips to
+   narrow it. It was a sheet over Tonight; it is the tab now. */
+function renderBrief() {
+  clear(briefEl);
+  const panel = el('div', { class: 'pick-brief' });
+  briefEl.appendChild(panel);
 
   /* Toggling a chip refreshes the count and nothing else. This used to close
      and rebuild the whole sheet, which reset its scrollTop — so tapping the
@@ -595,8 +622,19 @@ export function openPickSheet() {
   let refreshCount = () => {};
   const reopen = () => refreshCount();
 
-  panel.appendChild(el('div', { class: 'sheet-grip' }));
-  panel.appendChild(el('div', { class: 'sheet-title', text: 'What do you fancy?' }));
+  /* A hand half swiped is not lost by coming back to the question. */
+  const left = shortlist.length - position;
+  if (left > 0 && !loading) {
+    panel.appendChild(
+      button(`Back to your hand · ${left} left`, {
+        kind: 'quiet',
+        size: 'sm',
+        iconName: 'back',
+        onClick: () => showDeck(),
+      })
+    );
+  }
+  panel.appendChild(el('h2', { class: 'pick-brief-title', text: 'What do you fancy?' }));
 
   /* ── the box ── */
 
@@ -609,6 +647,11 @@ export function openPickSheet() {
     /* textContent is a textarea's initial value; a value attribute is ignored. */
     text: draftBrief,
     style: 'resize:none;line-height:1.45;min-height:64px',
+  });
+  /* Kept as it is typed: switching tabs rebuilds this, and half a sentence
+     should still be there. */
+  input.addEventListener('input', () => {
+    draftBrief = input.value;
   });
   panel.appendChild(input);
 
@@ -628,6 +671,7 @@ export function openPickSheet() {
         text,
         onclick: () => {
           input.value = text;
+          draftBrief = text;
           input.focus();
         },
       })
@@ -642,7 +686,6 @@ export function openPickSheet() {
        typed is kept for when they come back with a key. */
     if (!ai.hasKey()) {
       draftBrief = text;
-      close();
       navigate('settings', { focus: 'ai' });
       return;
     }
@@ -652,7 +695,6 @@ export function openPickSheet() {
       return;
     }
     draftBrief = '';
-    close();
     relaxed = 0;
     /* Started before the navigation, not after: everything in dealFromBrief up
        to its first await runs synchronously, so the deck is already in its
@@ -774,15 +816,12 @@ export function openPickSheet() {
     kind: 'secondary',
     haptic: true,
     onClick: () => {
-      close();
       relaxed = 0;
       deal();
       goToDeck();
     },
   });
-  acts.appendChild(
-    el('div', { class: 'btn-pair' }, [button('Close', { kind: 'quiet', onClick: close }), dealBtn])
-  );
+  acts.appendChild(dealBtn);
   panel.appendChild(acts);
 
   refreshCount = () => {
@@ -796,14 +835,9 @@ export function openPickSheet() {
     dealBtn.disabled = n === 0;
   };
   refreshCount();
-
-  show();
-  requestAnimationFrame(() => input.focus({ preventScroll: true }));
 }
 
-/* Harmless when the deck is already the screen you are on — showPick resumes
-   rather than re-dealing, so this never costs you the hand you just asked
-   for. */
+/* From the question to the hand, on the same tab. */
 function goToDeck() {
-  if (navigate) navigate('pick', { resume: true });
+  showDeck();
 }

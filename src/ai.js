@@ -1,10 +1,9 @@
 /*
  * The Anthropic client, in one place.
  *
- * Two screens talk to Claude — Ask, and the picker's "say what you fancy" box —
- * and before this file existed the first of them carried its own fetch, its own
- * error strings and its own hardcoded model id. A second copy of that is how a
- * key check drifts out of step with the screen that needs it.
+ * The Pick tab's "what do you fancy?" box is what talks to Claude now (a chat
+ * tab did too, once, and carried its own fetch, error strings and model id —
+ * which is how a key check drifts out of step with the screen that needs it).
  *
  * Three things live here that are worth getting right once rather than twice:
  *
@@ -211,7 +210,7 @@ export function friendlyError(e) {
 /*
  * Titles go over as numbered lines and come back as numbers.
  *
- * The obvious design sends uids and asks for uids back, which is what Ask does.
+ * The obvious design sends uids and asks for uids back, which the old chat did.
  * It costs a token or six per title for an identifier the model has no use for,
  * and it gives a model the chance to mangle one. An index is one token, cannot
  * be half-right, and maps back locally — a number outside the range is dropped

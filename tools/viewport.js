@@ -73,7 +73,7 @@ async function measure(page) {
 
     /* Every screen, not just the first — a screen that sizes itself differently
        would show the same gap only on that tab. */
-    for (const tab of ['feed', 'library', 'ask']) {
+    for (const tab of ['feed', 'library', 'pick']) {
       await page.click(`[data-tab="${tab}"]`);
       await page.waitForTimeout(350);
       const t = await measure(page);
@@ -104,7 +104,7 @@ async function measure(page) {
   await page.goto(URL, { waitUntil: 'networkidle' });
   await page.waitForSelector('body.is-ready');
   await withKey(page);
-  await page.click('[data-tab="ask"]');
+  await page.click('[data-tab="pick"]');
   await page.waitForTimeout(400);
 
   /* Headless has no keyboard, so drive the same signal iOS sends: shrink the
@@ -116,13 +116,13 @@ async function measure(page) {
     /* A keyboard only appears because a field has focus, and that focus is the
        gate the app uses to tell a keyboard from browser chrome. Simulating the
        viewport shrink without it would be testing a state that cannot occur. */
-    document.getElementById('ask-input').focus();
+    document.getElementById('pick-brief').focus();
     Object.defineProperty(vv, 'height', { get: () => window.innerHeight - KEYBOARD, configurable: true });
     Object.defineProperty(vv, 'offsetTop', { get: () => 0, configurable: true });
     vv.dispatchEvent(new Event('resize'));
     await new Promise((r) => setTimeout(r, 250));
     const kb = getComputedStyle(document.documentElement).getPropertyValue('--kb').trim();
-    const composer = document.querySelector('.composer').getBoundingClientRect();
+    const composer = document.querySelector('#screen-pick .sheet-actions.is-pinned').getBoundingClientRect();
     const bar = document.querySelector('.tabbar');
     return {
       supported: true,
@@ -135,7 +135,7 @@ async function measure(page) {
 
   if (shrunk.supported) {
     check('the shell reacts to the keyboard', shrunk.kb === '300px', `--kb=${shrunk.kb}`);
-    check('the composer stays above the keyboard', shrunk.composerBottom <= shrunk.visible + 1,
+    check('Pick’s Deal button stays above the keyboard', shrunk.composerBottom <= shrunk.visible + 1,
       `composer bottom=${shrunk.composerBottom}, visible area ends at ${shrunk.visible}`);
     /* Reported from the phone: the tab bar rode up and sat on top of the
        keyboard. Nothing on iOS does that — the bar goes away while you type,
@@ -147,10 +147,10 @@ async function measure(page) {
        a band of nothing between the text field and the keyboard. */
     const flush = await page.evaluate(() => {
       const app = document.getElementById('app').getBoundingClientRect();
-      const composer = document.querySelector('.composer').getBoundingClientRect();
+      const composer = document.querySelector('#screen-pick .sheet-actions.is-pinned').getBoundingClientRect();
       return Math.round(app.bottom - composer.bottom);
     });
-    check('and the composer sits against the keyboard', flush <= 1, `${flush}px of dead space`);
+    check('and sits against the keyboard', flush <= 1, `${flush}px of dead space`);
 
     const after = await page.evaluate(async () => {
       document.activeElement?.blur();
@@ -179,7 +179,7 @@ async function measure(page) {
       vv.dispatchEvent(new Event('resize'));
       await new Promise((r) => setTimeout(r, 200));
       const before = document.querySelector('.tabbar').getClientRects().length > 0;
-      document.getElementById('ask-input').focus();
+      document.getElementById('pick-brief').focus();
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       return { before, after: document.querySelector('.tabbar').getClientRects().length > 0 };
     });
@@ -226,7 +226,7 @@ async function measure(page) {
   /* And a small shrink while a field IS focused is still browser chrome, not a
      keyboard — no phone keyboard is 90px tall. */
   const smallWhileFocused = await page.evaluate(async () => {
-    document.getElementById('ask-input').focus();
+    document.getElementById('pick-brief').focus();
     window.visualViewport.dispatchEvent(new Event('resize'));
     await new Promise((r) => setTimeout(r, 300));
     return getComputedStyle(document.documentElement).getPropertyValue('--kb').trim();
@@ -247,10 +247,10 @@ async function measure(page) {
     await p.goto(URL, { waitUntil: 'networkidle' });
     await p.waitForSelector('body.is-ready');
     await withKey(p);
-    await p.click('[data-tab="ask"]');
+    await p.click('[data-tab="pick"]');
     await p.waitForTimeout(400);
     const shown = await p.evaluate(async () => {
-      document.getElementById('ask-input').focus();
+      document.getElementById('pick-brief').focus();
       await new Promise((r) => setTimeout(r, 250));
       return document.querySelector('.tabbar').getClientRects().length > 0;
     });
@@ -373,11 +373,11 @@ async function measure(page) {
 
     console.log('\n─── it does not fight a keyboard that is genuinely open ───');
     const withFocus = await p.evaluate(async () => {
-      document.querySelector('[data-tab="ask"]').click();
+      document.querySelector('[data-tab="pick"]').click();
       await new Promise((r) => setTimeout(r, 300));
       const before = window.__flips;
       window.__healed = false; // viewport shrinks, as it legitimately does
-      document.getElementById('ask-input').focus();
+      document.getElementById('pick-brief').focus();
       document.dispatchEvent(new Event('focusout')); // fires while the field still holds focus
       await new Promise((r) => setTimeout(r, 600));
       return { flipsAdded: window.__flips - before };
@@ -696,7 +696,7 @@ async function measure(page) {
     /* The one that actually bites: iOS zooms the whole page when a field under
        16px takes focus. Every field has to clear it, on every screen, so this
        walks the real rendered DOM rather than trusting the stylesheet. */
-    for (const tab of ['tonight', 'feed', 'library', 'ask']) {
+    for (const tab of ['tonight', 'feed', 'library', 'pick']) {
       await p.click(`[data-tab="${tab}"]`);
       await p.waitForTimeout(250);
     }
@@ -765,7 +765,7 @@ async function measure(page) {
     await p.waitForTimeout(400);
     await p.evaluate(() => [...document.querySelectorAll('#screen-tonight button')].find((b) => /Find something else/.test(b.textContent))?.click());
     await p.waitForTimeout(500);
-    await p.evaluate(() => [...document.querySelectorAll('.sheet button')].find((b) => /Deal me some/.test(b.textContent))?.click());
+    await p.evaluate(() => [...document.querySelectorAll('#screen-pick button')].find((b) => /Deal me some/.test(b.textContent))?.click());
     await p.waitForTimeout(900);
     const deck = await p.evaluate(() => {
       const card = document.querySelector('#screen-pick .deck-card');

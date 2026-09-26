@@ -284,10 +284,10 @@ async function githubRoute(route) {
   check('something new after clearing still shows, whatever the clocks say', late.includes('Clock is behind') && (await bell()) === '1', JSON.stringify(late));
   await luke.page.keyboard.press('Escape');
   await luke.page.waitForTimeout(300);
-  const onAsk = await luke.page.evaluate(() => { document.querySelector('[data-tab="ask"]').click(); return true; });
+  const onAsk = await luke.page.evaluate(() => { document.querySelector('[data-tab="pick"]').click(); return true; });
   await luke.page.waitForTimeout(300);
-  const askBell = await luke.page.evaluate(() => document.querySelector('#screen-ask [data-action="inbox"] .bell-count')?.textContent);
-  check('the bell is on Ask too, with the same count', onAsk && askBell === '1', askBell);
+  const askBell = await luke.page.evaluate(() => document.querySelector('#screen-pick [data-action="inbox"] .bell-count')?.textContent);
+  check('the bell is on Pick too, with the same count', onAsk && askBell === '1', askBell);
   await luke.page.evaluate(() => document.querySelector('[data-tab="tonight"]').click());
   await luke.page.waitForTimeout(300);
   const centred = await luke.page.evaluate(() => {

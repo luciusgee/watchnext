@@ -503,7 +503,7 @@ function listForm() {
       requestAnimationFrame(() => card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
     },
   });
-  /* Live only when there is something to add, as the Ask composer does. */
+  /* Live only when there is something to add. */
   addBtn.disabled = true;
   ta.addEventListener('input', () => (addBtn.disabled = !ta.value.trim()));
   wrap.appendChild(addBtn);

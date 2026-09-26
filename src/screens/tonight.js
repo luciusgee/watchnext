@@ -13,7 +13,6 @@ import { icon } from '../icons.js';
 import { runtime, commitment, relativeTime, rating, plural, fallbackColors } from '../format.js';
 import { tonightPick, alternates } from '../recommend.js';
 import { openDetail } from './detail.js';
-import { openPickSheet } from './pick.js';
 import { shouldNudgeBackup, markBackedUp } from '../durability.js';
 import * as sync from '../sync.js';
 import { seedLibrary } from '../seed.js';
@@ -353,9 +352,9 @@ function heroBlock(pick) {
  * under the pick it is an alternative to, at full width, rather than as the
  * third of three small buttons on top of a poster.
  *
- * It opens the sheet, not the deck. Going straight to a hand dealt from
- * whatever filters happened to be set last time is how you end up swiping
- * through the answer to a question you asked on Tuesday.
+ * It goes to the Pick tab's question, not a deck. Going straight to a hand
+ * dealt from whatever filters happened to be set last time is how you end up
+ * swiping through the answer to a question you asked on Tuesday.
  */
 function pickerCta() {
   return el(
@@ -365,7 +364,7 @@ function pickerCta() {
       kind: 'secondary',
       iconName: 'sparkle',
       block: true,
-      onClick: () => openPickSheet(),
+      onClick: () => navigate('pick', { brief: true }),
     })
   );
 }

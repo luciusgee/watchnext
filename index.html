@@ -86,26 +86,37 @@
     </div>
   </main>
 
-  <!-- ─────────────  TONIGHT'S SHORTLIST  ───────────── -->
-  <main id="screen-pick" class="screen" aria-label="Tonight's shortlist">
-    <header class="topbar">
-      <button class="iconbtn" type="button" data-nav="back" data-icon="back" aria-label="Back"></button>
-      <h1 class="topbar-title">Pick one</h1>
-      <button class="iconbtn" type="button" data-action="constraints" data-icon="sliders" aria-label="Change what you fancy"></button>
+  <!-- ─────────────  PICK  ───────────── -->
+  <!-- Say what you fancy, Claude deals a hand from your shelf, swipe until
+       one sticks. A tab of its own; it used to be a sheet over Tonight. -->
+  <main id="screen-pick" class="screen is-briefing" aria-label="Pick">
+    <header class="topbar topbar-sides">
+      <div class="topbar-start">
+        <button class="iconbtn" type="button" data-nav="settings" data-icon="settings" aria-label="Settings"></button>
+      </div>
+      <h1 class="topbar-title">Pick</h1>
+      <div class="topbar-end">
+        <button class="iconbtn" type="button" data-action="constraints" data-icon="sliders" aria-label="Change what you fancy" hidden></button>
+        <button class="iconbtn bell" type="button" data-action="inbox" data-icon="bell" aria-label="Notifications"></button>
+      </div>
     </header>
 
-    <p class="pick-meta" data-region="meta" aria-live="polite"></p>
+    <div class="scroll" data-region="brief"></div>
 
-    <div class="deck" data-region="deck"></div>
+    <div class="pick-deckview" data-region="deckview" hidden>
+      <p class="pick-meta" data-region="meta" aria-live="polite"></p>
 
-    <div class="deck-controls is-idle" data-region="controls">
-      <div class="deck-choice">
-        <button class="deck-btn" type="button" data-haptic data-action="no" data-icon="close" data-icon-size="24" aria-label="Not tonight"></button>
-        <span class="deck-btn-label" aria-hidden="true">Not tonight</span>
-      </div>
-      <div class="deck-choice">
-        <button class="deck-btn deck-btn-yes" type="button" data-haptic data-action="yes" data-icon="playFill" data-icon-size="22" aria-label="That one"></button>
-        <span class="deck-btn-label" aria-hidden="true">That one</span>
+      <div class="deck" data-region="deck"></div>
+
+      <div class="deck-controls is-idle" data-region="controls">
+        <div class="deck-choice">
+          <button class="deck-btn" type="button" data-haptic data-action="no" data-icon="close" data-icon-size="24" aria-label="Not tonight"></button>
+          <span class="deck-btn-label" aria-hidden="true">Not tonight</span>
+        </div>
+        <div class="deck-choice">
+          <button class="deck-btn deck-btn-yes" type="button" data-haptic data-action="yes" data-icon="playFill" data-icon-size="22" aria-label="That one"></button>
+          <span class="deck-btn-label" aria-hidden="true">That one</span>
+        </div>
       </div>
     </div>
   </main>
@@ -138,26 +149,6 @@
     </div>
   </main>
 
-  <!-- ─────────────  ASK  ───────────── -->
-  <main id="screen-ask" class="screen" aria-label="Ask">
-    <header class="topbar">
-      <!-- Top-left, where Tonight keeps it. On the right it sat where Tonight
-           keeps "Add titles", and the thumb went to the wrong corner. -->
-      <button class="iconbtn" type="button" data-nav="settings" data-icon="settings" aria-label="Settings"></button>
-      <h1 class="topbar-title">Ask</h1>
-      <button class="iconbtn bell" type="button" data-action="inbox" data-icon="bell" aria-label="Notifications"></button>
-    </header>
-
-    <div class="chat" data-region="thread" role="log" aria-live="polite" aria-label="Conversation"></div>
-
-    <div class="suggestions" data-region="constraints"></div>
-
-    <form class="composer" data-region="composer">
-      <label class="sr-only" for="ask-input">What are you in the mood for?</label>
-      <textarea id="ask-input" rows="1" enterkeyhint="send" autocapitalize="sentences" placeholder="Tense, but not too long…"></textarea>
-      <button class="send" type="submit" data-action="send" data-icon="send" data-icon-size="20" aria-label="Send" disabled></button>
-    </form>
-  </main>
 
   <!-- ─────────────  A SHARED SHELF  ───────────── -->
   <main id="screen-shelf" class="screen" aria-label="A shared shelf">

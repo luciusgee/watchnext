@@ -82,13 +82,13 @@ function check(name, cond, detail = '') {
     return !!host;
   }, selector);
   const hostClicks = () => page.evaluate(() => window.__hostClicks);
-  /* The shortlist deck: Tonight → Find something else → Deal me some. */
+  /* The shortlist deck: Tonight → Find something else (the Pick tab) → Deal me some. */
   const openDeck = async (pg = page) => {
     await pg.tap('[data-tab="tonight"]');
     await pg.waitForTimeout(500);
     await pg.evaluate(() => [...document.querySelectorAll('#screen-tonight button')].find((b) => /Find something else/.test(b.textContent))?.click());
     await pg.waitForTimeout(500);
-    await pg.evaluate(() => [...document.querySelectorAll('.sheet button')].find((b) => /Deal me some/.test(b.textContent))?.click());
+    await pg.evaluate(() => [...document.querySelectorAll('#screen-pick button')].find((b) => /Deal me some/.test(b.textContent))?.click());
     await pg.waitForSelector('#screen-pick.is-active .deck-card');
     await pg.waitForTimeout(400);
   };

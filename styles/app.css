@@ -2318,6 +2318,37 @@ body.is-typing .select-bar {
 
 /* Tonight's shortlist — reuses the whole .deck-* family; only the constraint
    line is new. */
+/* ── Pick: the question, then the hand ── */
+.pick-deckview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pick-deckview[hidden],
+#screen-pick .scroll[hidden] {
+  display: none;
+}
+.pick-brief {
+  padding: var(--s5) var(--s4) 0;
+  /* The pinned count-and-deal block below reads this, as it does in a
+     sheet. */
+  --sheet-floor: 0px;
+}
+.pick-brief-title {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--s3);
+}
+/* The count and "Deal me some" ride the bottom of the tab while the chips
+   scroll under them. */
+.pick-brief .sheet-actions.is-pinned {
+  background: var(--ink);
+  padding: var(--s3) var(--s4);
+  box-shadow: 0 -14px 22px -14px rgba(0, 0, 0, 0.9);
+}
+
 .pick-meta {
   flex: none;
   padding: var(--s3) var(--s4) 0;

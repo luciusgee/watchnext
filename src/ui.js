@@ -133,7 +133,7 @@ export function toast(message, { action = null, onAction = null, duration = 3200
      in from the top when the bottom of the screen is taken: by an open sheet,
      or by a deck's answer buttons (where its Undo landed on ✓). */
   const sheetOpen = !!document.querySelector('.sheet.is-open');
-  const deck = !!document.querySelector('#screen-pick.is-active');
+  const deck = !!document.querySelector('#screen-pick.is-active:not(.is-briefing)');
   const overlay = !!document.querySelector('.detail.is-open');
   node.classList.toggle('at-top', sheetOpen || (deck && !overlay));
   node.classList.toggle('below-bar', !sheetOpen && deck && !overlay);

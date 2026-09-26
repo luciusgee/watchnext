@@ -1,5 +1,5 @@
 /*
- * Settings — a short list of parts (Films & posters, Sync, This phone, Ask,
+ * Settings — a short list of parts (Films & posters, Sync, This phone, Claude,
  * What to suggest, Backup, History & reset), each one row saying how it
  * stands, that opens to show everything in it. One open at a time; a part
  * that wants something from you says so in amber.
@@ -188,7 +188,7 @@ const FOLDS = {
   films: { iconName: 'film', title: 'Films & posters' },
   sync: { iconName: 'refresh', title: 'Sync' },
   phone: { iconName: 'sliders', title: 'This phone' },
-  ask: { iconName: 'sparkle', title: 'Ask' },
+  ask: { iconName: 'sparkle', title: 'Claude' },
   suggest: { iconName: 'eyeOff', title: 'What to suggest' },
   backup: { iconName: 'upload', title: 'Backup' },
   history: { iconName: 'clock', title: 'History & reset' },
@@ -510,7 +510,7 @@ function askGroup() {
     el('div', {
       class: 'group-item-s',
       style: 'margin-bottom:var(--s3)',
-      text: 'An Anthropic API key powers the Ask tab and the “say what you fancy” box in the picker. Your key is stored on this device only and sent directly to Anthropic — it never passes through anyone else’s server.',
+      text: 'An Anthropic API key lets Claude read your shelf and deal a hand from “what do you fancy?” on the Pick tab. Your key is stored on this device only and sent directly to Anthropic — it never passes through anyone else’s server.',
     })
   );
   const aiRow = el('form', { style: 'display:flex;gap:var(--s2)' });

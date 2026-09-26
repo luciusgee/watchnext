@@ -67,7 +67,7 @@ const expect = {
   check('nothing is silently deduplicated on import', s.items.length === expect.total);
 
   console.log('\n─── every screen works at this size ───');
-  for (const tab of ['tonight', 'feed', 'library', 'ask']) {
+  for (const tab of ['tonight', 'feed', 'library', 'pick']) {
     const t = Date.now();
     await page.click(`[data-tab="${tab}"]`);
     await page.waitForTimeout(450);
