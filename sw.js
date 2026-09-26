@@ -281,10 +281,10 @@ self.addEventListener('push', (event) => {
         badge: './assets/icon-192.png',
         data: { url: data.url || './' },
       }),
-      /* A comment or a superlike is one more unread (the bell's count): the
+      /* A comment or a Spotlight is one more unread (the bell's count): the
          number on the icon goes up with the app closed, not only the next
          time it is opened. */
-      /^(thread|super)-/.test(String(data.tag || '')) ? countOrTell() : null,
+      /^(thread|spot)-/.test(String(data.tag || '')) ? countOrTell() : null,
     ])
   );
 });

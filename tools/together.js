@@ -216,30 +216,29 @@ async function githubRoute(route) {
   });
   const badge = () => luke.page.evaluate(() => window.__badge[window.__badge.length - 1]);
   check('Sam’s reply shows on Luke’s bell', (await bell()) === '1', await bell());
-  /* Sam superlikes a second film, stars a third (a star is not news), and
-     comments on a fourth. */
+  /* Sam stars a second film, and comments on a third that nobody had
+     starred — which stars it too, but is one thing that happened. */
   const two = await sam.page.evaluate(async (skip) => {
     const s = await import('./src/store.js');
-    const [a, b, c] = s.items().filter((i) => i.uid !== skip && !i.spotlight).slice(0, 3);
-    s.setSuperlike(a.uid, true);
-    s.setSpotlight(c.uid, true);
+    const [a, b] = s.items().filter((i) => i.uid !== skip && !i.spotlight).slice(0, 2);
+    s.setSpotlight(a.uid, true);
     s.addNote(b.uid, 'This one?');
     s.emit('item');
-    return { spot: a, talk: b, star: c };
+    return { spot: a, talk: b };
   }, film.uid);
   await syncNow(sam.page);
   await syncNow(luke.page);
   await luke.page.waitForTimeout(300);
-  check('a superlike and a comment from the other phone: two more; a star, nothing', (await bell()) === '3' && (await badge()) === 3, `${await bell()} / badge ${await badge()}`);
+  check('a Spotlight and a comment from the other phone: two more', (await bell()) === '3' && (await badge()) === 3, `${await bell()} / badge ${await badge()}`);
   await luke.page.tap('#screen-tonight [data-action="inbox"]');
   await luke.page.waitForSelector('.inbox-sheet.is-open');
   const rows = await luke.page.evaluate(() => [...document.querySelectorAll('.inbox-item')].map((r) => ({ text: r.querySelector('.inbox-line').textContent, unread: r.classList.contains('is-unread') })));
-  check('the bell opens the list, newest first, new ones marked', rows.length === 3 && rows.every((r) => r.unread) && rows.some((r) => r.text === `Sam superliked ${two.spot.title}`) && rows.some((r) => r.text === `Sam commented on ${two.talk.title}`), JSON.stringify(rows));
-  check('comments and superlikes only: nothing for a star', !rows.some((r) => /Spotlight/.test(r.text)), JSON.stringify(rows));
-  await luke.page.evaluate((t) => [...document.querySelectorAll('.inbox-item')].find((r) => r.querySelector('.inbox-line').textContent === t).querySelector('.inbox-go').click(), `Sam superliked ${two.spot.title}`);
+  check('the bell opens the list, newest first, new ones marked', rows.length === 3 && rows.every((r) => r.unread) && rows.some((r) => r.text === `Sam put ${two.spot.title} in Spotlight`) && rows.some((r) => r.text === `Sam commented on ${two.talk.title}`), JSON.stringify(rows));
+  check('a comment that starred a film is one entry, not two', !rows.some((r) => r.text === `Sam put ${two.talk.title} in Spotlight`), JSON.stringify(rows));
+  await luke.page.evaluate((t) => [...document.querySelectorAll('.inbox-item')].find((r) => r.querySelector('.inbox-line').textContent === t).querySelector('.inbox-go').click(), `Sam put ${two.spot.title} in Spotlight`);
   await luke.page.waitForTimeout(600);
   const opened = await luke.page.evaluate(() => ({ detail: document.querySelector('.detail.is-open h1')?.textContent || '', sheet: !!document.querySelector('.inbox-sheet.is-open') }));
-  check('tapping a superlike opens the film', opened.detail === two.spot.title && !opened.sheet, JSON.stringify(opened));
+  check('tapping a Spotlight opens the film', opened.detail === two.spot.title && !opened.sheet, JSON.stringify(opened));
   check('and takes one off the bell and the app icon', (await bell()) === '2' && (await badge()) === 2, `${await bell()} / badge ${await badge()}`);
   await luke.page.keyboard.press('Escape');
   await luke.page.waitForTimeout(400);
@@ -307,7 +306,9 @@ async function githubRoute(route) {
     const s = await import('./src/store.js');
     const snap = s.syncSnapshot();
     const films = s.items().slice(0, 25);
-    const sam = snap.notes.find((n) => n.by === 'Sam')?.device || 'dSAMX';
+    /* From a phone of their own, so they cannot be mistaken for the
+       comment that starred a film Sam stars later on. */
+    const sam = 'dBULK';
     const extra = Array.from({ length: 75 }, (_, k) => ({ id: `nbulk${k}`, uid: films[k % films.length].uid, film: films[k % films.length].imdbId || null, text: `Bulk ${k}`, by: 'Sam', device: sam, at: Date.now() - k * 1000 }));
     s.applySync({ ...snap, notes: [...snap.notes, ...extra] });
     s.emit('item');
@@ -331,44 +332,33 @@ async function githubRoute(route) {
   await luke.page.keyboard.press('Escape');
   await luke.page.waitForTimeout(300);
 
-  console.log('\n─── superlikes ───');
+  console.log('\n─── Spotlight ───');
   const pend = (pg) => pg.evaluate(async () => (await import('./src/store.js')).pendingNotify());
   const sent = await sam.page.evaluate(async () => {
     const s = await import('./src/store.js');
-    const hot = s.items().find((i) => !i.spotlight && !i.watched);
-    s.setSuperlike(hot.uid, true);
+    const star = s.items().find((i) => !i.spotlight && !i.watched && !s.notesFor(i).length);
+    s.setSpotlight(star.uid, true);
     s.emit('item');
-    return { uid: hot.uid, title: hot.title, spot: !!s.byUid(hot.uid).spotlight };
+    return { uid: star.uid, title: star.title };
   });
   const q = await pend(sam.page);
-  check('a superlike puts the film in Spotlight, and queues one notification', sent.spot && q.filter((e) => e.uid === sent.uid).map((e) => e.kind).join() === 'superlike', JSON.stringify(q.map((e) => [e.kind, e.payload?.title])));
-  check('worded for the other phone', q.some((e) => e.kind === 'superlike' && e.payload.title === `Sam superliked ${sent.title}` && e.payload.tag === `super-${sent.uid}`));
+  check('a star queues one notification, worded for the other phone', q.filter((e) => e.uid === sent.uid).map((e) => e.kind).join() === 'spotlight' && q.some((e) => e.payload?.title === `Sam put ${sent.title} in Spotlight` && e.payload.tag === `spot-${sent.uid}`), JSON.stringify(q.map((e) => [e.kind, e.payload?.title])));
   await syncNow(sam.page);
-  check('the Action is sent it, marked [notify]', /^\[notify\] Sam superliked/.test(commits.filter((c) => c.path === 'notify/last.json').pop()?.message || ''), commits.filter((c) => c.path === 'notify/last.json').pop()?.message);
-  const undone = await sam.page.evaluate(async (uid) => {
-    const s = await import('./src/store.js');
-    s.setSuperlike(uid, false);
-    s.setSuperlike(uid, true);
-    s.setSuperlike(uid, false);
-    return s.pendingNotify().filter((e) => e.uid === uid).length;
-  }, sent.uid);
-  check('one taken back before the sync is not sent', undone === 0);
-  await sam.page.evaluate(async (uid) => (await import('./src/store.js')).setSuperlike(uid, true), sent.uid);
-  await syncNow(sam.page);
+  check('the Action is sent it, marked [notify]', /^\[notify\] Sam put/.test(commits.filter((c) => c.path === 'notify/last.json').pop()?.message || ''), commits.filter((c) => c.path === 'notify/last.json').pop()?.message);
   await syncNow(luke.page);
   await luke.page.waitForTimeout(400);
   await luke.page.evaluate(() => document.querySelector('.inbox-sheet.is-open') || document.querySelector('#screen-tonight [data-action="inbox"]').click());
   await luke.page.waitForSelector('.inbox-sheet.is-open');
   await luke.page.waitForTimeout(300);
-  const lines = await luke.page.evaluate(() => [...document.querySelectorAll('.inbox-item')].map((r) => ({ line: r.querySelector('.inbox-line').textContent, flame: !!r.querySelector('.inbox-mark svg') })));
-  check('Luke’s bell lists it, with a flame', lines.some((l) => l.line === `Sam superliked ${sent.title}` && l.flame), JSON.stringify(lines.slice(0, 4)));
+  const lines = await luke.page.evaluate(() => [...document.querySelectorAll('.inbox-item')].map((r) => ({ line: r.querySelector('.inbox-line').textContent, star: !!r.querySelector('.inbox-mark svg') })));
+  check('Luke’s bell lists it, with a star', lines.some((l) => l.line === `Sam put ${sent.title} in Spotlight` && l.star), JSON.stringify(lines.slice(0, 4)));
   await luke.page.keyboard.press('Escape');
   await luke.page.waitForTimeout(300);
   const readByPage = await luke.page.evaluate(async (uid) => {
     const s = await import('./src/store.js');
-    const before = s.inbox().find((e) => e.kind === 'superlike' && e.uid === uid)?.read;
+    const before = s.inbox().find((e) => e.kind === 'spotlight' && e.uid === uid)?.read;
     (await import('./src/screens/detail.js')).openDetail(uid);
-    const after = s.inbox().find((e) => e.kind === 'superlike' && e.uid === uid)?.read;
+    const after = s.inbox().find((e) => e.kind === 'spotlight' && e.uid === uid)?.read;
     (await import('./src/screens/detail.js')).closeDetail();
     return { before, after };
   }, sent.uid);
@@ -471,6 +461,24 @@ async function githubRoute(route) {
   await sam.page.evaluate(() => [...document.querySelectorAll('[data-region="notify"] button')].find((b) => /Turn off/.test(b.textContent)).click());
   await sam.page.waitForTimeout(800);
   check('turning off removes this phone’s push address from the repo', !files.has(`push/${samDevice}.json`));
+
+  console.log('\n─── the first time, what was already starred is not news ───');
+  const oldCleared = await luke.page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('wn.state.v3'));
+    /* As the first version of the inbox left things: no seeding done, and a
+       Spotlight cleared under its old, uid-based id. */
+    delete st.settings.seenSpots;
+    delete st.settings.inboxV;
+    const other = st.items.find((i) => i.spotlight && i.spotlight.device !== st.settings.deviceId);
+    st.settings.inboxCleared = [`spot:${other.uid}:${other.spotlight.at}`];
+    localStorage.setItem('wn.state.v3', JSON.stringify(st));
+    return other.title;
+  });
+  await luke.page.reload({ waitUntil: 'networkidle' });
+  await luke.page.waitForSelector('body.is-ready');
+  const seeded = await luke.page.evaluate(async () => (await import('./src/store.js')).inbox().filter((e) => e.kind === 'spotlight'));
+  check('Spotlights from before this version start read', seeded.length > 0 && seeded.every((e) => e.read), JSON.stringify(seeded.map((e) => [e.title, e.read])));
+  check('and one cleared in the first version stays cleared', !seeded.some((e) => e.title === oldCleared), oldCleared);
 
   console.log('\n─── no errors ───');
   check('no JavaScript errors', errors.length === 0, errors.join(' | '));

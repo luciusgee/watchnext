@@ -135,11 +135,18 @@ export function render() {
 
   /* rails */
   /* What has just gone on the list, from either phone — newest first, and
-     only what is actually recent (the last two months), so a library
-     imported in one go does not fill it with whatever came first. */
+     only what is actually recent (the last two months). Not a batch: the
+     library brought over from the old app, a restored backup, the sample —
+     each stamped hundreds of films in the same second, and nobody adds ten
+     films in one second by hand. */
   const since = Date.now() - 60 * 864e5;
+  const perSecond = new Map();
+  for (const i of items) {
+    const sec = Math.floor((i.addedAt || 0) / 1000);
+    perSecond.set(sec, (perSecond.get(sec) || 0) + 1);
+  }
   const added = items
-    .filter((i) => (i.addedAt || 0) >= since)
+    .filter((i) => (i.addedAt || 0) >= since && perSecond.get(Math.floor(i.addedAt / 1000)) <= 10)
     .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0))
     .slice(0, 20);
   if (added.length) {
@@ -504,12 +511,6 @@ function spotlightRail(items) {
           ? 'From you'
           : `From ${by}`;
     if (fresh) card.classList.add('has-unread');
-    /* Superliked: a flame on the poster, and first in the row (spotlit()). */
-    if (item.superlike) {
-      card.classList.add('is-super');
-      card.querySelector('.poster')?.appendChild(el('span', { class: 'super-mark', 'aria-hidden': 'true', html: icon('flameFill', 14) }));
-      card.setAttribute('aria-label', `${card.getAttribute('aria-label') || item.title}, superliked`);
-    }
     list.appendChild(el('div', { role: 'listitem', style: 'display:contents' }, card));
   }
   sec.appendChild(list);

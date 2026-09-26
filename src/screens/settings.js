@@ -1776,7 +1776,7 @@ function notifyRow() {
   } else if (st === 'denied') {
     say('Turned off for Watch Next in the iPhone’s Settings → Notifications. Turn them on there, then come back.');
   } else if (st === 'off') {
-    say('A buzz on this phone when the other one comments on a film or superlikes one.');
+    say('A buzz on this phone when the other one comments on a film or puts it in Spotlight.');
     notify.prepare();
     controls.appendChild(
       button('Turn on', {
@@ -1794,7 +1794,7 @@ function notifyRow() {
   } else {
     say(
       push.sender
-        ? 'On. You will hear when the other phone comments on a film or superlikes one.'
+        ? 'On. You will hear when the other phone comments on a film or puts it in Spotlight.'
         : 'On for this phone — one step left to finish, below.',
       push.sender ? 'sage' : 'amber'
     );

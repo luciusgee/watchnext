@@ -97,9 +97,6 @@ export function makeItem(partial = {}) {
        home (its UK digital date, else its cinema date). Tonight does not
        suggest it before then. Null for nearly everything. */
     released: typeof partial.released === 'string' ? partial.released.slice(0, 10) : null,
-    /* A superlike — "we have to watch this" — and who gave it: { at, by,
-       device }, or null. Stronger than Spotlight, and puts the film there. */
-    superlike: partial.superlike && typeof partial.superlike === 'object' ? partial.superlike : null,
   };
 }
 
@@ -322,6 +319,7 @@ function migrate(s) {
     if (!Array.isArray(s.settings.seenNotes)) s.settings.seenNotes = [];
     if (!s.settings.threadSeen || typeof s.settings.threadSeen !== 'object') s.settings.threadSeen = {};
     if (!Array.isArray(s.settings.pendingNotify)) s.settings.pendingNotify = [];
+    if (seedSeenSpots(s)) repairedOnLoad += 1;
   }
 
   /* Titles pasted from a bulleted list kept the bullet — "•\tThe Power" was
@@ -986,7 +984,7 @@ export function markThreadSeen(uidValue) {
 }
 
 /* ── the inbox ──
-   The other phone's comments and superlikes: what the bell lists and the app
+   The other phone's comments and Spotlights: what the bell lists and the app
    icon counts.
    Worked out from the shared notes every time, not kept as a list of its
    own — so a comment deleted over there goes from here too — with what this
@@ -995,17 +993,21 @@ export function markThreadSeen(uidValue) {
 
 export const INBOX_MAX = 60;
 
-/* A superlike's id comes from the superlike itself, not the record: when
+/* A Spotlight's id comes from the Spotlight itself, not the record: when
    two copies of a film fold into one (merge.js) the survivor's uid may
-   differ, and one read here must not come back as new. */
-const superId = (item) => `super:${item.superlike?.device || ''}:${item.superlike?.at || 0}`;
+   differ, and one read here must not come back as new. Set again later, it
+   has a new `at`, and is news again. */
+const spotId = (item) => `spot:${item.spotlight?.device || ''}:${item.spotlight?.at || 0}`;
+/* A comment puts a film in Spotlight by itself (addNote), in the same
+   instant: one thing that happened, said once, as the comment. */
+const SAME_MOMENT = 5000;
 
 /* The read and cleared lists hold ids. They are pruned to ones that still
    exist, never to the newest N: forgetting an id that can still show makes
    it new again. */
 function prune(list) {
   const live = new Set((state.notes || []).map((n) => n.id));
-  for (const i of state.items) if (i.superlike) live.add(superId(i));
+  for (const i of state.items) if (i.spotlight) live.add(spotId(i));
   return list.filter((id) => live.has(id));
 }
 
@@ -1014,7 +1016,7 @@ function filmFor(n) {
 }
 
 /**
- * Newest first, all of them: { id, kind: 'comment'|'superlike', at, by,
+ * Newest first, all of them: { id, kind: 'comment'|'spotlight', at, by,
  * uid, title, item, text?, read }. The sheet draws the newest INBOX_MAX; the count, ×
  * and Clear all work on everything, or Clear all would leave the next sixty
  * behind.
@@ -1030,27 +1032,50 @@ export function inbox() {
     if (!item) continue;
     out.push({ id: n.id, kind: 'comment', at: n.at, by: n.by || '', uid: item.uid, title: item.title, item, text: n.text, read: seen.has(n.id) });
   }
-  const seenSupers = new Set(state.settings.seenSupers || []);
+  const seenSpots = new Set(state.settings.seenSpots || []);
   for (const item of state.items) {
-    const sup = item.superlike;
-    if (!sup?.device || sup.device === mine) continue;
-    const id = superId(item);
+    const spot = item.spotlight;
+    if (!spot?.device || spot.device === mine) continue;
+    const talked = (state.notes || []).some(
+      (n) => n.device === spot.device && Math.abs(n.at - spot.at) < SAME_MOMENT && (n.uid === item.uid || (n.film && n.film === item.imdbId))
+    );
+    if (talked) continue;
+    const id = spotId(item);
     if (cleared.has(id)) continue;
-    out.push({ id, kind: 'superlike', at: sup.at, by: sup.by || '', uid: item.uid, title: item.title, item, read: seenSupers.has(id) });
+    out.push({ id, kind: 'spotlight', at: spot.at, by: spot.by || '', uid: item.uid, title: item.title, item, read: seenSpots.has(id) });
   }
   return out.sort((a, b) => b.at - a.at);
 }
 
 /* Which list an entry is read in: comments share their thread's. */
-const seenKey = (e) => (e.kind === 'superlike' ? 'seenSupers' : 'seenNotes');
+const seenKey = (e) => (e.kind === 'spotlight' ? 'seenSpots' : 'seenNotes');
 
-/** A film's page seen: the other phone's superlike of it has been read. */
-export function markSuperSeen(uidValue) {
+/** A film's page seen: the other phone's Spotlight of it has been read. */
+export function markSpotSeen(uidValue) {
   const item = byUid(uidValue);
-  const sup = item?.superlike;
-  if (!sup?.device || sup.device === state.settings.deviceId) return false;
-  if (!remember('seenSupers', [superId(item)])) return false;
+  const spot = item?.spotlight;
+  if (!spot?.device || spot.device === state.settings.deviceId) return false;
+  if (!remember('seenSpots', [spotId(item)])) return false;
   save();
+  return true;
+}
+
+/* The first time this phone runs this inbox, what the other phone had
+   already starred is not news: it starts read. The first inbox keyed
+   Spotlights by uid; what it had read or cleared carries over. */
+const INBOX_V = 3;
+function seedSeenSpots(st) {
+  if (st.settings.inboxV === INBOX_V) return false;
+  const mine = st.settings.deviceId;
+  const items = st.items || [];
+  const byOldId = new Map();
+  for (const i of items) if (i.spotlight) byOldId.set(`spot:${i.uid}:${i.spotlight.at || 0}`, spotId(i));
+  const carry = (list) => (Array.isArray(list) ? list.map((id) => byOldId.get(id) || id) : []);
+  const seen = new Set(carry(st.settings.seenSpots));
+  for (const i of items) if (i.spotlight?.device && i.spotlight.device !== mine) seen.add(spotId(i));
+  st.settings.seenSpots = [...seen];
+  st.settings.inboxCleared = carry(st.settings.inboxCleared);
+  st.settings.inboxV = INBOX_V;
   return true;
 }
 
@@ -1094,7 +1119,7 @@ export function clearAllInbox() {
   const all = inbox();
   if (!all.length) return 0;
   remember('seenNotes', all.filter((e) => e.kind === 'comment').map((e) => e.id));
-  remember('seenSupers', all.filter((e) => e.kind === 'superlike').map((e) => e.id));
+  remember('seenSpots', all.filter((e) => e.kind === 'spotlight').map((e) => e.id));
   remember('inboxCleared', all.map((e) => e.id));
   saveNow();
   return all.length;
@@ -1103,14 +1128,14 @@ export function clearAllInbox() {
 /* Something the other phone should hear about, worded here — where the
    film and the name are known — so the thing that sends it (a GitHub Action
    in the private repo, see notify.js) only has to pass it on. Carried by the
-   next sync; see sync.js. Comments and superlikes (and the test). */
+   next sync; see sync.js. Comments and Spotlights (and the test). */
 function queueNotify(kind, item, text = '', extra = {}) {
   const who = state.settings.name || 'Someone';
   const payload =
     kind === 'comment'
       ? { title: `${who} on ${item.title}`, body: text.length > 180 ? text.slice(0, 177) + '…' : text, url: `./#thread=${item.uid}`, tag: `thread-${item.uid}` }
-      : kind === 'superlike'
-        ? { title: `${who} superliked ${item.title}`, body: 'A must-watch — it is top of Spotlight.', url: `./#film=${item.uid}`, tag: `super-${item.uid}` }
+      : kind === 'spotlight'
+        ? { title: `${who} put ${item.title} in Spotlight`, body: 'Have a look — it is on Tonight.', url: `./#film=${item.uid}`, tag: `spot-${item.uid}` }
         : { title: 'Watch Next', body: 'Notifications are working on this phone.', url: './', tag: 'test' };
   const q = Array.isArray(state.settings.pendingNotify) ? state.settings.pendingNotify : [];
   q.push({ kind, uid: item?.uid || null, noteId: extra.noteId || null, from: state.settings.deviceId, includeSelf: kind === 'test', at: Date.now(), payload });
@@ -1187,28 +1212,11 @@ export function removeNote(id) {
 export function setSpotlight(uidValue, on) {
   const item = byUid(uidValue);
   if (!item) return null;
-  /* Out of Spotlight is out of the shortlist altogether: a superlike goes
-     with it. */
   const next = update(uidValue, {
     spotlight: on ? { at: Date.now(), by: state.settings.name || '', device: state.settings.deviceId } : null,
-    ...(on ? {} : { superlike: null }),
   });
-  if (!on) unqueue((e) => e.kind === 'superlike' && e.uid === uidValue);
-  saveNow();
-  return next;
-}
-
-/** Superlike: "we have to watch this". Puts the film in Spotlight too. */
-export function setSuperlike(uidValue, on) {
-  const item = byUid(uidValue);
-  if (!item) return null;
-  const stamp = { at: Date.now(), by: state.settings.name || '', device: state.settings.deviceId };
-  const next = update(uidValue, {
-    superlike: on ? stamp : null,
-    ...(on && !item.spotlight ? { spotlight: { ...stamp } } : {}),
-  });
-  if (on) queueNotify('superlike', item);
-  else unqueue((e) => e.kind === 'superlike' && e.uid === uidValue);
+  if (on) queueNotify('spotlight', item);
+  else unqueue((e) => e.kind === 'spotlight' && e.uid === uidValue);
   saveNow();
   return next;
 }
@@ -1219,8 +1227,7 @@ export function spotlit() {
     /* A watched film leaves the shortlist — unless someone has just said
        something about it that has not been read. */
     .filter((i) => i.spotlight && (!i.watched || unreadFor(i) > 0))
-    /* Superliked first, then the newest. */
-    .sort((a, b) => (b.superlike ? 1 : 0) - (a.superlike ? 1 : 0) || (b.spotlight.at || 0) - (a.spotlight.at || 0));
+    .sort((a, b) => (b.spotlight.at || 0) - (a.spotlight.at || 0));
 }
 
 /* ── derived selectors ── */

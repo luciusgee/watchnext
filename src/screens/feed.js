@@ -334,7 +334,6 @@ function addCard(film) {
 
   const rail = el('div', { class: 'feed-rail' });
   rail.appendChild(act('spotlight', 'star', 'Spotlight'));
-  rail.appendChild(act('superlike', 'flame', 'Superlike'));
   rail.appendChild(act('add', 'plus', 'Add'));
   rail.appendChild(act('comment', 'comment', 'Comment'));
   const trailer = act('trailer', 'playFill', 'Trailer');
@@ -532,11 +531,6 @@ function paintActions() {
     star.classList.toggle('is-on', on);
     star.setAttribute('aria-pressed', String(on));
     star.querySelector('.feed-act-icon').innerHTML = icon(on ? 'starFill' : 'star', 26);
-    const hot = card.querySelector('[data-act="superlike"]');
-    const superOn = !!item?.superlike;
-    hot.classList.toggle('is-on', superOn);
-    hot.setAttribute('aria-pressed', String(superOn));
-    hot.querySelector('.feed-act-icon').innerHTML = icon(superOn ? 'flameFill' : 'flame', 26);
     const add = card.querySelector('[data-act="add"]');
     /* On the list, Add becomes the way to the film's page — to mark it
        watched, rate it, say you own it. */
@@ -572,7 +566,6 @@ async function onClick(e) {
       return;
     }
     if (what === 'spotlight') return toggleSpotlight(film, i);
-    if (what === 'superlike') return toggleSuperlike(film, i);
     if (what === 'add') return toggleAdd(film, i);
     if (what === 'comment') {
       /* Talking about a film puts it on the list (and in Spotlight) — but only
@@ -624,20 +617,6 @@ async function toggleSpotlight(film, i) {
     nudge(film, 1.5);
     toast(`${item.title} is in Spotlight`);
     /* Up now: the other phone hears of it when it reaches the repo. */
-    sync.pushSoon();
-  }
-  paintActions();
-}
-
-/* Stronger than the star: "we have to watch this". Stars it too. */
-async function toggleSuperlike(film, i) {
-  const item = await ensureItem(film);
-  const on = !item.superlike;
-  store.setSuperlike(item.uid, on);
-  store.emit('item');
-  if (on) {
-    nudge(film, 2.5);
-    toast(`Superliked ${item.title}`);
     sync.pushSoon();
   }
   paintActions();

@@ -1,14 +1,14 @@
 /*
  * Notifications, in the app: the bell at the top of Tonight and Ask.
  *
- * The other phone's comments and superlikes, newest first. Tap one and it
- * takes you there (the thread for a comment, the film for a superlike) and
+ * The other phone's comments and Spotlights, newest first. Tap one and it
+ * takes you there (the thread for a comment, the film for a Spotlight) and
  * counts as read; clear them one at a time or all at once. The number on the
  * bell is the number on the app icon, and reading or clearing takes both
  * down.
  *
  * The list itself is worked out in store.js (inbox()), from the same shared
- * comments and superlikes the rest of the app shows.
+ * comments and Spotlights the rest of the app shows.
  */
 
 import * as store from '../store.js';
@@ -53,7 +53,7 @@ async function dismissDelivered(tags) {
   }
 }
 
-const tagFor = (e) => (e.kind === 'superlike' ? `super-${e.uid}` : `thread-${e.uid}`);
+const tagFor = (e) => (e.kind === 'spotlight' ? `spot-${e.uid}` : `thread-${e.uid}`);
 
 export function openInbox() {
   if (openNow && !openNow.closing()) return;
@@ -96,7 +96,7 @@ export function openInbox() {
       list.appendChild(
         el('div', {
           class: 'inbox-empty',
-          html: `${icon('bell', 28)}<p>Nothing new.</p><p class="inbox-empty-sub">When the other phone comments on a film or superlikes one, it shows up here.</p>`,
+          html: `${icon('bell', 28)}<p>Nothing new.</p><p class="inbox-empty-sub">When the other phone comments on a film or puts one in Spotlight, it shows up here.</p>`,
         })
       );
       return;
@@ -111,11 +111,13 @@ export function openInbox() {
   const row = (e) => {
     const item = el('div', { class: `inbox-item${e.read ? '' : ' is-unread'} is-${e.kind}`, role: 'listitem' });
     const who = e.by || 'They';
-    const verb = e.kind === 'superlike' ? ' superliked ' : ' commented on ';
+    const spot = e.kind === 'spotlight';
+    const verb = spot ? ' put ' : ' commented on ';
+    const tail = spot ? ' in Spotlight' : '';
     const go = el('button', {
       class: 'inbox-go',
       type: 'button',
-      'aria-label': `${e.read ? '' : 'New. '}${who}${verb}${e.title}${e.text ? `: ${e.text}` : ''}. ${relativeTime(e.at)}`,
+      'aria-label': `${e.read ? '' : 'New. '}${who}${verb}${e.title}${tail}${e.text ? `: ${e.text}` : ''}. ${relativeTime(e.at)}`,
       onclick: () => {
         store.readInbox(e.id);
         dismissDelivered([tagFor(e)]);
@@ -132,13 +134,14 @@ export function openInbox() {
     });
     const art = el('div', { class: 'inbox-art' });
     art.appendChild(poster(e.item, { width: 44 }));
-    if (e.kind === 'superlike') art.appendChild(el('span', { class: 'inbox-mark', html: icon('flameFill', 14) }));
+    if (spot) art.appendChild(el('span', { class: 'inbox-mark', html: icon('starFill', 13) }));
     go.appendChild(art);
     const text = el('div', { class: 'inbox-text' });
     const line = el('div', { class: 'inbox-line' });
     line.appendChild(el('b', { text: who }));
     line.appendChild(document.createTextNode(verb));
     line.appendChild(el('b', { text: e.title }));
+    if (tail) line.appendChild(document.createTextNode(tail));
     text.appendChild(line);
     if (e.text) text.appendChild(el('div', { class: 'inbox-quote', text: e.text }));
     text.appendChild(el('div', { class: 'inbox-when', text: relativeTime(e.at) }));

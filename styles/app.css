@@ -2024,13 +2024,6 @@ body.is-typing .sheet-actions.is-pinned {
   min-width: 0;
   padding: 0 var(--s3);
 }
-/* Spotlight and Superlike side by side, Comments under them. */
-.detail-spot .detail-actions {
-  margin-bottom: 0;
-}
-.detail-actions-one {
-  grid-template-columns: 1fr;
-}
 .detail-actions .btn > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3429,8 +3422,6 @@ body.is-typing .thread-compose {
   color: var(--faint);
 }
 
-/* A superliked film in Spotlight: a flame on its poster. */
-.super-mark,
 .inbox-mark {
   position: absolute;
   z-index: 2;
@@ -3442,10 +3433,6 @@ body.is-typing .thread-compose {
   background: var(--amber);
   color: var(--ink);
   box-shadow: 0 0 0 2px var(--ink);
-}
-.super-mark {
-  top: 6px;
-  left: 6px;
 }
 
 /* ── notifications (screens/inbox.js) ── */

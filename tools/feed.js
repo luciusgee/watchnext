@@ -138,7 +138,7 @@ function check(name, cond, detail = '') {
   const lit = await page.evaluate((u) => window.__test.byUid(u)?.spotlight, added.uid);
   check('the star puts it in Spotlight', !!lit?.at, JSON.stringify(lit));
   const queued = await page.evaluate(() => JSON.parse(localStorage.getItem('wn.state.v3')).settings.pendingNotify);
-  check('a star does not buzz the other phone (comments and superlikes do)', !queued.some((q) => q.kind === 'spotlight'), JSON.stringify(queued));
+  check('and queues a notification for the other phone', queued.some((q) => q.kind === 'spotlight' && /in Spotlight/.test(q.payload.title)), JSON.stringify(queued));
   const starOn = await page.evaluate((n) => document.querySelector(`.feed-card[data-i="${n}"] [data-act="spotlight"]`).classList.contains('is-on'), i);
   check('and the star lights up', starOn);
 
@@ -154,20 +154,6 @@ function check(name, cond, detail = '') {
   const doubled = await page.evaluate((t) => window.__test.items().find((x) => x.title === t)?.spotlight, film2.title);
   check('a double-tap on the poster puts it in Spotlight too', !!doubled, film2.title);
 
-  await next(page);
-  const h = (await state(page)).current;
-  const hotFilm = (await state(page)).film;
-  await page.tap(`.feed-card[data-i="${h}"] [data-act="superlike"]`);
-  await page.waitForTimeout(800);
-  const hot = await page.evaluate((t) => {
-    const it = window.__test.items().find((x) => x.title === t);
-    const q = JSON.parse(localStorage.getItem('wn.state.v3')).settings.pendingNotify.filter((e) => e.uid === it?.uid || (e.uids || []).includes(it?.uid));
-    return { superlike: !!it?.superlike, spot: !!it?.spotlight, queued: q.map((e) => e.kind) };
-  }, hotFilm.title);
-  check('the flame superlikes a film: on the list, in Spotlight', hot.superlike && hot.spot, JSON.stringify(hot));
-  check('telling the other phone once, as a superlike', hot.queued.join() === 'superlike', JSON.stringify(hot.queued));
-  const lit2 = await page.evaluate((n) => { const b = document.querySelector(`.feed-card[data-i="${n}"] [data-act="superlike"]`); return b.classList.contains('is-on') && b.getAttribute('aria-pressed') === 'true'; }, h);
-  check('and the flame lights up', lit2);
 
   await next(page);
   const k = (await state(page)).current;
@@ -217,6 +203,9 @@ function check(name, cond, detail = '') {
     return r ? { first: r.querySelector('.card-t, .card-title, [class*="card-t"]')?.textContent || r.querySelector('.card')?.getAttribute('aria-label') || '', seeAll: !!r.closest('.section')?.querySelector('.section-link') } : null;
   });
   check('Tonight has a Recently added row, newest first', !!recentRail && recentRail.first.includes(film3.title), JSON.stringify(recentRail));
+  const onlyAdded = await page.evaluate(() => [...document.querySelectorAll('.rail[data-rail="Recently added"] .card-t')].map((t) => t.textContent));
+  const sampleTitles = await page.evaluate(() => window.__test.items().filter((i) => !i.meta?.sourceId).map((i) => i.title));
+  check('with only films really added, not the whole library loaded in one go', onlyAdded.length >= 3 && onlyAdded.length <= 6 && !onlyAdded.some((t) => sampleTitles.includes(t)), JSON.stringify(onlyAdded));
   await page.evaluate(() => document.querySelector('.rail[data-rail="Recently added"]').closest('.section').querySelector('.section-link').click());
   await page.waitForTimeout(600);
   const libSort = await page.evaluate(() => document.getElementById('screen-library').classList.contains('is-active'));
