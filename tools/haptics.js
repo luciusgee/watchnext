@@ -13,6 +13,7 @@
  *   - disabled controls and the Settings switch being off leave taps alone;
  *   - nothing is built where the switch does not exist.
  */
+const { openSection } = require('./settings-sections.js');
 const { chromium, devices } = require('/opt/node22/lib/node_modules/playwright');
 
 const APP_URL = 'http://127.0.0.1:8899/index.html'; // not `URL`: that shadows the constructor
@@ -311,6 +312,7 @@ function check(name, cond, detail = '') {
     return s ? { checked: s.checked, disabled: s.disabled, native: s.hasAttribute('switch') } : null;
   });
   check('Settings has a Haptics switch, on by default', sw && sw.checked && !sw.disabled && sw.native, JSON.stringify(sw));
+  await openSection(page, 'phone');
   await page.tap('label[for="haptics-switch"]');
   await page.waitForTimeout(200);
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('wn.state.v3')).settings.haptics);

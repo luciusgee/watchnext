@@ -7,6 +7,7 @@
  * iOS is the case that breaks all four: `height: 100%` does not reliably
  * resolve to the full screen there, so the tab bar floated above a black gap.
  */
+const { openSection, sectionKeys } = require('./settings-sections.js');
 const { chromium, devices } = require('/opt/node22/lib/node_modules/playwright');
 
 let pass = 0, fail = 0; const failures = [];
@@ -704,11 +705,10 @@ async function measure(page) {
     await p.click('#screen-tonight [data-nav="settings"]');
     await p.waitForTimeout(600);
 
-    const fields = await p.evaluate(() =>
+    /* Settings keeps its fields in folded sections, one open at a time: open
+       each in turn so every field is measured while it is actually rendered. */
+    const collect = () =>
       [...document.querySelectorAll('input, textarea, select')]
-        /* Only controls that can actually summon a keyboard can trigger the
-           auto-zoom. A file picker or a checkbox cannot, and neither can
-           anything that is not rendered. */
         .filter(
           (n) =>
             !['checkbox', 'radio', 'button', 'submit', 'hidden', 'file', 'range', 'color'].includes(
@@ -716,10 +716,15 @@ async function measure(page) {
             ) && n.offsetParent !== null
         )
         .map((n) => ({
-          id: n.id || n.className || n.tagName,
+          id: n.id || n.getAttribute('aria-label') || n.className || n.tagName,
           size: parseFloat(getComputedStyle(n).fontSize),
-        }))
-    );
+        }));
+    const seen = new Map();
+    for (const key of await sectionKeys(p)) {
+      await openSection(p, key);
+      for (const f of await p.evaluate(collect)) seen.set(f.id, f);
+    }
+    const fields = [...seen.values()];
     const tooSmall = fields.filter((f) => f.size < 16);
     check('at least one real text field was inspected', fields.length > 0, `${fields.length} fields`);
     check(

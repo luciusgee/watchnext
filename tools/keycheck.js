@@ -11,6 +11,7 @@
  * message has to name that cause; and a failed request on a train must never be
  * recorded as a bad key.
  */
+const { openSection } = require('./settings-sections.js');
 const { chromium, devices } = require('/opt/node22/lib/node_modules/playwright');
 
 let pass = 0, fail = 0; const failures = [];
@@ -134,6 +135,7 @@ const OMDB = {
     await page.waitForTimeout(250);
     await page.click('#screen-tonight [data-nav="settings"]');
     await page.waitForTimeout(600);
+    await openSection(page, 'films');
   };
 
   /* Select OMDb so the key box belongs to the provider being mocked. */
@@ -146,7 +148,7 @@ const OMDB = {
 
   omdbMode = 'invalid';
   await page.fill('#data-key', 'deadbeef');
-  await page.click('#screen-settings button:has-text("Save")');
+  await page.click('form:has(#data-key) button:has-text("Save")');
   await page.waitForTimeout(900);
 
   const afterBad = await page.evaluate(() => {
@@ -164,7 +166,7 @@ const OMDB = {
 
   omdbMode = 'ok';
   await page.fill('#data-key', 'goodkey1');
-  await page.click('#screen-settings button:has-text("Save")');
+  await page.click('form:has(#data-key) button:has-text("Save")');
   await page.waitForTimeout(900);
 
   const afterGood = await page.evaluate(() => {
@@ -185,7 +187,7 @@ const OMDB = {
   console.log('\n─── clearing the box clears the verdict ───');
   await openSettings();
   await page.fill('#data-key', '');
-  await page.click('#screen-settings button:has-text("Save")');
+  await page.click('form:has(#data-key) button:has-text("Save")');
   await page.waitForTimeout(700);
   const cleared = await page.evaluate(async () => {
     const store = await import('./src/store.js');

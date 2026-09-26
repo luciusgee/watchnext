@@ -209,7 +209,7 @@ function paintNoKey() {
     emptyState({
       iconName: 'feed',
       title: 'The feed needs a TMDB key',
-      message: 'It is where the films, posters and cast come from. The key is free, and it goes in Settings → Connections.',
+      message: 'It is where the films, posters and cast come from. The key is free, and it goes in Settings → Films & posters.',
       action: { label: 'Open Settings', haptic: true, onClick: () => navigate('settings', { focus: 'data' }) },
     })
   );
@@ -294,7 +294,7 @@ function errorCard(err) {
       title: err?.code === 'auth' ? 'TMDB turned the key down' : 'The films did not load',
       message:
         err?.code === 'auth'
-          ? 'Check the key in Settings → Connections.'
+          ? 'Check the key in Settings → Films & posters.'
           : navigator.onLine === false
             ? 'You are offline. They will be here when you are back.'
             : 'Something went wrong asking TMDB. Try again.',

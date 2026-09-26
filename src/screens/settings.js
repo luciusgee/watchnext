@@ -1,5 +1,8 @@
 /*
- * Settings — three zones: Connections, Library data, Danger.
+ * Settings — a short list of parts (Films & posters, Sync, This phone, Ask,
+ * What to suggest, Backup, History & reset), each one row saying how it
+ * stands, that opens to show everything in it. One open at a time; a part
+ * that wants something from you says so in amber.
  *
  * The destructive actions are quarantined behind their own sheet rather than
  * sitting as identically-styled rows next to "Export my data", and the
@@ -23,7 +26,7 @@ import {
 import { icon } from '../icons.js';
 import * as meta from '../metadata.js';
 import { getProvider, listProviders } from '../providers/index.js';
-import { storageHealth, markBackedUp, requestPersistence } from '../durability.js';
+import { storageHealth, markBackedUp, requestPersistence, lastBackupAt, shouldNudgeBackup } from '../durability.js';
 import { BUILD } from '../build.js';
 import { healState, safeAreaInsets } from '../viewport.js';
 import { openMatchPicker } from './match.js';
@@ -113,8 +116,15 @@ async function busy(btn, label, work) {
 }
 
 export function showSettings(params = {}) {
+  /* Every visit starts with everything folded — unless it was sent here for
+     something, which opens where that is, or a lookup is running, whose
+     progress shows in Films & posters. */
+  const FOCUS = { ai: 'ask', data: 'films', review: 'films', sweep: 'films' };
+  openFold = FOCUS[params.focus] || (sweepController ? 'films' : null);
   render();
   if (params.focus === 'ai') {
+    /* Synchronous, inside the tap that brought it here: that is what lets
+       iOS raise the keyboard. */
     root.querySelector('#ai-key')?.focus();
   } else if (params.focus === 'data') {
     /* From the feed, which needs a TMDB key: straight to the box it goes in.
@@ -127,51 +137,152 @@ export function showSettings(params = {}) {
     /* Sent here from Add with titles waiting for details. Scrolling to the
        control is the difference between "here is the thing you wanted" and
        "here is Settings, find it". */
-    const target = root.querySelector('[data-region="sweep"]') || root.querySelector('#screen-settings .group');
-    target?.scrollIntoView({ block: 'center' });
+    requestAnimationFrame(() => (root.querySelector('[data-region="sweep"]') || root.querySelector('.fold[data-section="films"]'))?.scrollIntoView({ block: 'center' }));
   }
 }
 
 function render() {
   renderPending = false;
+  /* Where focus was, so a repaint behind VoiceOver puts it back. */
+  const hadFocus = document.activeElement?.closest?.('.fold')?.dataset.section || null;
+  const headHadFocus = document.activeElement?.classList?.contains('fold-head');
   clear(bodyEl);
 
-  bodyEl.appendChild(groupLabel('Connections'));
-  bodyEl.appendChild(connectionsGroup());
+  /* The order things are set up in: the film database first (nothing has a
+     poster without it), then sync (the second phone, and notifications,
+     need it), then this phone, then the rest. Everything is built every
+     time, open or not: a few parts write into their own slots later
+     (storage health, a lookup's progress, the notification keys). */
+  bodyEl.appendChild(fold('films', head('films'), [filmsGroup(), groupLabel('Posters & details'), dataGroup()]));
 
-  /* Named for what they hold. "Library data" and "Your data" were a pair of
-     near-identical headings over unrelated things. */
-  bodyEl.appendChild(groupLabel('Posters & details'));
-  bodyEl.appendChild(dataGroup());
-
-  bodyEl.appendChild(groupLabel('Sync'));
-  bodyEl.appendChild(syncGroup());
-
-  bodyEl.appendChild(groupLabel('Backup'));
-  bodyEl.appendChild(backupGroup());
+  bodyEl.appendChild(fold('sync', head('sync'), syncGroup()));
+  bodyEl.appendChild(fold('phone', head('phone'), deviceGroup()));
+  bodyEl.appendChild(fold('ask', head('ask'), askGroup()));
+  bodyEl.appendChild(fold('suggest', head('suggest'), tasteGroup()));
+  bodyEl.appendChild(fold('backup', head('backup'), backupGroup()));
   refreshStorageHealth();
 
+  /* Everything that looks back: what was done, and the ways to undo it all
+     at once. The red row lives down here, not in the main list. */
+  const history = [groupLabel('Recent activity'), activityGroup()];
   /* Gone: this is one shelf for two people who watch together, so separate
      watch histories were a question nobody here needed asked. Only shown if
      names were added before it went, so they can still be taken out. */
-  if (store.people().length) {
-    bodyEl.appendChild(groupLabel('Who watches here'));
-    bodyEl.appendChild(peopleGroup());
-  }
-
-  bodyEl.appendChild(groupLabel('What to suggest'));
-  bodyEl.appendChild(tasteGroup());
-
-  bodyEl.appendChild(groupLabel('This phone'));
-  bodyEl.appendChild(deviceGroup());
-
-  bodyEl.appendChild(groupLabel('Recent activity'));
-  bodyEl.appendChild(activityGroup());
-
-  bodyEl.appendChild(groupLabel('Reset'));
-  bodyEl.appendChild(dangerGroup());
+  if (store.people().length) history.push(groupLabel('Who watches here'), peopleGroup());
+  history.push(groupLabel('Reset'), dangerGroup());
+  bodyEl.appendChild(fold('history', head('history'), history));
 
   bodyEl.appendChild(aboutBlock());
+
+  if (hadFocus) {
+    const target = headHadFocus
+      ? bodyEl.querySelector(`.fold[data-section="${hadFocus}"] .fold-head`)
+      : null;
+    target?.focus({ preventScroll: true });
+  }
+}
+
+/* ── what each part says about itself ──
+   One line under its name — how it stands — and amber when it wants you. */
+const FOLDS = {
+  films: { iconName: 'film', title: 'Films & posters' },
+  sync: { iconName: 'refresh', title: 'Sync' },
+  phone: { iconName: 'sliders', title: 'This phone' },
+  ask: { iconName: 'sparkle', title: 'Ask' },
+  suggest: { iconName: 'eyeOff', title: 'What to suggest' },
+  backup: { iconName: 'upload', title: 'Backup' },
+  history: { iconName: 'clock', title: 'History & reset' },
+};
+
+function head(id) {
+  return { ...FOLDS[id], ...statusFor(id) };
+}
+
+function statusFor(id) {
+  const s = store.settings();
+  switch (id) {
+    case 'films': {
+      if (sweepController && sweepProgress) return { status: `Looking up ${sweepProgress.index + 1} of ${sweepProgress.total}` };
+      const p = getProvider(s.provider);
+      const key = s.dataKeys?.[p.id];
+      const ks = s.keyStatus?.[p.id];
+      if (!key) return { status: `No ${p.label} key yet`, attention: true };
+      if (ks?.ok === false) return { status: `${p.label} key turned down`, attention: true };
+      if (p.id !== 'tmdb' && !s.dataKeys?.tmdb) return { status: 'The Feed needs a TMDB key', attention: true };
+      const m = meta.enrichmentSummary(store.items());
+      const fix = m.review + m.unmatched;
+      if (fix) return { status: `${fix} need you to choose`, attention: true };
+      if (m.todo) return { status: `${p.label} · ${m.todo} to look up`, attention: true };
+      if (!m.total) return { status: `${p.label} · ready` };
+      if (m.missing) return { status: `${p.label} · ${m.missing} missing details` };
+      return { status: `${p.label} · all ${m.total} verified` };
+    }
+    case 'sync': {
+      const cfg = sync.config();
+      const st = sync.status();
+      if (!cfg.enabled) return { status: 'Off · this phone only', attention: true };
+      if (st.phase === 'error') return { status: 'Not syncing · open to see why', attention: true };
+      if (st.phase === 'offline') return { status: st.lastOk ? `Offline · synced ${relativeTime(st.lastOk)}` : 'Offline' };
+      /* "Synced…" through a sync in progress, so the line does not flicker
+         every half-minute. */
+      if (st.lastOk) return { status: `Synced ${relativeTime(st.lastOk)}` };
+      return { status: st.phase === 'syncing' ? 'Syncing…' : 'Waiting for the first sync' };
+    }
+    case 'phone': {
+      const name = store.me().name;
+      const n = notify.state();
+      const bits = [name || 'No name yet'];
+      let attention = !name && sync.config().enabled;
+      if (notifyTrouble || (n === 'on' && !s.push?.sender)) {
+        bits.push('notifications need a step');
+        attention = true;
+      } else if (n === 'on') bits.push('notifications on');
+      else if (n === 'off' || n === 'denied' || n === 'no-sync') bits.push('notifications off');
+      else if (haptics.supported()) bits.push(s.haptics === false ? 'haptics off' : 'haptics on');
+      return { status: bits.join(' · '), attention };
+    }
+    case 'ask':
+      return s.aiKey ? { status: `Claude · ${currentModel().label}` } : { status: 'No Claude key yet', attention: true };
+    case 'suggest': {
+      const t = store.tastePrefs();
+      const films = t.never.filter((u) => store.byUid(u)).length;
+      const parts = [];
+      if (t.genres.length) parts.push(t.genres.length <= 2 ? t.genres.join(', ') : plural(t.genres.length, 'genre'));
+      if (t.franchises.length) parts.push(plural(t.franchises.length, 'title word'));
+      if (films) parts.push(plural(films, 'film'));
+      return { status: parts.length ? `Left out: ${parts.join(', ')}` : 'Everything is fair game' };
+    }
+    case 'backup': {
+      const synced = sync.config().enabled && sync.status().phase !== 'error';
+      const last = lastBackupAt();
+      if (synced) return { status: last ? `In your repo · exported ${relativeTime(last)}` : 'Kept in your GitHub repo' };
+      if (!last) return { status: 'Never exported', attention: true };
+      if (lastHealth?.supported && !lastHealth.persisted) return { status: `Exported ${relativeTime(last)} · not protected`, attention: true };
+      return { status: `Last export ${relativeTime(last)}`, attention: !!shouldNudgeBackup(store.stats()) };
+    }
+    case 'history': {
+      const e = store.activity()[0];
+      return { status: e ? `${ACTIVITY_LABELS[e.kind] || 'Changed'} ${relativeTime(e.at)}` : 'Nothing yet' };
+    }
+    default:
+      return {};
+  }
+}
+
+/** Bring every part's line up to date without rebuilding the page: after
+    a key is saved, a sync finishes, a lookup moves on, the name changes. */
+function paintHeads() {
+  if (!bodyEl) return;
+  for (const w of bodyEl.querySelectorAll('.fold')) {
+    const { status = '', attention = false } = statusFor(w.dataset.section);
+    const line = w.querySelector('.fold-status');
+    if (line) {
+      line.textContent = status;
+      line.classList.toggle('is-attention', !!attention);
+    }
+    const dot = w.querySelector('.fold-dot');
+    if (dot) dot.hidden = !attention;
+  }
 }
 
 function groupLabel(text) {
@@ -197,9 +308,11 @@ function fold(id, { iconName, title, status = '', attention = false }, bodies) {
   head.appendChild(el('span', { class: 'fold-icon', html: icon(iconName, 20) }));
   const text = el('span', { class: 'fold-text' });
   text.appendChild(el('span', { class: 'fold-title', text: title }));
-  if (status) text.appendChild(el('span', { class: `fold-status${attention ? ' is-attention' : ''}`, text: status }));
+  text.appendChild(el('span', { class: `fold-status${attention ? ' is-attention' : ''}`, text: status }));
   head.appendChild(text);
-  if (attention) head.appendChild(el('span', { class: 'fold-dot', 'aria-hidden': 'true' }));
+  const dot = el('span', { class: 'fold-dot', 'aria-hidden': 'true' });
+  dot.hidden = !attention;
+  head.appendChild(dot);
   head.appendChild(el('span', { class: 'fold-chevron', html: icon('chevronDown', 18) }));
   head.addEventListener('click', () => setFold(openFold === id ? null : id, { scroll: true }));
   wrap.appendChild(head);
@@ -245,7 +358,7 @@ function summaryLine(s) {
 
 /* ── connections ── */
 
-function connectionsGroup() {
+function filmsGroup() {
   const g = el('div', { class: 'group' });
   const s = store.settings();
 
@@ -349,6 +462,7 @@ function connectionsGroup() {
       if (result.ok === null) {
         store.updateSettings({ keyStatus: { ...(store.settings().keyStatus || {}), [active.id]: null } });
         paintStatus('idle', result.message);
+        paintHeads();
         return;
       }
 
@@ -365,6 +479,7 @@ function connectionsGroup() {
         render();
       } else {
         paintStatus('bad', result.message || 'This key was rejected.');
+        paintHeads();
       }
     }),
   });
@@ -374,9 +489,16 @@ function connectionsGroup() {
   box.appendChild(hint(active.keyHint));
   box.appendChild(keyStatus);
   g.appendChild(box);
+  return g;
+}
+
+/* ── Ask: the Claude key ── */
+function askGroup() {
+  const g = el('div', { class: 'group' });
+  const s = store.settings();
 
   /* Anthropic */
-  const ai = el('div', { class: 'group-pad', style: 'border-top:1px solid var(--hairline)' });
+  const ai = el('div', { class: 'group-pad' });
   ai.appendChild(el('h3', { class: 'group-item-t', text: 'Assisted picks', style: 'margin-bottom:var(--s1)' }));
   ai.appendChild(
     el('div', {
@@ -617,7 +739,10 @@ function syncGroup() {
     /* Unsubscribed when Settings is re-rendered, not left accumulating one
        listener per visit. */
     if (syncWatcher) syncWatcher();
-    syncWatcher = sync.watch(paint);
+    syncWatcher = sync.watch((st) => {
+      paint(st);
+      paintHeads();
+    });
     box.appendChild(live);
   }
 
@@ -749,6 +874,7 @@ function dataGroup() {
 
 /** Repaint the live sweep controls from the current progress. */
 function paintSweep() {
+  paintHeads();
   const ui = sweepUi;
   if (!ui || !ui.text.isConnected) return;
   if (ui.btn) {
@@ -1352,6 +1478,7 @@ async function refreshStorageHealth() {
   if (lastHealth) paintHealth(slot, lastHealth);
   const h = await storageHealth(store.stats());
   lastHealth = h;
+  paintHeads();
   if (slot.isConnected) paintHealth(slot, h);
 }
 
@@ -1571,6 +1698,17 @@ function confirmSetup(payload) {
 
 /* ── activity ── */
 
+const ACTIVITY_LABELS = {
+  watched: 'Marked watched',
+  unwatched: 'Marked unwatched',
+  /* Retired verbs. Still mapped so activity logged before the watchlist was
+     collapsed into the library renders as words rather than a raw key. */
+  saved: 'Added to watchlist',
+  unsaved: 'Removed from watchlist',
+  owned: 'Added to collection',
+  unowned: 'Removed from collection',
+};
+
 function activityGroup() {
   const g = el('div', { class: 'group' });
   const entries = store.activity().slice(0, 12);
@@ -1586,16 +1724,7 @@ function activityGroup() {
     return g;
   }
 
-  const labels = {
-    watched: 'Marked watched',
-    unwatched: 'Marked unwatched',
-    /* Retired verbs. Still mapped so activity logged before the watchlist was
-       collapsed into the library renders as words rather than a raw key. */
-    saved: 'Added to watchlist',
-    unsaved: 'Removed from watchlist',
-    owned: 'Added to collection',
-    unowned: 'Removed from collection',
-  };
+  const labels = ACTIVITY_LABELS;
 
   for (const entry of entries) {
     const row = el('div', { class: 'group-item' });
@@ -1712,6 +1841,7 @@ function deviceGroup() {
   });
   sw.addEventListener('change', () => {
     store.updateSettings({ haptics: sw.checked });
+    paintHeads();
     store.saveNow();
     haptics.refresh();
   });
@@ -1740,6 +1870,7 @@ function nameRow() {
   const save = () => {
     if (input.value.trim() === store.me().name) return;
     store.setName(input.value);
+    paintHeads();
     toast('Saved');
   };
   input.addEventListener('change', save);
@@ -1772,7 +1903,8 @@ function notifyRow() {
   } else if (st === 'unsupported') {
     say('This phone cannot receive them. They need iOS 16.4 or later.');
   } else if (st === 'no-sync') {
-    say('Turn on Sync first, above — notifications travel through your repo.');
+    say('Turn on Sync first — notifications travel through your repo.');
+    controls.appendChild(button('Open Sync', { kind: 'secondary', size: 'sm', onClick: () => setFold('sync', { scroll: true }) }));
   } else if (st === 'denied') {
     say('Turned off for Watch Next in the iPhone’s Settings → Notifications. Turn them on there, then come back.');
   } else if (st === 'off') {

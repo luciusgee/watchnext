@@ -104,6 +104,29 @@ function check(name, cond, detail = '') {
     `${ownedItem.title} reverted to owned`);
 
   // ─────────────────────────────────────────────────────────
+  console.log('\n─── Settings, folded ───');
+  {
+    await page.click('#screen-tonight [data-nav="settings"]');
+    await page.waitForTimeout(500);
+    const folded = await page.evaluate(() => ({
+      parts: [...document.querySelectorAll('#screen-settings .fold')].map((f) => ({ id: f.dataset.section, title: f.querySelector('.fold-title').textContent, status: f.querySelector('.fold-status').textContent, open: f.querySelector('.fold-head').getAttribute('aria-expanded') === 'true', hidden: f.querySelector('.fold-body').hidden })),
+      height: document.querySelector('#screen-settings .scroll').scrollHeight,
+      screen: innerHeight,
+    }));
+    check('Settings opens as a short list of parts, all closed', folded.parts.length >= 6 && folded.parts.every((p) => !p.open && p.hidden), JSON.stringify(folded.parts.map((p) => [p.id, p.open])));
+    check('each saying how it stands', folded.parts.every((p) => p.title && p.status), JSON.stringify(folded.parts.map((p) => p.status)));
+    check('about a screen and a half to scroll, not ten', folded.height < folded.screen * 1.6, `${folded.height} for a ${folded.screen} screen`);
+    await page.click('#screen-settings .fold[data-section="sync"] .fold-head');
+    await page.waitForTimeout(300);
+    await page.click('#screen-settings .fold[data-section="phone"] .fold-head');
+    await page.waitForTimeout(300);
+    const one = await page.evaluate(() => [...document.querySelectorAll('#screen-settings .fold')].filter((f) => !f.querySelector('.fold-body').hidden).map((f) => f.dataset.section));
+    check('one open at a time', one.join() === 'phone', one.join());
+    check('with everything still in it', await page.evaluate(() => !!document.getElementById('haptics-switch') && !!document.getElementById('sync-repo') && !!document.getElementById('data-key') && !!document.getElementById('ai-key')));
+    await page.evaluate(() => document.querySelector('[data-nav="back"]:not([hidden])')?.click());
+    await page.waitForTimeout(400);
+  }
+
   console.log('\n─── Discover has gone ───');
   const tabsNow = await page.evaluate(() => [...document.querySelectorAll('.tabbar [data-tab]')].map((t) => t.dataset.tab));
   check('four tabs: Tonight, Feed, Library, Ask', tabsNow.join(',') === 'tonight,feed,library,ask', tabsNow.join(','));
@@ -575,11 +598,11 @@ function check(name, cond, detail = '') {
   await page.click('#screen-tonight [data-nav="settings"]');
   await page.waitForTimeout(700);
   const listed = await page.evaluate((t) =>
-    [...document.querySelectorAll('#screen-settings button')].some((b) => b.textContent.includes(t)), heroTitle);
+    [...document.querySelectorAll('#screen-settings .fold-body button')].some((b) => b.textContent.includes(t)), heroTitle);
   check('it is listed in Settings so it can be found again', listed, heroTitle);
 
   await page.evaluate((t) =>
-    [...document.querySelectorAll('#screen-settings button')].find((b) => b.textContent.includes(t))?.click(), heroTitle);
+    [...document.querySelectorAll('#screen-settings .fold-body button')].find((b) => b.textContent.includes(t))?.click(), heroTitle);
   await page.waitForTimeout(500);
   const unmuted = await page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('wn.state.v3'));
