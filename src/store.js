@@ -860,6 +860,7 @@ export function applySetup(payload) {
   if (setup.aiModel) s.aiModel = setup.aiModel;
   if (setup.sync) s.sync = { ...(s.sync || {}), ...setup.sync, enabled: true };
   const library = readBackup(payload) ? importPayload(payload, 'merge') : { added: 0, merged: 0 };
+  seedSeenSpots(state);
   saveNow();
   return { setup, library };
 }
@@ -909,6 +910,7 @@ export function applySync(snapshot) {
       state.settings.viewer = null;
     }
   }
+  seedSeenSpots(state);
   saveNow();
   emit('item');
   return true;
@@ -1036,6 +1038,8 @@ export function inbox() {
   for (const item of state.items) {
     const spot = item.spotlight;
     if (!spot?.device || spot.device === mine) continue;
+    if (spot.via === 'comment') continue;
+    /* The same, for Spotlights set by a comment before they said so. */
     const talked = (state.notes || []).some(
       (n) => n.device === spot.device && Math.abs(n.at - spot.at) < SAME_MOMENT && (n.uid === item.uid || (n.film && n.film === item.imdbId))
     );
@@ -1066,6 +1070,9 @@ export function markSpotSeen(uidValue) {
 const INBOX_V = 3;
 function seedSeenSpots(st) {
   if (st.settings.inboxV === INBOX_V) return false;
+  /* Not on an empty phone: a new install seeds when its library first
+     arrives (applySync, applySetup), not on some later launch. */
+  if (!(st.items || []).length) return false;
   const mine = st.settings.deviceId;
   const items = st.items || [];
   const byOldId = new Map();
@@ -1191,7 +1198,9 @@ export function addNote(uidValue, text) {
   };
   state.notes.push(note);
   if (!item.spotlight) {
-    update(item.uid, { spotlight: { at: Date.now(), by: state.settings.name || '', device: state.settings.deviceId } });
+    /* `via`: put there by the comment, so the bell never lists it as news
+       of its own — even if the comment is later deleted. */
+    update(item.uid, { spotlight: { at: Date.now(), by: state.settings.name || '', device: state.settings.deviceId, via: 'comment' } });
   }
   state.settings.threadSeen = { ...(state.settings.threadSeen || {}), [item.uid]: Date.now() };
   queueNotify('comment', item, body, { noteId: note.id });

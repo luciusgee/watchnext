@@ -123,6 +123,15 @@ function check(name, cond, detail = '') {
     const one = await page.evaluate(() => [...document.querySelectorAll('#screen-settings .fold')].filter((f) => !f.querySelector('.fold-body').hidden).map((f) => f.dataset.section));
     check('one open at a time', one.join() === 'phone', one.join());
     check('with everything still in it', await page.evaluate(() => !!document.getElementById('haptics-switch') && !!document.getElementById('sync-repo') && !!document.getElementById('data-key') && !!document.getElementById('ai-key')));
+    const moved = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('.fold[data-section="phone"] button')].find((x) => /Open Sync/.test(x.textContent));
+      if (!b) return 'no Open Sync button';
+      b.focus();
+      b.click();
+      const f = document.activeElement;
+      return f?.classList.contains('fold-head') ? f.closest('.fold').dataset.section : f?.tagName;
+    });
+    check('Open Sync takes focus to Sync, so VoiceOver follows', moved === 'sync', moved);
     await page.evaluate(() => document.querySelector('[data-nav="back"]:not([hidden])')?.click());
     await page.waitForTimeout(400);
   }

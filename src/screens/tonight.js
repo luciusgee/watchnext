@@ -137,8 +137,8 @@ export function render() {
   /* What has just gone on the list, from either phone — newest first, and
      only what is actually recent (the last two months). Not a batch: the
      library brought over from the old app, a restored backup, the sample —
-     each stamped hundreds of films in the same second, and nobody adds ten
-     films in one second by hand. */
+     each stamped hundreds of films in the same second. A paste into Add
+     many lands in one second too, but that is tens, not hundreds. */
   const since = Date.now() - 60 * 864e5;
   const perSecond = new Map();
   for (const i of items) {
@@ -146,7 +146,7 @@ export function render() {
     perSecond.set(sec, (perSecond.get(sec) || 0) + 1);
   }
   const added = items
-    .filter((i) => (i.addedAt || 0) >= since && perSecond.get(Math.floor(i.addedAt / 1000)) <= 10)
+    .filter((i) => (i.addedAt || 0) >= since && perSecond.get(Math.floor(i.addedAt / 1000)) <= 50)
     .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0))
     .slice(0, 20);
   if (added.length) {

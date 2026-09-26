@@ -333,6 +333,12 @@ function setFold(id, { scroll = false } = {}) {
     w.querySelector('.fold-body').hidden = !on;
   }
   const opened = id && bodyEl.querySelector(`.fold[data-section="${id}"]`);
+  /* Opened from a button inside another part (Open Sync): that button has
+     just been hidden, so focus goes to what opened — VoiceOver reads its
+     name and status rather than losing its place. */
+  if (opened && document.activeElement?.closest('.fold-body')?.hidden) {
+    opened.querySelector('.fold-head').focus({ preventScroll: true });
+  }
   if (opened && scroll) {
     /* The header to the top, so what just opened is under the thumb rather
        than below the fold. */

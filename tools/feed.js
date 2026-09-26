@@ -206,6 +206,12 @@ function check(name, cond, detail = '') {
   const onlyAdded = await page.evaluate(() => [...document.querySelectorAll('.rail[data-rail="Recently added"] .card-t')].map((t) => t.textContent));
   const sampleTitles = await page.evaluate(() => window.__test.items().filter((i) => !i.meta?.sourceId).map((i) => i.title));
   check('with only films really added, not the whole library loaded in one go', onlyAdded.length >= 3 && onlyAdded.length <= 6 && !onlyAdded.some((t) => sampleTitles.includes(t)), JSON.stringify(onlyAdded));
+  /* A dozen titles pasted into Add many land in the same second: still
+     films really added, and still shown. */
+  await page.evaluate(async () => (await import('./src/actions.js')).addMany(Array.from({ length: 12 }, (_, k) => `Pasted Film ${k} (2001)`), 'movie'));
+  await page.waitForTimeout(400);
+  const pasted = await page.evaluate(() => [...document.querySelectorAll('.rail[data-rail="Recently added"] .card-t')].filter((t) => /^Pasted Film/.test(t.textContent)).length);
+  check('a dozen pasted at once still show as recently added', pasted === 12, `${pasted} of 12`);
   await page.evaluate(() => document.querySelector('.rail[data-rail="Recently added"]').closest('.section').querySelector('.section-link').click());
   await page.waitForTimeout(600);
   const libSort = await page.evaluate(() => document.getElementById('screen-library').classList.contains('is-active'));

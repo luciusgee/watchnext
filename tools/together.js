@@ -364,6 +364,23 @@ async function githubRoute(route) {
   }, sent.uid);
   check('opening the film any other way reads it too', readByPage.before === false && readByPage.after === true, JSON.stringify(readByPage));
 
+  /* A comment stars the film it is on. Deleted, the comment goes from the
+     bell — and the star it made does not turn up there as news. */
+  const talkedOn = await sam.page.evaluate(async () => {
+    const s = await import('./src/store.js');
+    const it = s.items().find((i) => !i.spotlight && !i.watched && !s.notesFor(i).length);
+    const n = s.addNote(it.uid, 'Typo, hang on');
+    s.emit('item');
+    return { uid: it.uid, id: n.id, via: s.byUid(it.uid).spotlight?.via };
+  });
+  await syncNow(sam.page);
+  await syncNow(luke.page);
+  await sam.page.evaluate(async (id) => { const s = await import('./src/store.js'); s.removeNote(id); s.emit('item'); }, talkedOn.id);
+  await syncNow(sam.page);
+  await syncNow(luke.page);
+  const afterTypo = await luke.page.evaluate(async (uid) => (await import('./src/store.js')).inbox().filter((e) => e.uid === uid).map((e) => e.kind), talkedOn.uid);
+  check('a star made by a comment says so, and never shows as news of its own', talkedOn.via === 'comment' && afterTypo.length === 0, JSON.stringify({ via: talkedOn.via, afterTypo }));
+
   console.log('\n─── taken back before it went ───');
   const takenBack = await luke.page.evaluate(async (uid) => {
     const s = await import('./src/store.js');
