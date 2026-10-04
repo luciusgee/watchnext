@@ -10,11 +10,12 @@ import * as store from '../store.js';
 import * as actions from '../actions.js';
 import { el, clear, poster, posterBadge, button, iconButton, emptyState } from '../ui.js';
 import { icon } from '../icons.js';
-import { runtime, commitment, relativeTime, rating, plural, fallbackColors, releaseLabel } from '../format.js';
+import { runtime, commitment, relativeTime, rating, plural, fallbackColors, releaseLabel, dayLabel } from '../format.js';
 import { tonightPick, alternates } from '../recommend.js';
 import { openDetail } from './detail.js';
 import { shouldNudgeBackup, markBackedUp } from '../durability.js';
 import * as sync from '../sync.js';
+import * as cinema from '../cinema.js';
 import { seedLibrary } from '../seed.js';
 import { toast } from '../ui.js';
 
@@ -31,8 +32,8 @@ export function initTonight({ navigate: nav }) {
   ownedOnly = owned >= 10;
   store.subscribe((r) => {
     /* 'inbox': read or cleared from the bell — the Spotlight row's "new"
-       counts follow. */
-    if ((r === 'item' || r === 'inbox') && isActive()) render();
+       counts follow. 'cinema': new Savoy listings, for its captions. */
+    if ((r === 'item' || r === 'inbox' || r === 'cinema') && isActive()) render();
   });
 }
 
@@ -503,7 +504,7 @@ function spotlightRail(items) {
     const sub = card.querySelector('.card-s');
     /* When it is out, if it is new or coming — Spotlight is mostly what you
        are waiting for, and the date is what you plan a trip around. */
-    const when = releaseFor(item);
+    const when = savoyFor(item) || releaseFor(item);
     /* One line, so every poster in the row sits level. */
     sub.textContent = fresh
       ? `${fresh} new`
@@ -519,6 +520,15 @@ function spotlightRail(items) {
   }
   sec.appendChild(list);
   return sec;
+}
+
+/** "Savoy today", "Savoy Fri 9 Oct": its next showing at the Savoy,
+    Corby, or null. Short, to sit under a poster. */
+function savoyFor(item) {
+  const next = cinema.showingsFor(item)[0];
+  if (!next) return null;
+  const day = dayLabel(next.date);
+  return `Savoy ${day === 'Today' || day === 'Tomorrow' ? day.toLowerCase() : day}`;
 }
 
 /** "In cinemas Fri 17 Oct", "In cinemas now", "Out today"… or null. */

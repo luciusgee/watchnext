@@ -454,7 +454,7 @@ async function githubRoute(route) {
   /* Sam's phone: the Action is already there, so her token needs nothing
      more — and nothing is rewritten. */
   allowWorkflows = false;
-  const wfCommits = commits.filter((c) => c.path.startsWith('.github/')).length;
+  const wfCommits = commits.filter((c) => c.path.includes('watchnext-notify')).length;
   await sam.page.tap('[data-tab="tonight"]');
   await sam.page.evaluate(() => document.querySelector('.screen.is-active [data-nav="settings"]').click());
   await sam.page.waitForTimeout(900);
@@ -462,7 +462,7 @@ async function githubRoute(route) {
   await sam.page.waitForTimeout(1200);
   const samDevice = (await st(sam.page)).settings.deviceId;
   check('the second phone turns on without the extra permission', files.has(`push/${samDevice}.json`) && (await sam.page.evaluate(() => /On\. You will hear/.test(document.querySelector('[data-region="notify"]')?.textContent || ''))));
-  check('and does not rewrite the Action', commits.filter((c) => c.path.startsWith('.github/')).length === wfCommits);
+  check('and does not rewrite the Action', commits.filter((c) => c.path.includes('watchnext-notify')).length === wfCommits);
 
   /* Hand the repo to the Action test: every file, as the checkout sees it. */
   const outDir = path.join(os.tmpdir(), 'wn-notify-repo');
@@ -496,6 +496,74 @@ async function githubRoute(route) {
   const seeded = await luke.page.evaluate(async () => (await import('./src/store.js')).inbox().filter((e) => e.kind === 'spotlight'));
   check('Spotlights from before this version start read', seeded.length > 0 && seeded.every((e) => e.read), JSON.stringify(seeded.map((e) => [e.title, e.read])));
   check('and one cleared in the first version stays cleared', !seeded.some((e) => e.title === oldCleared), oldCleared);
+
+  console.log('\n─── the Savoy, Corby ───');
+  allowWorkflows = true;
+  const installed = await luke.page.evaluate(async () => {
+    localStorage.removeItem('wn.cinema.installed');
+    return (await import('./src/cinemaSender.js')).installCinema();
+  });
+  const cinemaWf = files.get('.github/workflows/watchnext-cinema.yml')?.text || '';
+  check('the job that reads the Savoy’s listings goes in the repo', installed.ok && files.has('.github/watchnext-cinema.mjs') && /cron: '\d+ [\d,]+ \* \* \*'/.test(cinemaWf) && /node \.github\/watchnext-cinema\.mjs/.test(cinemaWf) && /contents: write/.test(cinemaWf), JSON.stringify(installed));
+  const order = commits.map((c) => c.path);
+  check('script before workflow, whose own commit starts the first run', order.lastIndexOf('.github/watchnext-cinema.mjs') < order.lastIndexOf('.github/workflows/watchnext-cinema.yml') && /- '\.github\/workflows\/watchnext-cinema\.yml'/.test(cinemaWf), order.slice(-3).join(' '));
+  check('running the app’s own reader, as it is', files.get('.github/watchnext-cinema.mjs')?.text === fs.readFileSync(path.join(__dirname, '../src/watchnext-cinema.js'), 'utf8'));
+  const cinemaCommits = commits.length;
+  const again = await luke.page.evaluate(async () => (await import('./src/cinemaSender.js')).installCinema());
+  check('and only once for each version of the app', again.ok && again.already && commits.length === cinemaCommits, JSON.stringify(again));
+  allowWorkflows = false;
+
+  /* A film added from the Feed's Coming soon, now on at the Savoy: the
+     listings the job saved, with times tomorrow and the day after. */
+  const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const book = (id) => `https://savoycorby.co.uk/SavoyCorby.dll/Booking?Booking=TSelectItems.waSelectItemsPrompt.TcsWebMenuItem_0.TcsWebTab_0.TcsPerformance_${id}.TcsSection_39934847`;
+  files.set('cinema/savoy-corby.json', { sha: `sha${nextSha++}`, text: JSON.stringify({
+    cinema: 'Savoy Corby',
+    fetchedAt: new Date().toISOString(),
+    films: [
+      { id: '900', title: 'The Lantern Keepers (2D)', key: 'lantern keepers', url: 'https://savoycorby.co.uk/SavoyCorby.dll/WhatsOn?f=900', showings: [
+        { id: '901', date: day(1), time: '17:30', screen: 'Screen 2', tags: ['2D'], book: book(901) },
+        { id: '902', date: day(1), time: '20:15', screen: 'Screen 1', tags: ['Subtitled'], book: book(902), soldOut: true },
+        { id: '903', date: day(2), time: '19:00', screen: 'Screen 1', tags: [], book: book(903) },
+      ] },
+      { id: '950', title: 'Quiet Harbour', key: 'quiet harbour', comingSoon: true, opens: day(12), url: 'https://savoycorby.co.uk/SavoyCorby.dll/WhatsOn?f=950', showings: [] },
+    ],
+  }) });
+  const lantern = await luke.page.evaluate(async (year) => {
+    const s = await import('./src/store.js');
+    const a = s.add({ title: 'The Lantern Keepers', year, type: 'movie' });
+    const b = s.add({ title: 'Quiet Harbour', year, type: 'movie' });
+    s.setSpotlight(a.uid, true);
+    s.saveNow();
+    s.emit('item');
+    const c = await import('./src/cinema.js');
+    await c.refreshListings({ force: true });
+    return { a: a.uid, b: b.uid };
+  }, new Date().getFullYear());
+  await luke.page.tap('[data-tab="tonight"]');
+  await luke.page.waitForTimeout(400);
+  const captionText = await luke.page.evaluate(() => [...document.querySelectorAll('.card')].find((c) => /Lantern Keepers/.test(c.getAttribute('aria-label') || ''))?.querySelector('.card-s')?.textContent || '');
+  check('Spotlight says when it is next on at the Savoy', captionText === 'Savoy tomorrow', captionText);
+  await luke.page.evaluate(async (uid) => (await import('./src/screens/detail.js')).openDetail(uid), lantern.a);
+  await luke.page.waitForTimeout(500);
+  const times = await luke.page.evaluate(() => {
+    const box = document.querySelector('.detail.is-open .detail-cinema');
+    return {
+      where: box?.querySelector('.detail-cinema-where')?.textContent || '',
+      days: [...(box?.querySelectorAll('.detail-cinema-date') || [])].map((d) => d.textContent),
+      times: [...(box?.querySelectorAll('.detail-cinema-time') || [])].map((a) => ({ text: a.textContent, href: a.href, target: a.target, sold: a.classList.contains('is-sold-out'), label: a.getAttribute('aria-label') })),
+      link: box?.querySelector('.detail-cinema-link')?.href || '',
+    };
+  });
+  check('its page lists the times at the Savoy, by day', /Savoy, Corby/.test(times.where) && times.days[0] === 'Tomorrow' && times.days.length === 2 && times.times.length === 3, JSON.stringify(times));
+  check('each time a link to buy tickets for that showing, on the Savoy’s site', times.times.every((t, i) => t.href === book(901 + i) && t.target === '_blank'), JSON.stringify(times.times.map((t) => t.href)));
+  check('with what kind of showing it is, and sold out shown as such', times.times[0].text === '17:30' && times.times[1].text === '20:15Subtitled' && times.times[1].sold && /sold out/.test(times.times[1].label), JSON.stringify(times.times));
+  check('and the Savoy’s page for the film a tap away', times.link === 'https://savoycorby.co.uk/SavoyCorby.dll/WhatsOn?f=900', times.link);
+  await luke.page.evaluate(async (uid) => (await import('./src/screens/detail.js')).openDetail(uid), lantern.b);
+  await luke.page.waitForTimeout(500);
+  const soon = await luke.page.evaluate(() => document.querySelector('.detail.is-open .detail-cinema-none')?.textContent || '');
+  check('a film the Savoy has announced says when it opens there', /^Opens at the Savoy, Corby [A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2} — times not out yet\.$/.test(soon), soon);
+  await luke.page.evaluate(async () => (await import('./src/screens/detail.js')).closeDetail());
 
   console.log('\n─── no errors ───');
   check('no JavaScript errors', errors.length === 0, errors.join(' | '));

@@ -12,6 +12,7 @@ node tools/recommend.test.mjs || UNIT=1
 node tools/merge.test.mjs || UNIT=1
 node tools/format.test.mjs || UNIT=1
 node tools/notify-action.test.mjs || UNIT=1
+node tools/cinema.test.mjs || UNIT=1
 
 # Always own the server. Previously this reused whatever was already listening,
 # which meant a stray server from an earlier shell could be reaped part-way

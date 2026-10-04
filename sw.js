@@ -62,6 +62,7 @@ const SHELL = [
   './src/releases.js',
   './src/cinema.js',
   './src/cinemaSender.js',
+  './src/watchnext-cinema.js',
   './src/notify.js',
   './src/providers/index.js',
   './src/providers/shared.js',

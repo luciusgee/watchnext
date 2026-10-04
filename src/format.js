@@ -64,6 +64,14 @@ export function shiftDays(n, from = new Date()) {
   return ymd(d);
 }
 
+/** "Today", "Tomorrow", or "Fri 9 Oct", for a YYYY-MM-DD date. */
+export function dayLabel(s, now = new Date()) {
+  if (s === ymd(now)) return 'Today';
+  if (s === shiftDays(1, now)) return 'Tomorrow';
+  const opts = { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' };
+  return new Intl.DateTimeFormat('en-GB', opts).format(new Date(dayNumber(s) * 864e5)).replace(',', '');
+}
+
 const dayNumber = (s) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || ''));
   return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / 864e5 : null;
