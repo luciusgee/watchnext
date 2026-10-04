@@ -70,7 +70,12 @@ function filmGenres(ids) {
   return [...new Set((ids || []).flatMap((g) => TV_TO_FILM[g] || (FILM_GENRES.has(g) ? [g] : [])))];
 }
 
-const SEEN_KEY = 'wn.feed.seen';
+/* What this phone has been shown: { key: [day, times, quick] } — the day
+   it was last on screen (days since 1970), how many times it has been, and
+   whether it was flicked straight past. (The first version kept only the
+   keys, as a list, under wn.feed.seen; read once and carried over.) */
+const SEEN_KEY = 'wn.feed.seen.v2';
+const OLD_SEEN_KEY = 'wn.feed.seen';
 const TASTE_KEY = 'wn.feed.taste';
 const SEEN_MAX = 4000;
 
@@ -92,10 +97,40 @@ function writeJson(key, value) {
   }
 }
 
+/* A film comes back — not one and done, but not often: three weeks after
+   it was first shown, two months after the second time, six months after
+   that. Flicked straight past (under a second and a bit), it waits twice
+   as long. On your list, it never comes back (inLibrary, below). */
+const REST_DAYS = [21, 60, 180];
+const today = () => Math.floor(Date.now() / 864e5);
+const restFor = ([, times, quick]) => REST_DAYS[Math.min(times, REST_DAYS.length) - 1] * (quick ? 2 : 1);
+
 let seen = null;
-function seenSet() {
-  if (!seen) seen = new Set(readJson(SEEN_KEY, []));
+function seenMap() {
+  if (seen) return seen;
+  seen = readJson(SEEN_KEY, null);
+  if (!seen || typeof seen !== 'object' || Array.isArray(seen)) {
+    /* Carried over from the list kept before: each counted as shown once,
+       today, so it comes back in three weeks rather than never. */
+    const old = readJson(OLD_SEEN_KEY, []);
+    seen = {};
+    const d = today();
+    for (const k of Array.isArray(old) ? old : []) seen[k] = [d, 1, 0];
+    if (Array.isArray(old) && old.length) {
+      writeJson(SEEN_KEY, seen);
+      try {
+        localStorage.removeItem(OLD_SEEN_KEY);
+      } catch {
+        /* harmless */
+      }
+    }
+  }
   return seen;
+}
+/** Shown, and still resting: not to be shown again yet. */
+function resting(key) {
+  const e = seenMap()[key];
+  return !!e && today() - e[0] < restFor(e);
 }
 /* A film seen before it was out in the UK is seen as "coming": it comes
    back, once, when it is — so the one scrolled past in Coming soon turns up
@@ -106,24 +141,35 @@ function seenSet() {
 const coming = (film) => !!film.dateUK && !!film.date && film.date.slice(0, 10) > ymd();
 const seenKey = (film) => film.key + (coming(film) ? ':soon' : '');
 function isSeen(film) {
-  const s = seenSet();
   /* Coming, or from a list without UK dates: seen either way counts. Out in
      the UK: only seen-since-it-came-out counts — that is the second chance. */
-  if (coming(film) || !film.dateUK) return s.has(film.key) || s.has(`${film.key}:soon`);
-  return s.has(film.key);
+  if (coming(film) || !film.dateUK) return resting(film.key) || resting(`${film.key}:soon`);
+  return resting(film.key);
 }
 
 /** This card has been on screen. */
 export function markSeen(film) {
-  const s = seenSet();
+  const m = seenMap();
   const key = seenKey(film);
-  if (s.has(key)) return;
-  s.add(key);
-  if (s.size > SEEN_MAX) {
-    const trimmed = [...s].slice(-SEEN_MAX);
-    seen = new Set(trimmed);
+  if (resting(key)) return;
+  const times = (m[key]?.[1] || 0) + 1;
+  m[key] = [today(), times, 0];
+  const keys = Object.keys(m);
+  if (keys.length > SEEN_MAX) {
+    /* The longest ago go first. */
+    keys.sort((a, b) => m[a][0] - m[b][0]);
+    for (const k of keys.slice(0, keys.length - SEEN_MAX)) delete m[k];
   }
-  writeJson(SEEN_KEY, [...seenSet()]);
+  writeJson(SEEN_KEY, m);
+}
+
+/** Flicked straight past: it rests twice as long before coming back. */
+export function markQuick(film) {
+  const m = seenMap();
+  const e = m[seenKey(film)];
+  if (!e || e[2]) return;
+  e[2] = 1;
+  writeJson(SEEN_KEY, m);
 }
 
 /* ── taste ──

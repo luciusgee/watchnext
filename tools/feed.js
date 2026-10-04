@@ -39,6 +39,7 @@ function check(name, cond, detail = '') {
       st.settings.dataKeys = key ? { tmdb: key } : {};
       localStorage.setItem('wn.state.v3', JSON.stringify(st));
       localStorage.removeItem('wn.feed.seen');
+      localStorage.removeItem('wn.feed.seen.v2');
       localStorage.removeItem('wn.feed.filter');
     }, { key, sample });
     await page.reload({ waitUntil: 'networkidle' });
@@ -104,7 +105,7 @@ function check(name, cond, detail = '') {
   check('posters far behind are let go, so memory stays flat', images <= 12, `${images} posters held`);
   const library = await page.evaluate(() => window.__test.items().map((i) => i.title.toLowerCase()));
   check('nothing already on the shelf shows up', !titles.some((t) => library.includes(t.toLowerCase())));
-  const seen = await page.evaluate(() => JSON.parse(localStorage.getItem('wn.feed.seen') || '[]').length);
+  const seen = await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('wn.feed.seen.v2') || '{}')).length);
   check('what has been shown is remembered, so a new session starts fresh', seen >= 20, `${seen}`);
 
   console.log('\n─── the buttons ───');
@@ -396,6 +397,47 @@ function check(name, cond, detail = '') {
     await c4.close();
   }
 
+  console.log('\n─── films come back, now and then ───');
+  {
+    const { ctx: c7, page: p7 } = await phone();
+    await p7.evaluate(() => {
+      const d = Math.floor(Date.now() / 864e5);
+      localStorage.setItem('wn.feed.seen.v2', JSON.stringify({
+        'movie:1000': [d - 22, 1, 0], // shown once, three weeks ago: back
+        'movie:1001': [d - 10, 1, 0], // shown once, ten days ago: not yet
+        'movie:1002': [d - 30, 2, 0], // shown twice: two months' rest
+        'movie:1003': [d - 30, 1, 1], // flicked straight past: twice as long
+        'movie:1004': [d - 70, 2, 0], // shown twice, long enough ago: back
+      }));
+      localStorage.setItem('wn.feed.filter', 'trending');
+    });
+    await p7.reload({ waitUntil: 'networkidle' });
+    await p7.waitForSelector('body.is-ready');
+    await p7.tap('[data-tab="feed"]');
+    await p7.waitForSelector('.feed-card[data-i="0"]');
+    await p7.waitForTimeout(600);
+    const titles = await p7.evaluate(() => [...document.querySelectorAll('.feed-title')].map((t) => t.textContent));
+    check('a film shown once comes back after three weeks', titles.includes('Film Number 0'), JSON.stringify(titles.slice(0, 6)));
+    check('but not after ten days', !titles.includes('Film Number 1'));
+    check('shown twice, it rests two months', !titles.includes('Film Number 2') && titles.includes('Film Number 4'), JSON.stringify(titles.slice(0, 6)));
+    check('flicked straight past, it rests twice as long', !titles.includes('Film Number 3'));
+    const counted = await p7.evaluate(() => JSON.parse(localStorage.getItem('wn.feed.seen.v2'))['movie:1000']);
+    check('and coming back counts as another time shown', Array.isArray(counted) && counted[1] === 2 && counted[0] === Math.floor(Date.now() / 864e5), JSON.stringify(counted));
+    /* The list kept before, carried over: shown once, today. */
+    await p7.evaluate(() => {
+      localStorage.removeItem('wn.feed.seen.v2');
+      localStorage.setItem('wn.feed.seen', JSON.stringify(['movie:1010', 'movie:1011']));
+    });
+    await p7.reload({ waitUntil: 'networkidle' });
+    await p7.waitForSelector('body.is-ready');
+    await p7.tap('[data-tab="feed"]');
+    await p7.waitForSelector('.feed-card[data-i="0"]');
+    await p7.waitForTimeout(400);
+    const carried = await p7.evaluate(() => ({ v2: JSON.parse(localStorage.getItem('wn.feed.seen.v2') || '{}')['movie:1010'], old: localStorage.getItem('wn.feed.seen'), shown: [...document.querySelectorAll('.feed-title')].some((t) => t.textContent === 'Film Number 10') }));
+    check('what was seen before carries over, to come back in three weeks', Array.isArray(carried.v2) && carried.v2[1] === 1 && carried.old === null && !carried.shown, JSON.stringify(carried));
+    await c7.close();
+  }
+
   console.log('\n─── new and coming ───');
   {
     const { ctx: c5, page: p5 } = await phone();
@@ -429,7 +471,7 @@ function check(name, cond, detail = '') {
     check('each with its UK cinema date', soon.every((x) => /^In cinemas (tomorrow|[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2,3})/.test(x.when)), JSON.stringify(soon.slice(0, 4).map((x) => x.when)));
     check('and one seen while coming stays seen until it is out', !soon.some((x) => x.t === 'Coming Up 21'));
     const soonKey = (await state(p5)).film?.key;
-    const stored = await p5.evaluate(() => JSON.parse(localStorage.getItem('wn.feed.seen') || '[]'));
+    const stored = await p5.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('wn.feed.seen.v2') || '{}')));
     check('a film seen while coming is remembered as coming, for its second chance', !!soonKey && stored.includes(`${soonKey}:soon`) && !stored.includes(soonKey), JSON.stringify({ soonKey, stored: stored.filter((k) => /50\d\d/.test(k)) }));
 
     /* Added from Coming soon: on the list, but not Tonight's pick yet. */

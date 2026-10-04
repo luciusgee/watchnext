@@ -19,7 +19,7 @@ import * as actions from '../actions.js';
 import { el, clear, toast, emptyState } from '../ui.js';
 import { icon } from '../icons.js';
 import { plural, releaseLabel } from '../format.js';
-import { FILTERS, createFeed, detailsFor, cached, markSeen, nudge, forgetDetails } from '../feed.js';
+import { FILTERS, createFeed, detailsFor, cached, markSeen, markQuick, nudge, forgetDetails } from '../feed.js';
 import { openThread } from './thread.js';
 import { openDetail } from './detail.js';
 import * as sync from '../sync.js';
@@ -427,7 +427,10 @@ function setCurrent(i) {
   const prev = i === current + 1 ? films[current] : null;
   if (prev) {
     const dwell = performance.now() - enteredAt;
-    if (dwell < 1200) nudge(prev, -0.25);
+    if (dwell < 1200) {
+      nudge(prev, -0.25);
+      markQuick(prev);
+    }
     else if (dwell > 7000) nudge(prev, 0.25);
   }
   current = i;
