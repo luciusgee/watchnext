@@ -21,6 +21,7 @@ import { initTonight, showTonight } from './screens/tonight.js';
 import { initLibrary, showLibrary } from './screens/library.js';
 import { initFeed, showFeed, retapFeed, leaveFeed } from './screens/feed.js';
 import { initInbox, paintBells } from './screens/inbox.js';
+import { refreshReleasesSoon } from './releases.js';
 import { initPick, showPick } from './screens/pick.js';
 import { initStats, showStats } from './screens/stats.js';
 import { initShelf, showShelf } from './screens/shelf.js';
@@ -338,7 +339,10 @@ async function boot() {
       paintBadge();
       paintBells();
     }
+    /* A film starred, here or on the other phone: when is it out? */
+    if (reason === 'item') refreshReleasesSoon();
   });
+  refreshReleasesSoon(5000);
   clearRetiredKeys();
   applyHomeIndicatorFloor();
   /* Before syncViewport: it decides whether the blank-and-reflow fallback is

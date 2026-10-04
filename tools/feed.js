@@ -444,6 +444,34 @@ function check(name, cond, detail = '') {
     check('a film added before it is out knows when it will be', /^\d{4}-\d{2}-\d{2}$/.test(early.released || ''), JSON.stringify(early));
     check('and Tonight does not suggest it before then', !early.ranked, JSON.stringify(early));
 
+    /* Starred from Coming soon: Spotlight on Tonight says when it is out,
+       from the UK dates looked up for it, and so does its page. */
+    await p5.tap('.feed-card[data-i="1"] [data-act="spotlight"]');
+    const starred = soon[1].t;
+    await p5.waitForTimeout(6500);
+    const spotWhen = await p5.evaluate(async (t) => {
+      const it = window.__test.items().find((x) => x.title === t);
+      document.querySelector('[data-tab="tonight"]').click();
+      await new Promise((r) => setTimeout(r, 500));
+      const card = [...document.querySelectorAll('.spotlight .card')].find((c) => c.querySelector('.card-t')?.textContent === t);
+      const sub = card?.querySelector('.card-s');
+      return { release: it?.release, caption: sub?.textContent || '', amber: sub?.classList.contains('is-when') };
+    }, starred);
+    check('a starred film coming soon gets its UK release dates', /^\d{4}-\d{2}-\d{2}$/.test(spotWhen.release?.cinema || ''), JSON.stringify(spotWhen.release));
+    check('and Spotlight on Tonight says when it is in cinemas', /^In cinemas (tomorrow|[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2,3})/.test(spotWhen.caption) && spotWhen.amber, JSON.stringify(spotWhen));
+    const pageWhen = await p5.evaluate(async (t) => {
+      const it = window.__test.items().find((x) => x.title === t);
+      (await import('./src/screens/detail.js')).openDetail(it.uid);
+      await new Promise((r) => setTimeout(r, 300));
+      const box = document.querySelector('.detail.is-open .detail-cinema');
+      const out = { when: box?.querySelector('.detail-cinema-when')?.textContent || '', link: box?.querySelector('.detail-cinema-link')?.href || '' };
+      (await import('./src/screens/detail.js')).closeDetail();
+      return out;
+    }, starred);
+    check('and so does its page, with the Savoy’s listings a tap away', /^In cinemas/.test(pageWhen.when) && /savoycorby\.co\.uk/.test(pageWhen.link), JSON.stringify(pageWhen));
+    await p5.tap('[data-tab="feed"]');
+    await p5.waitForTimeout(400);
+
     /* Scroll to the end of Coming soon: it says so, and offers to look again. */
     for (let i = 0; i < 24; i++) await next(p5);
     const endText = await p5.evaluate(() => document.querySelector('#screen-feed')?.textContent || '');

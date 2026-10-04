@@ -3638,9 +3638,94 @@ body.is-typing .thread-compose {
   box-shadow: inset 0 0 0 2px var(--amber);
   pointer-events: none;
 }
+/* A release date under a Spotlight poster: the thing to plan around. */
+.card .card-s.is-when {
+  color: var(--amber);
+  font-weight: 600;
+}
 .card.has-unread .card-s {
   color: var(--amber);
   font-weight: 600;
+}
+/* When it is out, and when it is on at the Savoy. */
+.detail-cinema {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin: 0 0 var(--s5);
+  padding: var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+}
+.detail-cinema-when {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--t-body);
+  font-weight: 650;
+  color: var(--amber);
+}
+.detail-cinema-where {
+  margin-top: var(--s2);
+}
+.detail-cinema-day {
+  display: flex;
+  gap: var(--s3);
+  align-items: flex-start;
+  padding: var(--s1, 4px) 0;
+}
+.detail-cinema-date {
+  flex: none;
+  width: 92px;
+  padding-top: 9px;
+  font-size: var(--t-sub);
+  font-weight: 600;
+  color: var(--silver);
+}
+.detail-cinema-times {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.detail-cinema-time {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  min-height: 40px;
+  padding: 4px 10px;
+  border: 1px solid var(--amber-line);
+  border-radius: var(--r-md);
+  background: var(--amber-dim);
+  color: var(--bone);
+  font-size: var(--t-sub);
+  font-weight: 650;
+  text-decoration: none;
+}
+.detail-cinema-time small {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ash);
+}
+.detail-cinema-time.is-sold-out {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+.detail-cinema-none {
+  font-size: var(--t-sub);
+  line-height: 1.45;
+  color: var(--ash);
+}
+.detail-cinema-link {
+  align-self: flex-start;
+  margin-top: var(--s1, 4px);
+  font-size: var(--t-sub);
+  font-weight: 600;
+  color: var(--amber);
+  text-decoration: none;
 }
 .detail-spot {
   display: flex;

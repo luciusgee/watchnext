@@ -97,6 +97,9 @@ export function makeItem(partial = {}) {
        home (its UK digital date, else its cinema date). Tonight does not
        suggest it before then. Null for nearly everything. */
     released: typeof partial.released === 'string' ? partial.released.slice(0, 10) : null,
+    /* The UK release dates, for films in Spotlight (releases.js):
+       { cinema, digital, at } — 'YYYY-MM-DD' or null, and when looked up. */
+    release: partial.release && typeof partial.release === 'object' ? partial.release : null,
   };
 }
 

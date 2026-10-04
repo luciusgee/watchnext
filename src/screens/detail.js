@@ -20,6 +20,8 @@ import {
   relativeTime,
   rating,
   fallbackColors,
+  ymd,
+  shiftDays,
 } from '../format.js';
 import { similarTo } from '../recommend.js';
 import { openMatchPicker } from './match.js';
@@ -27,7 +29,8 @@ import { openThread } from './thread.js';
 import * as sync from '../sync.js';
 /* A cycle (tonight imports this module too), and a safe one: neither uses the
    other at load time, only when something is rendered. */
-import { cardFor } from './tonight.js';
+import { cardFor, releaseFor } from './tonight.js';
+import * as cinema from '../cinema.js';
 
 let root = null;
 let currentUid = null;
@@ -62,7 +65,8 @@ export function initDetail({ navigate }) {
     }
   });
   store.subscribe((reason) => {
-    if (reason === 'item' && currentUid && root.classList.contains('is-open')) {
+    /* 'cinema': new listings from the Savoy. */
+    if ((reason === 'item' || reason === 'cinema') && currentUid && root.classList.contains('is-open')) {
       const item = store.byUid(currentUid);
       if (item) render(item);
       else closeDetail();
@@ -141,6 +145,77 @@ export function closeDetail({ swiped = false } = {}) {
 /* Spotlight and the comments: the shortlist the two of you are deciding
    from, and what you have said about this one. The last comment is shown
    here so the thread does not have to be opened to know what it says. */
+/* When it is out, and when it is on at the Savoy, Corby — with each time a
+   link to buy tickets there. Only for films that are new, coming, or
+   showing; nothing for the back catalogue. */
+const dayName = (date, today, tomorrow) => {
+  if (date === today) return 'Today';
+  if (date === tomorrow) return 'Tomorrow';
+  const [y, m, d] = date.split('-').map(Number);
+  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(y, m - 1, d)))
+    .replace(',', '');
+};
+
+function cinemaBlock(item) {
+  const when = releaseFor(item);
+  const showings = cinema.showingsFor(item);
+  if (!when && !showings.length) return null;
+  const box = el('section', { class: 'detail-cinema', 'aria-label': 'At the cinema' });
+  if (when) {
+    const line = el('div', { class: 'detail-cinema-when' });
+    line.appendChild(el('span', { html: icon('calendar', 16) }).firstChild);
+    line.appendChild(el('span', { text: when }));
+    box.appendChild(line);
+  }
+  const film = cinema.filmFor(item);
+  if (showings.length) {
+    box.appendChild(el('div', { class: 'eyebrow detail-cinema-where', text: `At the ${cinema.CINEMA.name}` }));
+    const t = ymd();
+    const t1 = shiftDays(1);
+    /* A week at most: the next seven days with a showing. */
+    const days = [...new Set(showings.map((s) => s.date))].slice(0, 7);
+    for (const date of days) {
+      const row = el('div', { class: 'detail-cinema-day' });
+      row.appendChild(el('div', { class: 'detail-cinema-date', text: dayName(date, t, t1) }));
+      const times = el('div', { class: 'detail-cinema-times' });
+      for (const s of showings.filter((x) => x.date === date)) {
+        const tag = (s.tags || []).filter((x) => !/^2d$/i.test(x)).join(' · ');
+        const a = el('a', {
+          class: `detail-cinema-time${s.soldOut ? ' is-sold-out' : ''}`,
+          href: s.book || film?.url || cinema.CINEMA.whatsOn,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+          'aria-label': `${dayName(date, t, t1)} ${s.time}${tag ? `, ${tag}` : ''}${s.soldOut ? ', sold out' : ''} — buy tickets at the Savoy`,
+        });
+        a.appendChild(el('span', { text: s.time }));
+        if (tag) a.appendChild(el('small', { text: tag }));
+        times.appendChild(a);
+      }
+      row.appendChild(times);
+      box.appendChild(row);
+    }
+  } else if (cinema.current()) {
+    /* Only said once there are listings to say it from. */
+    box.appendChild(
+      el('div', {
+        class: 'detail-cinema-none',
+        text: `No times at the ${cinema.CINEMA.name} yet — they usually go up a week or two before.`,
+      })
+    );
+  }
+  box.appendChild(
+    el('a', {
+      class: 'detail-cinema-link',
+      href: film?.url || cinema.CINEMA.whatsOn,
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      text: showings.length ? 'All times and tickets at the Savoy ↗' : 'Times and tickets at the Savoy ↗',
+    })
+  );
+  return box;
+}
+
 function spotlightBlock(item) {
   const box = el('section', { class: 'detail-spot' });
   /* The same pair layout as Mark watched / I own this just above. */
@@ -260,6 +335,8 @@ function render(item) {
   );
   body.appendChild(acts);
   body.appendChild(spotlightBlock(item));
+  const pictures = cinemaBlock(item);
+  if (pictures) body.appendChild(pictures);
 
   /* external links */
   const links = el('div', { class: 'detail-links' });

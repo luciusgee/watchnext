@@ -98,7 +98,14 @@ function tmdbRoute(route, hits = []) {
     const rows = FILMS.filter(genreOk);
     return json(page(rows, p));
   }
-  let m = path.match(/^\/(movie|tv)\/(\d+)\/recommendations$/);
+  let m = path.match(/^\/movie\/(\d+)\/release_dates$/);
+  if (m) {
+    const f = [...FILMS, ...DATED].find((x) => String(x.id) === m[1]);
+    if (!f) return json({}, 404);
+    const gb = f.gb ? f.gb.map((r) => ({ type: r.type, release_date: `${r.date}T00:00:00.000Z`, certification: '15' })) : [{ type: 3, release_date: `${f.year}-03-01T00:00:00.000Z`, certification: '15' }];
+    return json({ id: f.id, results: [{ iso_3166_1: 'GB', release_dates: gb }, { iso_3166_1: 'US', release_dates: [{ type: 3, release_date: `${f.primary || f.year + '-03-01'}T00:00:00.000Z` }] }] });
+  }
+  m = path.match(/^\/(movie|tv)\/(\d+)\/recommendations$/);
   if (m) return json(page(FILMS.slice(300), p));
   m = path.match(/^\/(movie|tv)\/(\d+)$/);
   if (m) {

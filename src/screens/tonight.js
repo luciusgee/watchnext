@@ -10,7 +10,7 @@ import * as store from '../store.js';
 import * as actions from '../actions.js';
 import { el, clear, poster, posterBadge, button, iconButton, emptyState } from '../ui.js';
 import { icon } from '../icons.js';
-import { runtime, commitment, relativeTime, rating, plural, fallbackColors } from '../format.js';
+import { runtime, commitment, relativeTime, rating, plural, fallbackColors, releaseLabel } from '../format.js';
 import { tonightPick, alternates } from '../recommend.js';
 import { openDetail } from './detail.js';
 import { shouldNudgeBackup, markBackedUp } from '../durability.js';
@@ -501,19 +501,33 @@ function spotlightRail(items) {
     const mine = item.spotlight.device === store.me().device;
     const by = mine ? 'You' : item.spotlight.by || 'Them';
     const sub = card.querySelector('.card-s');
+    /* When it is out, if it is new or coming — Spotlight is mostly what you
+       are waiting for, and the date is what you plan a trip around. */
+    const when = releaseFor(item);
     /* One line, so every poster in the row sits level. */
     sub.textContent = fresh
       ? `${fresh} new`
-      : notes
-        ? `${notes} comment${notes === 1 ? '' : 's'}`
-        : mine
-          ? 'From you'
-          : `From ${by}`;
+      : when ||
+        (notes
+          ? `${notes} comment${notes === 1 ? '' : 's'}`
+          : mine
+            ? 'From you'
+            : `From ${by}`);
+    if (when && !fresh) sub.classList.add('is-when');
     if (fresh) card.classList.add('has-unread');
     list.appendChild(el('div', { role: 'listitem', style: 'display:contents' }, card));
   }
   sec.appendChild(list);
   return sec;
+}
+
+/** "In cinemas Fri 17 Oct", "In cinemas now", "Out today"… or null. */
+export function releaseFor(item) {
+  const r = item.release;
+  if (r && (r.cinema || r.digital)) return releaseLabel({ cinema: r.cinema, digital: r.digital });
+  /* Before the UK dates are looked up: the date it was added from the Feed
+     with, if any. */
+  return item.released ? releaseLabel({ fallback: item.released }) : null;
 }
 
 export function cardFor(item) {
