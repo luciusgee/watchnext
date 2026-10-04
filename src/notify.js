@@ -26,6 +26,7 @@
 
 import * as store from './store.js';
 import * as sync from './sync.js';
+import { installCinema } from './cinemaSender.js';
 
 const WORKFLOW_PATH = '.github/workflows/watchnext-notify.yml';
 const SCRIPT_PATH = '.github/watchnext-notify.mjs';
@@ -246,6 +247,9 @@ export async function installSender() {
   }
   store.updateSettings({ push: { ...(store.settings().push || {}), sender: true } });
   store.saveNow();
+  /* The token may write workflows now: the Savoy listings job, if it was
+     refused before. */
+  installCinema({ force: true }).catch(() => {});
   return { ok: true };
 }
 

@@ -23,7 +23,7 @@ import { initFeed, showFeed, retapFeed, leaveFeed } from './screens/feed.js';
 import { initInbox, paintBells } from './screens/inbox.js';
 import { refreshReleasesSoon } from './releases.js';
 import { refreshListings } from './cinema.js';
-import { installCinema } from './cinemaSender.js';
+import { cinemaSoon } from './cinemaSender.js';
 import { initPick, showPick } from './screens/pick.js';
 import { initStats, showStats } from './screens/stats.js';
 import { initShelf, showShelf } from './screens/shelf.js';
@@ -349,10 +349,7 @@ async function boot() {
   /* What is on at the Savoy: the job that reads its listings put in the
      repo (once per build of the app), and the latest of them fetched. After
      the first screen and the first sync have had the network to themselves. */
-  setTimeout(() => {
-    installCinema().catch(() => {});
-    refreshListings().catch(() => {});
-  }, 8000);
+  cinemaSoon(8000);
   clearRetiredKeys();
   applyHomeIndicatorFloor();
   /* Before syncViewport: it decides whether the blank-and-reflow fallback is

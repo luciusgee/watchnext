@@ -156,7 +156,7 @@ function cinemaBlock(item) {
   /* The UK cinema date, or the date it came from the Feed with; the Savoy
      is worth a mention from a while before it to a couple of months after. */
   const opens = item.release?.cinema || (item.release?.digital ? null : item.released) || null;
-  const savoy = showings.length > 0 || !!film || (!!opens && opens >= shiftDays(-56));
+  const savoy = item.type !== 'tv' && (showings.length > 0 || !!film || (!!opens && opens >= shiftDays(-56)));
   if (!when && !savoy) return null;
 
   const box = el('section', { class: 'detail-cinema', 'aria-label': 'At the cinema' });
@@ -194,14 +194,20 @@ function cinemaBlock(item) {
     }
   } else {
     /* Said only from listings recent enough to say it from. */
+    const on = (date) => {
+      const d = dayLabel(date);
+      return d === 'Today' || d === 'Tomorrow' ? d.toLowerCase() : `on ${d}`;
+    };
     const none =
       film?.opens && film.opens > today
-        ? `Opens at the ${cinema.CINEMA.name} ${dayLabel(film.opens)} — times not out yet.`
-        : !cinema.current()
-          ? null
-          : opens && opens > today
-            ? `No times at the ${cinema.CINEMA.name} yet — they usually go up a week or two before.`
-            : `Not on at the ${cinema.CINEMA.name} right now.`;
+        ? `Opens at the ${cinema.CINEMA.name} ${on(film.opens)} — times not out yet.`
+        : film?.comingSoon
+          ? `Coming soon to the ${cinema.CINEMA.name} — times not out yet.`
+          : !cinema.current()
+            ? null
+            : opens && opens > today
+              ? `No times at the ${cinema.CINEMA.name} yet — they usually go up a week or two before.`
+              : `Not on at the ${cinema.CINEMA.name} right now.`;
     if (none) box.appendChild(el('div', { class: 'detail-cinema-none', text: none }));
   }
   box.appendChild(

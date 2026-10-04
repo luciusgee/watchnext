@@ -8,6 +8,10 @@
  * `release: { cinema, digital, at }`, which syncs, so both phones show the
  * same dates. Looked up again every few days: a UK date often appears, or
  * moves, only weeks before it happens.
+ *
+ * With them, its UK title where that is different — "Zootropolis 2" for
+ * "Zootopia 2" — kept as `release.titles`, so the Savoy's listings (which
+ * use the UK title) find it.
  */
 
 import * as store from './store.js';
@@ -27,6 +31,17 @@ export function ukDates(results) {
       .map((r) => r.release_date.slice(0, 10))
       .sort()[0] || null;
   return { cinema: first(3) || first(2), digital: first(4) };
+}
+
+/* Its other titles in the UK, from TMDB's alternative titles. */
+export function ukTitles(results, title) {
+  const own = String(title || '').trim().toLowerCase();
+  const seen = new Set([own]);
+  return (results || [])
+    .filter((t) => t.iso_3166_1 === 'GB' && t.title)
+    .map((t) => String(t.title).trim())
+    .filter((t) => !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase()))
+    .slice(0, 3);
 }
 
 /* TMDB's id for a film: kept on it when it came from TMDB (the Feed, or a
@@ -60,7 +75,15 @@ export async function refreshReleases({ force = false } = {}) {
         /* Nothing to look up by: say so, so it is not asked again for a few
            days. */
         const dates = id ? ukDates((await tmdbGet(`/movie/${id}/release_dates`, {}, ctx))?.results) : { cinema: null, digital: null };
-        store.update(item.uid, { release: { ...dates, at: Date.now() } });
+        let titles = [];
+        if (id) {
+          try {
+            titles = ukTitles((await tmdbGet(`/movie/${id}/alternative_titles`, { country: 'GB' }, ctx))?.titles, item.title);
+          } catch {
+            /* the dates are what matter */
+          }
+        }
+        store.update(item.uid, { release: { ...dates, ...(titles.length ? { titles } : {}), at: Date.now() } });
         changed += 1;
       } catch {
         /* offline, or TMDB said no: next time */

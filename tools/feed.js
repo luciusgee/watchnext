@@ -500,6 +500,7 @@ function check(name, cond, detail = '') {
       return { release: it?.release, caption: sub?.textContent || '', amber: sub?.classList.contains('is-when') };
     }, starred);
     check('a starred film coming soon gets its UK release dates', /^\d{4}-\d{2}-\d{2}$/.test(spotWhen.release?.cinema || ''), JSON.stringify(spotWhen.release));
+    check('and its UK title, for the Savoy’s listings, where that is different', JSON.stringify(spotWhen.release?.titles) === JSON.stringify([`${starred} (UK)`]), JSON.stringify(spotWhen.release?.titles));
     check('and Spotlight on Tonight says when it is in cinemas', /^In cinemas (tomorrow|[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2,3})/.test(spotWhen.caption) && spotWhen.amber, JSON.stringify(spotWhen));
     const pageWhen = await p5.evaluate(async (t) => {
       const it = window.__test.items().find((x) => x.title === t);

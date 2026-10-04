@@ -542,6 +542,8 @@ async function getHtml(fetchImpl, url, { retries = 1, timeoutMs = 45000 } = {}) 
  * Fetch the Savoy Corby programme.
  * Requests: 1 (Coming Soon page, which carries the full programme JSON too) + WhatsOn only if needed
  * + one film page per announced-but-not-on-sale film not already known from `previous` (max `maxDetails`).
+ * Film pages are extras: one quick try each, and none started after `budgetMs`, so a slow site cannot
+ * keep the Action running past its time limit (which would end the run before anything is saved).
  */
 export async function fetchSavoy({
   fetch = globalThis.fetch,
@@ -550,12 +552,14 @@ export async function fetchSavoy({
   details = true,
   maxDetails = 20,
   delayMs = 500,
+  budgetMs = 120000,
   onPage = null, // (name, url, html) => void, e.g. to save fixtures
 } = {}) {
+  const startedAt = Date.now();
   if (typeof fetch !== 'function') throw new Error('fetchSavoy: no fetch implementation (Node 18+ required)');
   const pages = {};
-  const get = async (name, url) => {
-    const html = await getHtml(fetch, url);
+  const get = async (name, url, opts = { retries: 1, timeoutMs: 30000 }) => {
+    const html = await getHtml(fetch, url, opts);
     pages[name] = html;
     if (onPage) await onPage(name, url, html);
     return html;
@@ -580,9 +584,13 @@ export async function fetchSavoy({
       return !(p && p.runtime); // already known from an earlier run
     });
     for (const id of want.slice(0, maxDetails)) {
+      if (Date.now() - startedAt > budgetMs) {
+        console.error(`savoy: out of time, ${want.length - Object.keys(filmPages).length} film pages left for next time`);
+        break;
+      }
       await sleep(delayMs);
       try {
-        filmPages[id] = await get('film-' + id, PAGES.film(id));
+        filmPages[id] = await get('film-' + id, PAGES.film(id), { retries: 0, timeoutMs: 12000 });
       } catch (err) {
         console.error(`savoy: film page ${id} failed: ${err.message}`);
       }
@@ -597,6 +605,10 @@ export async function fetchSavoy({
 // The Action: read the last listings from the repo, fetch new ones, save them if anything changed.
 
 export const LISTINGS_PATH = 'cinema/savoy-corby.json';
+/* Unchanged listings are saved again after this long anyway, so their
+   fetchedAt shows the job is still working: the app stops trusting
+   listings a few days old. */
+const RESAVE_MS = 20 * 3600e3;
 
 /** The same listings, apart from when they were fetched. */
 export function sameListings(a, b) {
@@ -644,7 +656,8 @@ export async function runAction({ env = process.env, fetch = globalThis.fetch, l
   }
   const showings = result.films.reduce((n, f) => n + f.showings.length, 0);
   log(`savoy: ${result.films.length} films, ${showings} showings`);
-  if (sameListings(previous, result)) {
+  const same = sameListings(previous, result);
+  if (same && Date.now() - (Date.parse(previous?.fetchedAt || '') || 0) < RESAVE_MS) {
     log('savoy: no change');
     return { changed: false };
   }
@@ -655,12 +668,12 @@ export async function runAction({ env = process.env, fetch = globalThis.fetch, l
       method: 'PUT',
       headers: { ...headers, 'content-type': 'application/json' },
       body: JSON.stringify({
-        message: `Savoy listings: ${result.films.length} films, ${showings} showings`,
+        message: same ? 'Savoy listings: checked, no change' : `Savoy listings: ${result.films.length} films, ${showings} showings`,
         content,
         ...(held ? { sha: held.sha } : {}),
       }),
     });
-    if (res.ok) return { changed: true, films: result.films.length, showings };
+    if (res.ok) return { changed: !same, saved: true, films: result.films.length, showings };
     /* A phone wrote at the same moment: read the file's new sha and go again. */
     if (res.status === 409 || res.status === 422) {
       held = await read();
@@ -726,7 +739,13 @@ async function main(argv) {
 if (typeof process !== 'undefined' && process.versions?.node && process.argv?.[1]) {
   Promise.all([import('node:url'), import('node:fs')])
     .then(([{ pathToFileURL }, { realpathSync }]) => {
-      if (import.meta.url !== pathToFileURL(realpathSync(process.argv[1])).href) return;
+      let direct = false;
+      try {
+        direct = import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+      } catch {
+        /* argv[1] is not a file (node -e with arguments, say): not run directly */
+      }
+      if (!direct) return;
       return process.env.GITHUB_ACTIONS ? runAction() : main(process.argv.slice(2));
     })
     .catch((err) => {

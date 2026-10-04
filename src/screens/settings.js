@@ -34,6 +34,7 @@ import { runtime, relativeTime, plural } from '../format.js';
 import { MODELS, currentModel } from '../ai.js';
 import * as sync from '../sync.js';
 import * as notify from '../notify.js';
+import { cinemaSoon } from '../cinemaSender.js';
 import * as haptics from '../haptics.js';
 
 let root = null;
@@ -698,6 +699,8 @@ function syncGroup() {
       }
       if (result.warning) syncNotice = { text: result.warning, colour: 'var(--amber)' };
       sync.start();
+      /* The Savoy's listings job, in this repo. */
+      cinemaSoon();
       toast(cfg.enabled ? 'Sync settings saved' : 'Sync on');
       render();
     });
@@ -1693,7 +1696,10 @@ function confirmSetup(payload) {
           const r = store.applySetup(payload);
           if (!r) return;
           store.emit('item');
-          if (r.setup.sync) sync.start();
+          if (r.setup.sync) {
+            sync.start();
+            cinemaSoon();
+          }
           render();
           toast('This phone is set up. Delete the file now.', { duration: 6000 });
         },

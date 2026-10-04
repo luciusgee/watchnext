@@ -48,8 +48,19 @@ function readCache() {
 export function current(now = Date.now()) {
   const l = readCache();
   if (!l || !Array.isArray(l.films)) return null;
-  const at = Date.parse(l.fetchedAt || '') || l.checkedAt || 0;
+  /* fetchedAt is when the job last saved them, which it does at least daily
+     while it is working. */
+  const at = Date.parse(l.fetchedAt || '') || l.readAt || 0;
   return now - at < STALE_MS ? l : null;
+}
+
+function keep(next) {
+  listings = next;
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(listings));
+  } catch {
+    /* kept for this session */
+  }
 }
 
 let fetching = null;
@@ -59,7 +70,7 @@ export async function refreshListings({ force = false } = {}) {
   if (!sync.configured()) return null;
   const have = readCache();
   if (!force) {
-    if (have?.checkedAt && Date.now() - have.checkedAt < FRESH_MS) return have;
+    if (have?.readAt && Date.now() - have.readAt < FRESH_MS) return have;
     if (Date.now() - triedAt < RETRY_MS) return have;
   }
   if (fetching) return fetching;
@@ -68,15 +79,15 @@ export async function refreshListings({ force = false } = {}) {
     try {
       const file = await sync.readRepoFile(LISTINGS_PATH);
       if (!file) return have;
+      /* The same file as last time: noted, and nothing redrawn. */
+      if (have && file.sha && file.sha === have.sha) {
+        keep({ ...have, readAt: Date.now() });
+        return listings;
+      }
       const data = JSON.parse(file.text);
       if (!data || !Array.isArray(data.films)) return have;
-      listings = { ...data, checkedAt: Date.now() };
+      keep({ ...data, sha: file.sha, readAt: Date.now() });
       keyed = null;
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(listings));
-      } catch {
-        /* kept for this session */
-      }
       store.emit('cinema');
       return listings;
     } catch {
@@ -96,47 +107,74 @@ function keysOf(l) {
   return keyed.keys;
 }
 
-/* A showing of an older film — a re-release, an anniversary, a kids' club
-   morning, an event — rather than a new one that shares its title. */
-const OLDER = /\b(re-?release|anniversary|encore|rewind|classic|throwback)\b/i;
-const olderShowing = (f) =>
-  !!f.event || OLDER.test(f.title) || (f.showings || []).some((s) => (s.tags || []).some((t) => /re-?release|kids club|toddler club/i.test(t)));
+/* Shown as an older film: a re-release, an encore, a classic. */
+const OLDER = /\b(re-?release|encore|rewind|classic|throwback)\b/i;
+const markedOlder = (f) => OLDER.test(f.title) || (f.showings || []).some((s) => (s.tags || []).some((t) => /re-?release/i.test(t)));
+const sameLength = (f, item) => f.runtime > 0 && item.runtime > 0 && Math.abs(f.runtime - item.runtime) <= 3;
 
-/* The Savoy's listings carry no years, so a year can only rule a film out:
-   your "Dracula" (1992) is not the Savoy's new "Dracula", unless the Savoy
-   is showing it as an older film. */
-function yearFits(f, item) {
+/* The Savoy's listings carry no years, so the year has to come from the
+   listing itself. A film from the last couple of years is the new release
+   it shares a title with. An older one has to show it is the same film:
+   the anniversary adds up ("Scream 30th Anniversary" is 1996's), or the
+   running times agree, or the Savoy says it is a re-release and nothing
+   says otherwise. So your "Dracula" (1931) is not the Savoy's new
+   "Dracula", nor "Scream" (2022) the 30th anniversary showing. */
+function yearFits(f, item, l) {
   if (!item.year) return true;
   if (f.year) return Math.abs(f.year - item.year) <= 1;
-  if (olderShowing(f)) return true;
-  const when = f.opens || f.showings?.[0]?.date;
-  return !when || item.year >= Number(when.slice(0, 4)) - 2;
+  const when = f.opens || f.showings?.[0]?.date || l.fetchedAt || ymd();
+  const shown = Number(String(when).slice(0, 4));
+  const anniversary = /\b(\d{1,3})(?:st|nd|rd|th)\s+anniversary\b/i.exec(f.title);
+  if (anniversary) return Math.abs(shown - Number(anniversary[1]) - item.year) <= 1;
+  if (item.year >= shown - 2) return true;
+  if (sameLength(f, item)) return true;
+  return markedOlder(f) && !(f.runtime > 0 && item.runtime > 0);
+}
+
+/* Every title one of yours goes by: its own, and its UK title where that
+   is different ("Zootropolis 2" for "Zootopia 2"), looked up with its
+   release dates. */
+function keysFor(item) {
+  return new Set([item.title, ...(item.release?.titles || [])].map(normaliseTitle).filter(Boolean));
 }
 
 /** The Savoy's films that are this one of yours — usually one; a film and
-    its special screening can be two. */
+    its special screening can be two. Films only: a series is never on. */
 export function filmsFor(item) {
   const l = current();
-  if (!l?.films?.length || !item?.title) return [];
-  const mine = normaliseTitle(item.title);
-  if (!mine) return [];
+  if (!l?.films?.length || !item?.title || item.type === 'tv') return [];
+  const mine = keysFor(item);
+  if (!mine.size) return [];
   const keys = keysOf(l);
-  return l.films.filter((f) => keys.get(f)?.has(mine) && yearFits(f, item));
+  return l.films.filter((f) => [...mine].some((k) => keys.get(f)?.has(k)) && yearFits(f, item, l));
 }
 
-/** The Savoy's film for one of yours (the one with showings first), or null. */
-export function filmFor(item) {
+const nowParts = (now) => ({
+  today: ymd(now),
+  hhmm: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+});
+const ahead = (s, { today, hhmm }) => s.date > today || (s.date === today && s.time > hhmm);
+
+/** The Savoy's film for one of yours, or null: the one with times still to
+    come, else the one about to open, else whichever there is. */
+export function filmFor(item, now = new Date()) {
   const films = filmsFor(item);
-  return films.find((f) => f.showings?.length) || films[0] || null;
+  const t = nowParts(now);
+  return (
+    films.find((f) => (f.showings || []).some((s) => ahead(s, t))) ||
+    films.find((f) => f.opens && f.opens > t.today) ||
+    films.find((f) => f.comingSoon) ||
+    films[0] ||
+    null
+  );
 }
 
 /** Showings still to come for one of your films, soonest first. */
 export function showingsFor(item, now = new Date()) {
-  const today = ymd(now);
-  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const t = nowParts(now);
   const seen = new Set();
   return filmsFor(item)
     .flatMap((f) => (f.showings || []).map((s) => ({ ...s, film: f })))
-    .filter((s) => (s.date > today || (s.date === today && s.time > hhmm)) && !seen.has(s.id) && seen.add(s.id))
+    .filter((s) => ahead(s, t) && !seen.has(s.id) && seen.add(s.id))
     .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 }

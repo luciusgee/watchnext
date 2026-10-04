@@ -515,6 +515,8 @@ function spotlightRail(items) {
             ? 'From you'
             : `From ${by}`);
     if (when && !fresh) sub.classList.add('is-when');
+    /* The card's name is its title and year; the line under it is news. */
+    card.setAttribute('aria-label', `${card.getAttribute('aria-label')}, ${sub.textContent}`);
     if (fresh) card.classList.add('has-unread');
     list.appendChild(el('div', { role: 'listitem', style: 'display:contents' }, card));
   }

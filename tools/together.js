@@ -498,6 +498,9 @@ async function githubRoute(route) {
   check('and one cleared in the first version stays cleared', !seeded.some((e) => e.title === oldCleared), oldCleared);
 
   console.log('\n─── the Savoy, Corby ───');
+  const order = commits.map((c) => c.path);
+  check('once the token may write workflows, the job that reads the Savoy goes in too', order.includes('.github/workflows/watchnext-cinema.yml') && order.includes('.github/watchnext-cinema.mjs'), order.filter((p) => p.startsWith('.github/')).join(' '));
+  check('workflow first, so a refused token leaves no script behind', order.indexOf('.github/workflows/watchnext-cinema.yml') < order.indexOf('.github/watchnext-cinema.mjs'));
   allowWorkflows = true;
   const installed = await luke.page.evaluate(async () => {
     localStorage.removeItem('wn.cinema.installed');
@@ -505,8 +508,7 @@ async function githubRoute(route) {
   });
   const cinemaWf = files.get('.github/workflows/watchnext-cinema.yml')?.text || '';
   check('the job that reads the Savoy’s listings goes in the repo', installed.ok && files.has('.github/watchnext-cinema.mjs') && /cron: '\d+ [\d,]+ \* \* \*'/.test(cinemaWf) && /node \.github\/watchnext-cinema\.mjs/.test(cinemaWf) && /contents: write/.test(cinemaWf), JSON.stringify(installed));
-  const order = commits.map((c) => c.path);
-  check('script before workflow, whose own commit starts the first run', order.lastIndexOf('.github/watchnext-cinema.mjs') < order.lastIndexOf('.github/workflows/watchnext-cinema.yml') && /- '\.github\/workflows\/watchnext-cinema\.yml'/.test(cinemaWf), order.slice(-3).join(' '));
+  check('the workflow’s own commit starts a run, which waits for the script', /- '\.github\/workflows\/watchnext-cinema\.yml'/.test(cinemaWf) && /if: hashFiles\('\.github\/watchnext-cinema\.mjs'\) != ''/.test(cinemaWf), cinemaWf.slice(-300));
   check('running the app’s own reader, as it is', files.get('.github/watchnext-cinema.mjs')?.text === fs.readFileSync(path.join(__dirname, '../src/watchnext-cinema.js'), 'utf8'));
   const cinemaCommits = commits.length;
   const again = await luke.page.evaluate(async () => (await import('./src/cinemaSender.js')).installCinema());
@@ -562,7 +564,7 @@ async function githubRoute(route) {
   await luke.page.evaluate(async (uid) => (await import('./src/screens/detail.js')).openDetail(uid), lantern.b);
   await luke.page.waitForTimeout(500);
   const soon = await luke.page.evaluate(() => document.querySelector('.detail.is-open .detail-cinema-none')?.textContent || '');
-  check('a film the Savoy has announced says when it opens there', /^Opens at the Savoy, Corby [A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2} — times not out yet\.$/.test(soon), soon);
+  check('a film the Savoy has announced says when it opens there', /^Opens at the Savoy, Corby on [A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2} — times not out yet\.$/.test(soon), soon);
   await luke.page.evaluate(async () => (await import('./src/screens/detail.js')).closeDetail());
 
   console.log('\n─── no errors ───');

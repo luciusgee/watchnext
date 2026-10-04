@@ -83,7 +83,7 @@ check('and so is a page without the programme', /could not find/.test(threw || '
 
 console.log('\n─── the Action ───');
 /* GitHub's contents API for one repo, and the Savoy's site, in one fetch. */
-function world({ savoyDown = false, collideOnce = false } = {}) {
+function world({ savoyDown = false, collideOnce = false, filmPagesDown = false } = {}) {
   const files = new Map();
   const log = [];
   let sha = 0;
@@ -95,6 +95,7 @@ function world({ savoyDown = false, collideOnce = false } = {}) {
       log.push(`savoy ${u.pathname}${u.search}`);
       if (savoyDown) return new Response('Service Unavailable', { status: 503 });
       if (u.search === '?p=1&m=mm') return new Response(page, { status: 200 });
+      if (filmPagesDown) return new Response('Bad Gateway', { status: 502 });
       return new Response('<html><div id="Content"><h1 class="title">Film</h1><ul class="programme-info"><li>101mins</li></ul></div></html>', { status: 200 });
     }
     if (u.hostname === 'api.example.test') {
@@ -151,9 +152,46 @@ const logTo = (m) => quiet.push(m);
   check('and says why, as a warning on the run', quiet.some((m) => m.startsWith('::warning::') && /503/.test(m)), quiet.join(' | '));
 }
 {
+  const w = world();
+  await savoy.runAction({ env, fetch: w.fetch, log: logTo });
+  const held = JSON.parse(w.files.get('cinema/savoy-corby.json').text);
+  held.fetchedAt = new Date(Date.now() - 2 * 864e5).toISOString();
+  w.files.set('cinema/savoy-corby.json', { sha: 'old', text: JSON.stringify(held) });
+  w.log.length = 0;
+  const res = await savoy.runAction({ env, fetch: w.fetch, log: logTo });
+  check('unchanged listings a day old are saved again, so the app knows the job still works',
+    res.saved && !res.changed && w.log.some((l) => l === 'put cinema/savoy-corby.json Savoy listings: checked, no change') &&
+    Date.now() - Date.parse(JSON.parse(w.files.get('cinema/savoy-corby.json').text).fetchedAt) < 60e3, w.log.join(' | '));
+}
+{
+  const w = world({ filmPagesDown: true });
+  const res = await savoy.runAction({ env, fetch: w.fetch, log: logTo });
+  const tries = w.log.filter((l) => l.includes('WhatsOn?f=')).length;
+  check('a film page that fails is tried once, not waited on again', res.changed && tries === 2, w.log.join(' | '));
+}
+{
+  const w = world();
+  const t0 = Date.now();
+  await savoy.fetchSavoy({ fetch: w.fetch, budgetMs: 0, delayMs: 0 });
+  check('with no time left, film pages wait for the next run', w.log.filter((l) => l.startsWith('savoy ')).length === 1 && Date.now() - t0 < 5000, w.log.join(' | '));
+}
+{
   const w = world({ collideOnce: true });
   const res = await savoy.runAction({ env, fetch: w.fetch, log: logTo });
   check('a phone writing at the same moment: read again and saved', res.changed === true && JSON.parse(w.files.get('cinema/savoy-corby.json').text).films.length === 11);
+}
+
+{
+  /* Imported by a process whose first argument is not a file: left alone. */
+  const { execFileSync } = await import('node:child_process');
+  let out = '', code = 0;
+  try {
+    out = execFileSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(path.join(here, '../src/watchnext-cinema.js'))}); await new Promise((r) => setTimeout(r, 300)); console.log('carried on');`, 'not-a-file'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (err) {
+    code = err.status;
+    out = String(err.stdout || '') + String(err.stderr || '');
+  }
+  check('importing the reader never runs it, nor stops the importer', code === 0 && /carried on/.test(out), out.slice(0, 200));
 }
 
 console.log('\n─── matching your films ───');
@@ -174,31 +212,51 @@ for (const f of recent.films) {
   if (f.opens) f.opens = moveDate(f.opens);
   for (const s of f.showings) s.date = moveDate(s.date);
 }
+/* Three more, as the Savoy might list them: a new film announced with no
+   date yet, a film under its UK title, and the full run of a film whose
+   preview is on first. */
+const dune = recent.films.find((f) => f.title.startsWith('Dune'));
+recent.films.push(
+  { id: 'd1', title: 'Dracula', key: 'dracula', comingSoon: true, opensText: 'Opening Soon', showings: [] },
+  { id: 'z2', title: 'Zootropolis 2', key: 'zootropolis 2', runtime: 108, showings: [{ id: 'z2s', date: moveDate('2026-10-10'), time: '11:00', tags: [], book: 'https://savoycorby.co.uk/b' }] },
+  { id: 'd3', title: 'Dune: Part Three', key: 'dune part 3', comingSoon: true, opens: moveDate('2026-12-18'), showings: [] },
+);
 mem.set('wn.cinema', JSON.stringify(recent));
 const cinema = await import('../src/cinema.js');
 const future = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 1);
+const yearOf = (title) => Number((recent.films.find((f) => f.title === title).opens || recent.films.find((f) => f.title === title).showings[0].date).slice(0, 4));
 
 const yearOfShow = today.getFullYear();
 check('your new film, by its own title', cinema.filmFor({ title: 'Digger', year: yearOfShow })?.id === '49175098');
 check('and its showings, soonest first', cinema.showingsFor({ title: 'Digger', year: yearOfShow }, future).length === 4);
 check('a film with no year on your list still matches', cinema.filmFor({ title: 'Digger' })?.id === '49175098');
-check('"Avengers: Endgame" (2019) finds its encore', cinema.filmFor({ title: 'Avengers: Endgame', year: 2019 })?.id === '20140259');
-check('"Scream" (1996) finds the 30th anniversary showing', cinema.filmFor({ title: 'Scream', year: 1996 })?.id === '27607894');
+check('"Avengers: Endgame" (2019) finds its encore, by its running time', cinema.filmFor({ title: 'Avengers: Endgame', year: 2019, runtime: 181 })?.id === '20140259');
+const scream = yearOf('Scream 30th Anniversary') - 30;
+check('"Scream" (1996) finds the 30th anniversary showing', cinema.filmFor({ title: 'Scream', year: scream })?.id === '27607894');
+check('but "Scream" (2022) does not', cinema.filmFor({ title: 'Scream', year: scream + 26 }) === null);
+check('nor the "Scream" series', cinema.filmFor({ title: 'Scream', year: scream, type: 'tv' }) === null && cinema.showingsFor({ title: 'Scream', year: scream, type: 'tv' }).length === 0);
 check('"The Hunger Games" (2012) finds the re-release', cinema.filmFor({ title: 'The Hunger Games', year: 2012 })?.id === '49170666');
-check('"Hocus Pocus" (1993) finds the kids club morning', cinema.filmFor({ title: 'Hocus Pocus', year: 1993 })?.id === '23210457');
-check('but an old film is not a new one that shares its title', cinema.filmFor({ title: 'Digger', year: 1993 }) === null);
+check('unless the running times say it is another film', cinema.filmFor({ title: 'The Hunger Games', year: 2012, runtime: 95 }) === null);
+check('"Hocus Pocus" (1993) finds its showings, by its running time', cinema.filmFor({ title: 'Hocus Pocus', year: 1993, runtime: 96 })?.id === '23210457');
+check('"24 Hour Party People" (2002) finds the club night showing', cinema.filmFor({ title: '24 Hour Party People', year: 2002, runtime: 117 })?.id === '49307370');
+check('but an old film is not a new one that shares its title', cinema.filmFor({ title: 'Digger', year: 1993 }) === null && cinema.filmFor({ title: 'Digger', year: 1993, runtime: 100 }) === null);
+check('nor the new one announced with no date yet', cinema.filmFor({ title: 'Dracula', year: 1931 }) === null && cinema.filmFor({ title: 'Dracula', year: yearOfShow })?.id === 'd1');
 check('"The Doll" finds "Lalka (The Doll)"', cinema.filmFor({ title: 'The Doll', year: yearOfShow })?.id === '49236973');
-check('"Dune: Part Three" finds the See It First preview', cinema.filmFor({ title: 'Dune: Part Three', year: yearOfShow })?.id === '49167973');
+check('"Zootopia 2" finds "Zootropolis 2", by its UK title', cinema.filmFor({ title: 'Zootopia 2', year: yearOfShow, release: { titles: ['Zootropolis 2'] } })?.id === 'z2' && cinema.filmFor({ title: 'Zootopia 2', year: yearOfShow }) === null);
+check('"Dune: Part Three" finds the See It First preview first', cinema.filmFor({ title: 'Dune: Part Three', year: yearOfShow })?.id === '49167973');
+const [dy, dm, dd] = dune.showings[0].date.split('-').map(Number);
+const afterPreview = new Date(dy, dm - 1, dd, 23, 0);
+check('and once the preview has been, the run it opens', cinema.filmFor({ title: 'Dune: Part Three', year: yearOfShow }, afterPreview)?.id === 'd3' && cinema.showingsFor({ title: 'Dune: Part Three', year: yearOfShow }, afterPreview).length === 0);
 check('an announced film matches, with no showings yet',
   cinema.filmFor({ title: 'Clayface', year: yearOfShow })?.opens && cinema.showingsFor({ title: 'Clayface', year: yearOfShow }).length === 0);
 check('a film the Savoy is not showing matches nothing', cinema.filmFor({ title: 'Paddington in Peru', year: 2024 }) === null);
 const later = new Date(future.getTime() + 864e5 * 400);
 check('showings that have been and gone are not offered', cinema.showingsFor({ title: 'Digger' }, later).length === 0);
 
-mem.set('wn.cinema', JSON.stringify({ ...recent, fetchedAt: new Date(Date.now() - 6 * 864e5).toISOString(), checkedAt: Date.now() - 6 * 864e5 }));
+mem.set('wn.cinema', JSON.stringify({ ...recent, fetchedAt: new Date(Date.now() - 6 * 864e5).toISOString(), readAt: Date.now() }));
 /* A fresh import: cinema.js keeps the listings it has read. */
 const stale = await import(`../src/cinema.js?stale`);
-check('listings days old are not gone by: no times rather than wrong ones', stale.current() === null && stale.showingsFor({ title: 'Digger' }).length === 0);
+check('listings the job last saved days ago are not gone by: no times rather than wrong ones', stale.current() === null && stale.showingsFor({ title: 'Digger' }).length === 0);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) {
